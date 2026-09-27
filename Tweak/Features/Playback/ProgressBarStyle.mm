@@ -1,3 +1,4 @@
+#import "../Downloads/DownloadLog.h"
 #import "../../YTKACE.h"
 #import "../../Runtime/Hooking.h"
 #import "../../Runtime/Preferences.h"
@@ -254,6 +255,21 @@ static UIColor *YTKACEPlayedColorForView(id receiver) {
 static UIColor *YTKACEScrubberColor(void) {
     return YTKACEStoredColor(YTKACEProgressScrubberColorKey, YTKACEMainColor());
 }
+
+UIColor *YTKACEProgressScrubberTint(void) {
+    UIColor *tint = YTKACEProgressStyle() != 0 ? YTKACEScrubberColor()
+        : [UIColor colorWithRed:1.0 green:0.0 blue:0.0 alpha:1.0];
+    static NSString *logged;
+    NSString *state = [NSString stringWithFormat:@"style=%ld main=%@ highlight=%@ scrubber=%@",
+                       (long)YTKACEProgressStyle(), YTKACEPreferenceObject(YTKACEProgressMainColorKey),
+                       YTKACEPreferenceObject(YTKACEProgressGradientColorKey),
+                       YTKACEPreferenceObject(YTKACEProgressScrubberColorKey)];
+    if (![state isEqualToString:logged]) {
+        logged = state;
+    }
+    return tint;
+}
+
 
 static id YTKACEDecorationViewColor(id receiver, SEL selector) {
     if (YTKACEProgressStyle() != 0) return YTKACEPlayedColorForView(receiver);

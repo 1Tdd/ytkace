@@ -815,3 +815,6 @@ CC BY-NC-SA 4.0 ライセンス。";
 "via SABR" = "SABR 経由";
 "Reloads the video when playback fails. Restart YouTube after changing." = "再生に失敗したときに動画を再読み込みします。変更後は YouTube を再起動してください。";
 "SABR is the default. Use TV Client or Direct if downloads fail." = "SABR がデフォルトです。ダウンロードに失敗する場合は TV Client または Direct を使用してください。";
+"Liquid Glass Tab Bar" = "Liquid Glass タブバー";
+"Liquid Glass" = "Liquid Glass";
+"Tab Bar and Top Bar" = "タブバーとトップバー";

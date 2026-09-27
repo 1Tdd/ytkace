@@ -28,6 +28,14 @@ MIT License, Copyright (c) 2026 Mark02.
 
 `Tweak/Features/Streaming/TVClient.mm` requests streams as YouTube's TV client. The client name, version, device fields and user agent it sends, and the order of requests (a visitor ID from `/guide`, then `/player` with the player's signature timestamp), follow the values and approach published by the [Morphe](https://github.com/MorpheApp/morphe-patches) project. No Morphe code is used.
 
+## YTLiquidGlass
+
+The Liquid Glass tab bar and top bar in `Tweak/Features/Navigation/TabBarHooks.mm` and `GlassChrome.mm` build on ideas from [YTLiquidGlass](https://github.com/UltraGeek0102/YTLiquidGlassEXTRA) by UltraGeek0102, used with permission: fading YouTube's own tab bar background instead of removing it, selecting tabs through the pivot bar controller, and placing glass behind the top right buttons, search bar and header buttons. The code here was written for YTKACE.
+
+## LiquidLens
+
+The tab bar selection lens uses UIKit's private `_UILiquidLensView`. How to create and drive it was learned from [Livsy90/LiquidLens](https://github.com/Livsy90/LiquidLens), a research demo released under the MIT licence. No code from that project is included.
+
 ## Apple frameworks
 
 YTKACE uses UIKit, AVFoundation and SF Symbols supplied by iOS. SF Symbols artwork is requested at runtime and is not included as a redistributed asset pack.

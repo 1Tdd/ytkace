@@ -357,6 +357,13 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
     pill.backgroundColor = UIColor.secondarySystemFillColor;
     pill.layer.cornerRadius = 19.0;
     pill.clipsToBounds = YES;
+    UIView *pillGlass = YTKACEMakeSettingsGlass();
+    if (pillGlass != nil) {
+        pillGlass.frame = pill.bounds;
+        pillGlass.layer.cornerRadius = 19.0;
+        [pill addSubview:pillGlass];
+        pill.backgroundColor = UIColor.clearColor;
+    }
 
     UIImageView *glass = [[UIImageView alloc]
         initWithImage:YTKACETemplateImage(@"", @"magnifyingglass")];

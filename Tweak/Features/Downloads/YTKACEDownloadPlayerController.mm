@@ -1055,8 +1055,14 @@ static UIImage *YTKACEScrubberThumb(CGFloat diameter, UIColor *color) {
     CGFloat height = CGRectGetHeight(self.bounds);
     [[UIColor colorWithWhite:1.0 alpha:0.3] setFill];
     UIRectFill(self.bounds);
-    [UIColor.systemRedColor setFill];
-    UIRectFill(CGRectMake(0.0, 0.0, width * MAX(0.0, MIN(1.0, self.progress)), height));
+    CGFloat playedWidth = width * MAX(0.0, MIN(1.0, self.progress));
+    if (playedWidth > 0.0) {
+        CGContextRef context = UIGraphicsGetCurrentContext();
+        CGContextSaveGState(context);
+        UIRectClip(CGRectMake(0.0, 0.0, playedWidth, height));
+        [YTKACEProgressFillImage(width, height) drawInRect:CGRectMake(0.0, 0.0, width, height)];
+        CGContextRestoreGState(context);
+    }
     if (!isfinite(self.duration) || self.duration <= 0.0 || !YTKACESponsorBlockEnabled()) {
         return;
     }
@@ -1482,7 +1488,7 @@ static UIImage *YTKACEScrubberThumb(CGFloat diameter, UIColor *color) {
         [button.heightAnchor constraintEqualToConstant:40.0].active = YES;
     }
 
-    UIColor *accent = UIColor.systemRedColor;
+    UIColor *accent = YTKACEProgressScrubberTint();
     self.slider = [YTKACESegmentSlider new];
     [self.slider setThumbImage:YTKACEScrubberThumb(13.0, accent) forState:UIControlStateNormal];
     [self.slider setThumbImage:YTKACEScrubberThumb(20.0, accent)

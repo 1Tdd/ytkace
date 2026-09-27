@@ -1,4 +1,5 @@
 #import "YTKACESettingsPages.h"
+#import "../UI/OverlayButtonHost.h"
 #import "YTKACESettingsSearch.h"
 #import "../Features/Downloads/SABRDownloader.h"
 #import "YTKACERootOptionsController.h"
@@ -358,20 +359,15 @@ void YTKACEPresentSelectionMenu(UIViewController *presenter,
                                 NSUInteger selectedIndex,
                                 YTKACEChoiceHandler handler) {
     (void)title;
+    (void)sourceView;
     if (titles.count == 0) {
         return;
     }
     selectedIndex = MIN(selectedIndex, titles.count - 1);
-    Class sheetClass = NSClassFromString(@"YTDefaultSheetController");
     Class actionClass = NSClassFromString(@"YTActionSheetAction");
-    SEL makeSheet = NSSelectorFromString(
-        @"sheetControllerWithMessage:subMessage:delegate:parentResponder:");
     SEL makeAction = NSSelectorFromString(@"actionWithTitle:iconImage:style:handler:");
-    if (sheetClass != Nil && actionClass != Nil &&
-        [sheetClass respondsToSelector:makeSheet] &&
-        [actionClass respondsToSelector:makeAction]) {
-        id sheet = ((id (*)(id, SEL, id, id, id, id))objc_msgSend)(
-            sheetClass, makeSheet, nil, nil, nil, nil);
+    id sheet = [actionClass respondsToSelector:makeAction] ? YTKACEMakeSheet(nil, nil) : nil;
+    if (sheet != nil) {
         UIImage *check = [[UIImage systemImageNamed:@"checkmark"]
             imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
         UIImage *blank = YTKACEBlankChoiceIcon();
@@ -390,18 +386,7 @@ void YTKACEPresentSelectionMenu(UIViewController *presenter,
                 ((void (*)(id, SEL, id))objc_msgSend)(sheet, addAction, action);
             }
         }];
-        if (YTKACERealUserInterfaceIdiom() == UIUserInterfaceIdiomPad &&
-            sourceView != nil &&
-            [sheet respondsToSelector:NSSelectorFromString(@"presentFromView:animated:completion:")]) {
-            ((void (*)(id, SEL, id, BOOL, id))objc_msgSend)(
-                sheet, NSSelectorFromString(@"presentFromView:animated:completion:"),
-                sourceView, YES, nil);
-        } else if ([sheet respondsToSelector:
-                    NSSelectorFromString(@"presentFromViewController:animated:completion:")]) {
-            ((void (*)(id, SEL, id, BOOL, id))objc_msgSend)(
-                sheet, NSSelectorFromString(@"presentFromViewController:animated:completion:"),
-                presenter, YES, nil);
-        }
+        YTKACEShowSheet(sheet, presenter);
         return;
     }
     YTKACEShowNotice(YTKACELocalized(@"YouTube menu unavailable"));

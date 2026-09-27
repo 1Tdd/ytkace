@@ -932,8 +932,10 @@ static id YTKACEActionsForRenderersLog(id receiver, SEL selector, id renderers,
     YTKACEQueuePrepareMenuRenderers(renderers);
     YTKACECaptureMenuSource(view);
     if (OriginalActionsForRenderersLog == NULL) return nil;
-    return ((id (*)(id, SEL, id, id, id, BOOL, id))OriginalActionsForRenderersLog)(
+    id actions = ((id (*)(id, SEL, id, id, id, BOOL, id))OriginalActionsForRenderersLog)(
         receiver, selector, renderers, view, entry, log, responder);
+    YTKACERouteSpeedMenuItem(renderers, actions, view, responder);
+    return actions;
 }
 
 static UIView *YTKACEOverflowButtonInside(UIView *root) {

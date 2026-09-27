@@ -806,3 +806,6 @@ Licensed under CC BY-NC-SA 4.0." = "يستخدم YTKACE بيانات SponsorBloc
 "via SABR" = "عبر SABR";
 "Reloads the video when playback fails. Restart YouTube after changing." = "يعيد تحميل الفيديو عند فشل التشغيل. أعد تشغيل YouTube بعد التغيير.";
 "SABR is the default. Use TV Client or Direct if downloads fail." = "SABR هو الافتراضي. استخدم TV Client أو Direct إذا فشلت التنزيلات.";
+"Liquid Glass Tab Bar" = "شريط تبويب Liquid Glass";
+"Liquid Glass" = "Liquid Glass";
+"Tab Bar and Top Bar" = "شريط التبويب والشريط العلوي";

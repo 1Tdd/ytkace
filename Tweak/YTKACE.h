@@ -3,8 +3,11 @@
 @class UIView;
 @class CALayer;
 @class UIImage;
+@class UIColor;
 
 NS_ASSUME_NONNULL_BEGIN
+
+void YTKACERouteSpeedMenuItem(id _Nullable renderers, id _Nullable actions, UIView *_Nullable view, id _Nullable responder);
 
 FOUNDATION_EXPORT NSString * const YTKACEVersion;
 
@@ -66,6 +69,7 @@ void YTKACEInstallProgressBarHooks(void);
 void YTKACEApplyProgressStyleToBar(UIView *bar);
 void YTKACEStyleProgressLayer(CALayer *layer, CGFloat trackWidth);
 UIImage *YTKACEProgressFillImage(CGFloat width, CGFloat height);
+UIColor *YTKACEProgressScrubberTint(void);
 void YTKACEInstallStreamingHooks(void);
 void YTKACEInstallShortsHooks(void);
 void YTKACEInstallSideloadCompatibilityHooks(void);
@@ -73,6 +77,9 @@ void YTKACEInstallCastCompatibilityHooks(void);
 void YTKACEStartCastDiscovery(void);
 void YTKACEInstallTabBarHooks(void);
 void YTKACERefreshPivotBarBackground(void);
+BOOL YTKACELiquidGlassAvailable(void);
+void YTKACEApplyTopNavigationGlass(UIView *container);
+UIView *YTKACEMakeSettingsGlass(void);
 void YTKACEInstallNavigationBehaviorHooks(void);
 void YTKACEInstallPlayerGestureHooks(void);
 void YTKACEInstallSettingsEntryHooks(void);

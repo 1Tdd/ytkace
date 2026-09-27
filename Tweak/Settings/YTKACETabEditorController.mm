@@ -37,6 +37,15 @@ static UIImage *YTKACETabEditorIcon(NSString *token, NSString *fallback) {
 @property(nonatomic, strong) NSMutableArray<NSMutableDictionary *> *inactiveTabs;
 @end
 
+static NSArray<NSString *> *YTKACEGlassTitles(void) {
+    return @[YTKACELocalized(@"Off"), YTKACELocalized(@"Tab Bar"), YTKACELocalized(@"Tab Bar and Top Bar")];
+}
+
+static NSUInteger YTKACEGlassIndex(void) {
+    if (![YTKACEPreferenceObject(@"YTKACE.Preference.Tabs.Glass") boolValue]) return 0;
+    return [YTKACEPreferenceObject(@"YTKACE.Preference.Glass.TopBar") boolValue] ? 2 : 1;
+}
+
 @implementation YTKACETabEditorController
 
 - (instancetype)init {
@@ -131,7 +140,7 @@ static UIImage *YTKACETabEditorIcon(NSString *token, NSString *fallback) {
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     (void)tableView;
-    if (section == 0) return 3;
+    if (section == 0) return YTKACELiquidGlassAvailable() ? 4 : 3;
     if (section == 1) return 1;
     if (section == 2) return (NSInteger)self.activeTabs.count;
     return (NSInteger)self.inactiveTabs.count;
@@ -180,6 +189,14 @@ willDisplayHeaderView:(UIView *)view
     cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
     cell.indentationLevel = 0;
     cell.indentationWidth = 0.0;
+
+    if (indexPath.section == 0 && indexPath.row == 3) {
+        cell.textLabel.text = YTKACELocalized(@"Liquid Glass");
+        cell.detailTextLabel.text = YTKACEGlassTitles()[YTKACEGlassIndex()];
+        cell.detailTextLabel.textColor = YTKACEAccentColor();
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        return cell;
+    }
 
     if (indexPath.section == 0) {
         NSArray *titles = @[YTKACELocalized(@"Hide Tab Labels"),
@@ -243,7 +260,8 @@ willDisplayHeaderView:(UIView *)view
 - (void)toggleChanged:(UISwitch *)sender {
     NSString *key = objc_getAssociatedObject(sender, YTKACETabSwitchKey);
     YTKACESetPreference(key, sender.isOn);
-    if ([key isEqualToString:@"YTKACE.Preference.Tabs.FrostedHidden"]) {
+    if ([key isEqualToString:@"YTKACE.Preference.Tabs.FrostedHidden"] ||
+        [key isEqualToString:@"YTKACE.Preference.Tabs.Glass"]) {
         YTKACERefreshPivotBarBackground();
         return;
     }
@@ -344,6 +362,20 @@ commitEditingStyle:(UITableViewCellEditingStyle)editingStyle
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.section == 0 && indexPath.row == 3) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+        YTKACEPresentSelectionMenu(self, cell, YTKACELocalized(@"Liquid Glass"), YTKACEGlassTitles(),
+            YTKACEGlassIndex(), ^(NSUInteger index) {
+                BOOL topBefore = [YTKACEPreferenceObject(@"YTKACE.Preference.Glass.TopBar") boolValue];
+                YTKACESetPreference(@"YTKACE.Preference.Tabs.Glass", index >= 1);
+                YTKACESetPreference(@"YTKACE.Preference.Glass.TopBar", index == 2);
+                [self.tableView reloadRowsAtIndexPaths:@[indexPath]
+                                      withRowAnimation:UITableViewRowAnimationNone];
+                YTKACERefreshPivotBarBackground();
+                if (topBefore != (index == 2)) YTKACEShowRestartNotice(self);
+            });
+        return;
+    }
     if (indexPath.section == 1) {
         NSArray<NSString *> *titles = nil;
         NSArray<NSString *> *values = nil;
