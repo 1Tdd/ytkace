@@ -1480,6 +1480,19 @@ static BOOL YTKACEIsSystemLens(UIView *view) {
 static void YTKACETrackLens(UIView *lens, CFTimeInterval seconds);
 static void YTKACELowerWhenArrived(UIView *lens, CGPoint target, id token, dispatch_block_t lower);
 
+static void YTKACELensSpring(NSTimeInterval response, CGFloat bounce, CGFloat velocity, dispatch_block_t animations) {
+    UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState |
+        UIViewAnimationOptionAllowUserInteraction;
+    SEL spring = NSSelectorFromString(@"animateWithSpringDuration:bounce:initialSpringVelocity:delay:options:animations:completion:");
+    if ([UIView respondsToSelector:spring]) {
+        ((void (*)(id, SEL, NSTimeInterval, CGFloat, CGFloat, NSTimeInterval, UIViewAnimationOptions, id, id))objc_msgSend)(
+            UIView.class, spring, response, bounce, velocity, 0.0, options, animations, nil);
+    } else {
+        [UIView animateWithDuration:response delay:0.0 usingSpringWithDamping:1.0 - bounce
+              initialSpringVelocity:velocity options:options animations:animations completion:nil];
+    }
+}
+
 static const void *YTKACEPivotBarExpandedAssociation = &YTKACEPivotBarExpandedAssociation;
 
 static void YTKACESetBarExpanded(UIView *bar, BOOL expanded) {
@@ -1488,31 +1501,10 @@ static void YTKACESetBarExpanded(UIView *bar, BOOL expanded) {
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     UIView *lens = objc_getAssociatedObject(bar, YTKACEPivotBarPillAssociation);
     if (lens != nil) YTKACETrackLens(lens, 0.7);
-    UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState |
-        UIViewAnimationOptionAllowUserInteraction;
-    void (^relayout)(void) = ^{
+    YTKACELensSpring(0.4, expanded ? 0.5 : 0.25, 0.0, ^{
         [bar setNeedsLayout];
         [bar layoutIfNeeded];
-    };
-    if (@available(iOS 17.0, *)) {
-        [UIView animateWithSpringDuration:0.4 bounce:expanded ? 0.5 : 0.25 initialSpringVelocity:0.0 delay:0.0
-                                  options:options animations:relayout completion:nil];
-    } else {
-        [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:expanded ? 0.5 : 0.75
-              initialSpringVelocity:0.0 options:options animations:relayout completion:nil];
-    }
-}
-
-static void YTKACELensSpring(NSTimeInterval response, CGFloat bounce, CGFloat velocity, dispatch_block_t animations) {
-    UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState |
-        UIViewAnimationOptionAllowUserInteraction;
-    if (@available(iOS 17.0, *)) {
-        [UIView animateWithSpringDuration:response bounce:bounce initialSpringVelocity:velocity delay:0.0
-                                  options:options animations:animations completion:nil];
-    } else {
-        [UIView animateWithDuration:response delay:0.0 usingSpringWithDamping:1.0 - bounce
-              initialSpringVelocity:velocity options:options animations:animations completion:nil];
-    }
+    });
 }
 
 static void YTKACESetSystemLensLifted(UIView *lens, BOOL lifted, __unused NSString *tag,
