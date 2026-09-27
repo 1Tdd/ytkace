@@ -1415,8 +1415,8 @@ static void YTKACESelectPivotItem(UIView *item) {
 static UIColor *YTKACEPillColor(void) {
     return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-            ? [UIColor colorWithWhite:1.0 alpha:0.13]
-            : [UIColor colorWithWhite:0.0 alpha:0.07];
+            ? [UIColor colorWithWhite:0.0 alpha:0.4]
+            : [UIColor colorWithWhite:0.0 alpha:0.08];
     }];
 }
 
@@ -1452,19 +1452,23 @@ static UIView *YTKACEMakeSystemLens(UIView *bar) {
     Class lensClass = NSClassFromString(@"_UILiquidLensView");
     SEL initSelector = NSSelectorFromString(@"initWithRestingBackground:");
     if (lensClass == Nil || ![lensClass instancesRespondToSelector:initSelector]) return nil;
-    UIView *resting = [UIView new];
-    resting.backgroundColor = YTKACEPillColor();
+    Class selectionClass = NSClassFromString(@"_UITabSelectionView");
+    BOOL native = selectionClass != Nil && [selectionClass isSubclassOfClass:UIView.class];
+    UIView *resting = native ? [selectionClass new] : [UIView new];
+    if (!native) resting.backgroundColor = YTKACEPillColor();
     UIView *lens = ((id (*)(id, SEL, id))objc_msgSend)([lensClass alloc], initSelector, resting);
     if (![lens isKindOfClass:UIView.class]) return nil;
     YTKACELensSetObject(lens, @"setLiftedContainerView:", bar);
     YTKACELensSetInteger(lens, @"setLiftedContentMode:", 1);
     YTKACELensSetInteger(lens, @"setStyle:", 1);
     YTKACELensSetBool(lens, @"setWarpsContentBelow:", YES);
-    @try {
-        [lens setValue:YTKACEPillColor() forKey:@"restingBackgroundColor"];
-    } @catch (__unused NSException *exception) {
+    if (!native) {
+        @try {
+            [lens setValue:YTKACEPillColor() forKey:@"restingBackgroundColor"];
+        } @catch (__unused NSException *exception) {
+        }
     }
-    lens.userInteractionEnabled = NO;
+    lens.userInteractionEnabled = YES;
     return lens;
 }
 
@@ -1473,8 +1477,47 @@ static BOOL YTKACEIsSystemLens(UIView *view) {
     return lensClass != Nil && [view isKindOfClass:lensClass];
 }
 
+static void YTKACETrackLens(UIView *lens, CFTimeInterval seconds);
+static void YTKACELowerWhenArrived(UIView *lens, CGPoint target, id token, dispatch_block_t lower);
+
+static const void *YTKACEPivotBarExpandedAssociation = &YTKACEPivotBarExpandedAssociation;
+
+static void YTKACESetBarExpanded(UIView *bar, BOOL expanded) {
+    if (bar == nil || [objc_getAssociatedObject(bar, YTKACEPivotBarExpandedAssociation) boolValue] == expanded) return;
+    objc_setAssociatedObject(bar, YTKACEPivotBarExpandedAssociation, expanded ? @YES : nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    UIView *lens = objc_getAssociatedObject(bar, YTKACEPivotBarPillAssociation);
+    if (lens != nil) YTKACETrackLens(lens, 0.7);
+    UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState |
+        UIViewAnimationOptionAllowUserInteraction;
+    void (^relayout)(void) = ^{
+        [bar setNeedsLayout];
+        [bar layoutIfNeeded];
+    };
+    if (@available(iOS 17.0, *)) {
+        [UIView animateWithSpringDuration:0.4 bounce:expanded ? 0.5 : 0.25 initialSpringVelocity:0.0 delay:0.0
+                                  options:options animations:relayout completion:nil];
+    } else {
+        [UIView animateWithDuration:0.4 delay:0.0 usingSpringWithDamping:expanded ? 0.5 : 0.75
+              initialSpringVelocity:0.0 options:options animations:relayout completion:nil];
+    }
+}
+
+static void YTKACELensSpring(NSTimeInterval response, CGFloat bounce, CGFloat velocity, dispatch_block_t animations) {
+    UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState |
+        UIViewAnimationOptionAllowUserInteraction;
+    if (@available(iOS 17.0, *)) {
+        [UIView animateWithSpringDuration:response bounce:bounce initialSpringVelocity:velocity delay:0.0
+                                  options:options animations:animations completion:nil];
+    } else {
+        [UIView animateWithDuration:response delay:0.0 usingSpringWithDamping:1.0 - bounce
+              initialSpringVelocity:velocity options:options animations:animations completion:nil];
+    }
+}
+
 static void YTKACESetSystemLensLifted(UIView *lens, BOOL lifted, __unused NSString *tag,
                                       dispatch_block_t animations, dispatch_block_t done) {
+    YTKACETrackLens(lens, 0.8);
     SEL selector = NSSelectorFromString(@"setLifted:animated:alongsideAnimations:completion:");
     if (![lens respondsToSelector:selector]) {
         [UIView animateWithDuration:0.3 animations:animations completion:^(__unused BOOL finished) {
@@ -1493,16 +1536,6 @@ static void YTKACEUpdateGlassPill(UIView *bar, UIVisualEffectView *glass) {
     UIView *pill = objc_getAssociatedObject(bar, YTKACEPivotBarPillAssociation);
     if (pill == nil) {
         pill = YTKACEMakeSystemLens(bar);
-        Protocol *protocol = objc_getProtocol("YTPivotBarItemViewDelegate");
-        NSMutableArray *names = [NSMutableArray array];
-        for (int required = 0; required < 2 && protocol != NULL; required++) {
-            unsigned int count = 0;
-            struct objc_method_description *methods = protocol_copyMethodDescriptionList(protocol, required, YES, &count);
-            for (unsigned int index = 0; index < count; index++) {
-                [names addObject:NSStringFromSelector(methods[index].name)];
-            }
-            free(methods);
-        }
         if (pill == nil) {
             pill = [UIView new];
             pill.userInteractionEnabled = NO;
@@ -1550,8 +1583,7 @@ static void YTKACEUpdateGlassPill(UIView *bar, UIVisualEffectView *glass) {
         objc_setAssociatedObject(pill, YTKACEPivotBarFadedAssociation, token,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         CGPoint center = CGPointMake(CGRectGetMidX(target), CGRectGetMidY(target));
-        CGRect lifted = CGRectMake(0, 0, CGRectGetWidth(target) + 22.0,
-                                   CGRectGetHeight(pill.superview.bounds) + 16.0);
+        CGRect lifted = CGRectMake(0, 0, CGRectGetWidth(target) + 16.0, CGRectGetHeight(target) + 16.0);
         __weak UIView *weakPill = pill;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             UIView *settled = weakPill;
@@ -1560,10 +1592,13 @@ static void YTKACEUpdateGlassPill(UIView *bar, UIVisualEffectView *glass) {
                                          OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             }
         });
+        CGPoint start = pill.center;
         YTKACESetSystemLensLifted(pill, YES, @"tap", ^{
             pill.bounds = lifted;
-            pill.center = center;
-        }, ^{
+            pill.center = start;
+        }, nil);
+        YTKACELensSpring(0.4, 0.15, 0.0, ^{ pill.center = center; });
+        YTKACELowerWhenArrived(pill, center, token, ^{
             UIView *strongPill = weakPill;
             if (strongPill == nil ||
                 objc_getAssociatedObject(strongPill, YTKACEPivotBarFadedAssociation) != token) return;
@@ -1594,11 +1629,15 @@ static void YTKACEUpdateGlassPill(UIView *bar, UIVisualEffectView *glass) {
 @property (nonatomic, assign) CGFloat restingWidth;
 @property (nonatomic, assign) CFTimeInterval pressStart;
 @property (nonatomic, assign) CFTimeInterval lastMove;
+@property (nonatomic, assign) CGFloat lastX;
+@property (nonatomic, assign) CGFloat velocityX;
+@property (nonatomic, assign) CGFloat anchorX;
 @property (nonatomic, weak) UIView *touchedItem;
 @property (nonatomic, weak) UIControl *heldButton;
 @property (nonatomic, assign) NSUInteger pressID;
 + (instancetype)sharedHandler;
 - (void)handlePress:(UILongPressGestureRecognizer *)gesture;
+- (void)attachMagnifierToLens:(UIView *)lens bar:(UIView *)bar;
 @end
 
 static NSString *YTKACEPivotItemIdentifier(UIView *item) {
@@ -1657,9 +1696,33 @@ static void YTKACERefreshBarGlass(UIView *lens) {
     }];
 }
 
+static const void *YTKACEStencilSlicesAssociation = &YTKACEStencilSlicesAssociation;
+
+static UIView *YTKACEItemContaining(UIView *view, UIView *bar) {
+    for (UIView *item in YTKACESortedPivotItems(bar)) {
+        if ([view isDescendantOfView:item]) return item;
+    }
+    return nil;
+}
+
+static void YTKACESyncStencilSlices(UIView *copy) {
+    NSMapTable<UIView *, UIView *> *slices = objc_getAssociatedObject(copy, YTKACEStencilSlicesAssociation);
+    if (slices.count == 0) return;
+    [UIView performWithoutAnimation:^{
+        for (UIView *item in slices) {
+            UIView *slice = [slices objectForKey:item];
+            if (item.superview == nil) continue;
+            CALayer *shown = item.layer.presentationLayer ?: item.layer;
+            CGRect frame = [item.superview convertRect:shown.frame toView:copy];
+            slice.center = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+        }
+    }];
+}
+
 static void YTKACESyncLensMask(UIView *lens) {
     UIView *copy = objc_getAssociatedObject(lens, YTKACEPivotBarMagnifyAssociation);
     if (copy == nil || lens.superview == nil) return;
+    YTKACESyncStencilSlices(copy);
     UIView *mask = copy.maskView;
     if (mask == nil) {
         mask = [UIView new];
@@ -1667,7 +1730,9 @@ static void YTKACESyncLensMask(UIView *lens) {
         mask.layer.cornerCurve = kCACornerCurveContinuous;
         copy.maskView = mask;
     }
-    CGRect frame = [lens.superview convertRect:lens.frame toView:copy];
+    CALayer *shown = lens.layer.presentationLayer ?: lens.layer;
+    CGRect lensFrame = shown.frame;
+    CGRect frame = [lens.superview convertRect:lensFrame toView:copy];
     mask.frame = frame;
     mask.layer.cornerRadius = CGRectGetHeight(frame) * 0.5;
     UIView *items = objc_getAssociatedObject(lens, YTKACEPivotBarHoleAssociation);
@@ -1678,19 +1743,83 @@ static void YTKACESyncLensMask(UIView *lens) {
         hole.fillRule = kCAFillRuleEvenOdd;
         items.layer.mask = hole;
     }
-    CGRect lensRect = CGRectInset([lens.superview convertRect:lens.frame toView:items], 4.0, 4.0);
+    CGRect lensRect = CGRectInset([lens.superview convertRect:lensFrame toView:items], 4.0, 4.0);
     UIBezierPath *path = [UIBezierPath bezierPathWithRect:CGRectInset(items.bounds, -200.0, -200.0)];
     [path appendPath:[UIBezierPath bezierPathWithRoundedRect:lensRect cornerRadius:CGRectGetHeight(lensRect) * 0.5]];
-    UIImageView *avatar = YTKACEAvatarView(items.superview);
-    if (avatar != nil) {
-        CGRect photo = CGRectIntersection([avatar convertRect:avatar.bounds toView:items], lensRect);
-        if (!CGRectIsNull(photo) && !CGRectIsEmpty(photo)) [path appendPath:[UIBezierPath bezierPathWithRect:photo]];
-    }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     hole.frame = items.bounds;
     hole.path = path.CGPath;
     [CATransaction commit];
+}
+
+@interface YTKACELensTracker : NSObject
+@property(nonatomic, weak) UIView *lens;
+@property(nonatomic, strong) CADisplayLink *link;
+@property(nonatomic, assign) CFTimeInterval until;
+@property(nonatomic, copy) dispatch_block_t pendingLower;
+@property(nonatomic, assign) CGPoint lowerTarget;
+@property(nonatomic, weak) id lowerToken;
+@end
+
+@implementation YTKACELensTracker
+
+- (void)tick {
+    UIView *lens = self.lens;
+    if (lens == nil || CACurrentMediaTime() > self.until) {
+        [self.link invalidate];
+        self.link = nil;
+        if (lens != nil) YTKACESyncLensMask(lens);
+        return;
+    }
+    YTKACESyncLensMask(lens);
+    [self checkArrival];
+}
+
+- (void)checkArrival {
+    UIView *lens = self.lens;
+    if (lens == nil || self.pendingLower == nil) return;
+    CGPoint shown = (lens.layer.presentationLayer ?: lens.layer).position;
+    if (fabs(shown.x - self.lowerTarget.x) >= 8.0) return;
+    dispatch_block_t lower = self.pendingLower;
+    self.pendingLower = nil;
+    if (objc_getAssociatedObject(lens, YTKACEPivotBarFadedAssociation) == self.lowerToken) lower();
+}
+
+@end
+
+static const void *YTKACELensTrackerAssociation = &YTKACELensTrackerAssociation;
+
+static void YTKACETrackLens(UIView *lens, CFTimeInterval seconds) {
+    if (lens == nil) return;
+    YTKACELensTracker *tracker = objc_getAssociatedObject(lens, YTKACELensTrackerAssociation);
+    if (tracker == nil) {
+        tracker = [YTKACELensTracker new];
+        tracker.lens = lens;
+        objc_setAssociatedObject(lens, YTKACELensTrackerAssociation, tracker, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    tracker.until = MAX(tracker.until, CACurrentMediaTime() + seconds);
+    if (tracker.link == nil) {
+        tracker.link = [CADisplayLink displayLinkWithTarget:tracker selector:@selector(tick)];
+        [tracker.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    }
+}
+
+static void YTKACELowerWhenArrived(UIView *lens, CGPoint target, id token, dispatch_block_t lower) {
+    if (lens == nil) return;
+    YTKACETrackLens(lens, 1.0);
+    YTKACELensTracker *tracker = objc_getAssociatedObject(lens, YTKACELensTrackerAssociation);
+    tracker.pendingLower = lower;
+    tracker.lowerTarget = target;
+    tracker.lowerToken = token;
+    __weak YTKACELensTracker *weakTracker = tracker;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        YTKACELensTracker *strongTracker = weakTracker;
+        if (strongTracker.pendingLower == nil || strongTracker.pendingLower != lower) return;
+        strongTracker.pendingLower = nil;
+        UIView *strongLens = strongTracker.lens;
+        if (strongLens != nil && objc_getAssociatedObject(strongLens, YTKACEPivotBarFadedAssociation) == token) lower();
+    });
 }
 
 static void YTKACEClearLensHole(UIView *lens) {
@@ -1710,8 +1839,11 @@ static void YTKACEClearLensHole(UIView *lens) {
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
     UIView *bar = gesture.view;
-    if (objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation) == nil) return NO;
-    UIView *touched = [self pivotItemNearX:[gesture locationInView:bar].x inView:bar bar:bar];
+    UIView *glass = objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation);
+    if (glass == nil) return NO;
+    CGPoint point = [gesture locationInView:bar];
+    if (!CGRectContainsPoint(glass.frame, point)) return NO;
+    UIView *touched = [self pivotItemNearX:point.x inView:bar bar:bar];
     if (touched != nil && YTKACEPivotItemIdentifier(touched) == nil) return NO;
     gesture.cancelsTouchesInView = touched == nil || touched != YTKACESelectedPivotItem(bar);
     return YES;
@@ -1785,7 +1917,10 @@ static void YTKACEClearLensHole(UIView *lens) {
         [item layoutIfNeeded];
         [flipped addObject:item];
     }
+    CALayer *hole = items.layer.mask;
+    items.layer.mask = nil;
     [items.layer renderInContext:context];
+    items.layer.mask = hole;
     for (UIView *item in flipped) {
         ((void (*)(id, SEL, BOOL))objc_msgSend)(item, setSelected, NO);
         [item layoutIfNeeded];
@@ -1824,15 +1959,87 @@ static void YTKACEClearLensHole(UIView *lens) {
     CGImageRef image = CGBitmapContextCreateImage(context);
     CGContextRelease(context);
     if (image == NULL) return nil;
-    UIImage *stencil = [[UIImage imageWithCGImage:image scale:scale orientation:UIImageOrientationUp]
-        imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-    UIImageView *view = [[UIImageView alloc] initWithImage:stencil];
-    view.tintColor = brightIcons ? UIColor.whiteColor : UIColor.blackColor;
+    UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0.0, 0.0, size.width, size.height)];
+    UIColor *tint = brightIcons ? UIColor.whiteColor : UIColor.blackColor;
+    NSMapTable<UIView *, UIView *> *slices = [NSMapTable weakToStrongObjectsMapTable];
+    CGRect whole = CGRectMake(0.0, 0.0, size.width, size.height);
+    for (UIView *item in YTKACESortedPivotItems(bar)) {
+        CGRect frame = CGRectIntersection([item convertRect:item.bounds toView:items], whole);
+        if (CGRectIsNull(frame) || CGRectIsEmpty(frame)) continue;
+        CGRect pixels = CGRectMake(floor(frame.origin.x * scale), floor(frame.origin.y * scale),
+                                   ceil(frame.size.width * scale), ceil(frame.size.height * scale));
+        CGImageRef piece = CGImageCreateWithImageInRect(image, pixels);
+        if (piece == NULL) continue;
+        UIImageView *slice = [[UIImageView alloc] initWithImage:
+            [[UIImage imageWithCGImage:piece scale:scale orientation:UIImageOrientationUp]
+                imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]];
+        CGImageRelease(piece);
+        slice.frame = CGRectMake(pixels.origin.x / scale, pixels.origin.y / scale,
+                                 pixels.size.width / scale, pixels.size.height / scale);
+        slice.tintColor = tint;
+        [view addSubview:slice];
+        [slices setObject:slice forKey:item];
+    }
     CGImageRelease(image);
+    if (avatar != nil && !avatarHidden && avatar.image != nil && avatar.window != nil) {
+        CGRect face = [avatar convertRect:avatar.bounds toView:items];
+        CGFloat radius = MIN(avatar.layer.cornerRadius, MIN(face.size.width, face.size.height) * 0.5);
+        if (radius <= 0.0) radius = MIN(face.size.width, face.size.height) * 0.5;
+        UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
+        format.scale = scale;
+        UIImage *photo = [[[UIGraphicsImageRenderer alloc] initWithSize:face.size format:format]
+            imageWithActions:^(__unused UIGraphicsImageRendererContext *context) {
+            CGRect bounds = CGRectMake(0.0, 0.0, face.size.width, face.size.height);
+            [[UIBezierPath bezierPathWithRoundedRect:bounds cornerRadius:radius] addClip];
+            CGSize source = avatar.image.size;
+            CGFloat fill = source.width > 0.0 && source.height > 0.0
+                ? MAX(bounds.size.width / source.width, bounds.size.height / source.height) : 1.0;
+            CGSize drawn = CGSizeMake(source.width * fill, source.height * fill);
+            [avatar.image drawInRect:CGRectMake((bounds.size.width - drawn.width) * 0.5,
+                                                (bounds.size.height - drawn.height) * 0.5,
+                                                drawn.width, drawn.height)];
+        }];
+        UIImageView *photoSlice = [[UIImageView alloc] initWithImage:photo];
+        photoSlice.frame = face;
+        [view addSubview:photoSlice];
+        UIView *owner = YTKACEItemContaining(avatar, bar);
+        if (owner != nil) {
+            UIView *holder = [slices objectForKey:owner];
+            if (holder != nil) {
+                photoSlice.frame = [view convertRect:face toView:holder];
+                [holder addSubview:photoSlice];
+            }
+        }
+    }
+    objc_setAssociatedObject(view, YTKACEStencilSlicesAssociation, slices, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return view;
 }
 
+- (void)attachMagnifierToLens:(UIView *)lens bar:(UIView *)bar {
+    UIView *old = objc_getAssociatedObject(lens, YTKACEPivotBarMagnifyAssociation);
+    [old removeFromSuperview];
+    UIView *items = YTKACEPivotItemsContainer(bar);
+    UIView *copy = [self stencilForItems:items];
+    if (copy == nil || lens.superview == nil) return;
+    copy.userInteractionEnabled = NO;
+    copy.frame = [items convertRect:items.bounds toView:lens.superview];
+    [lens.superview insertSubview:copy atIndex:0];
+    YTKACELensSetObject(lens, @"setLiftedContentView:", copy);
+    objc_setAssociatedObject(lens, YTKACEPivotBarMagnifyAssociation, copy, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(lens, YTKACEPivotBarHoleAssociation, items, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    YTKACESyncLensMask(lens);
+}
+
 - (void)liftLens:(UIView *)lens bar:(UIView *)bar size:(CGSize)size center:(CGPoint)center {
+    YTKACESetBarExpanded(bar, YES);
+    NSUInteger pressID = self.pressID;
+    __weak UIView *weakLens = lens;
+    __weak UIView *weakBar = bar;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIView *strongLens = weakLens;
+        if (strongLens == nil || weakBar == nil || !self.lifted || self.pressID != pressID) return;
+        [self attachMagnifierToLens:strongLens bar:weakBar];
+    });
     UIView *old = objc_getAssociatedObject(lens, YTKACEPivotBarMagnifyAssociation);
     [old removeFromSuperview];
     UIView *items = YTKACEPivotItemsContainer(bar);
@@ -1851,9 +2058,9 @@ static void YTKACEClearLensHole(UIView *lens) {
     self.lifted = YES;
     YTKACESetSystemLensLifted(lens, YES, @"press", ^{
         lens.bounds = CGRectMake(0, 0, size.width, size.height);
-        lens.center = center;
         YTKACESyncLensMask(lens);
     }, nil);
+    YTKACELensSpring(0.4, 0.15, 0.0, ^{ lens.center = center; });
 }
 
 - (void)handleSystemLens:(UIView *)lens gesture:(UILongPressGestureRecognizer *)gesture
@@ -1864,10 +2071,19 @@ static void YTKACEClearLensHole(UIView *lens) {
     CGRect restingFrame = selectedNow != nil
         ? [bar convertRect:YTKACEPillFrameForItem(bar, (UIVisualEffectView *)glass, selectedNow) toView:host]
         : lens.frame;
-    CGFloat width = (self.lifted ? self.restingWidth : CGRectGetWidth(restingFrame)) + 22.0;
-    CGFloat height = CGRectGetHeight(glass.frame) + 16.0;
-    CGFloat centerX = MAX(CGRectGetMinX(glass.frame) + width * 0.35,
-                          MIN(point.x, CGRectGetMaxX(glass.frame) - width * 0.35));
+    CGFloat lensWidth = self.lifted ? self.restingWidth : CGRectGetWidth(restingFrame);
+    CGFloat width = lensWidth + 16.0;
+    CGFloat height = CGRectGetHeight(restingFrame) + 16.0;
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        UIView *grabbed = [self pivotItemNearX:point.x inView:bar bar:bar];
+        CGRect slot = grabbed != nil ? YTKACEPillFrameForItem(bar, (UIVisualEffectView *)glass, grabbed) : CGRectNull;
+        self.anchorX = CGRectIsNull(slot) || CGRectGetWidth(slot) <= 0.0
+            ? 0.5 : MAX(0.0, MIN(1.0, (point.x - CGRectGetMinX(slot)) / CGRectGetWidth(slot)));
+    }
+    CGFloat anchor = self.anchorX;
+    CGFloat clamped = MAX(CGRectGetMinX(glass.frame) + lensWidth * anchor,
+                          MIN(point.x, CGRectGetMaxX(glass.frame) - lensWidth * (1.0 - anchor)));
+    CGFloat centerX = clamped - lensWidth * anchor + lensWidth * 0.5;
     CGPoint center = [bar convertPoint:CGPointMake(centerX, CGRectGetMidY(glass.frame)) toView:host];
     CFTimeInterval now = CACurrentMediaTime();
     if (gesture.state == UIGestureRecognizerStateBegan) {
@@ -1875,6 +2091,8 @@ static void YTKACEClearLensHole(UIView *lens) {
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         self.pressStart = now;
         self.lastMove = now;
+        self.lastX = point.x;
+        self.velocityX = 0.0;
         self.startPoint = point;
         self.dragging = NO;
         self.lifted = NO;
@@ -1887,26 +2105,21 @@ static void YTKACEClearLensHole(UIView *lens) {
         for (UIView *subview in bar.subviews.copy) {
             if ([NSStringFromClass(subview.class) containsString:@"DestOutView"]) [subview removeFromSuperview];
         }
-        if (self.touchedItem != nil && !same) {
+        (void)same;
+        if (self.touchedItem != nil) {
             [self liftLens:lens bar:bar size:CGSizeMake(width, height) center:center];
-        } else if (same) {
-            NSUInteger pressID = self.pressID;
-            __weak UIView *weakLens = lens;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                UIView *heldLens = weakLens;
-                if (heldLens == nil || self.pressID != pressID || self.lifted ||
-                    gesture.state == UIGestureRecognizerStateEnded ||
-                    gesture.state == UIGestureRecognizerStatePossible ||
-                    gesture.state == UIGestureRecognizerStateCancelled) return;
-                [self liftLens:heldLens bar:bar size:CGSizeMake(width, height)
-                        center:CGPointMake(heldLens.center.x, center.y)];
-            });
         }
         return;
     }
     if (gesture.state == UIGestureRecognizerStateChanged) {
-        if (!self.dragging && fabs(point.x - self.startPoint.x) > 6.0) {
+        CFTimeInterval step = now - self.lastMove;
+        if (step > 0.001) {
+            CGFloat instant = (point.x - self.lastX) / step;
+            self.velocityX = instant * 0.6 + self.velocityX * 0.4;
+            self.lastX = point.x;
+            self.lastMove = now;
+        }
+        if (!self.dragging && fabs(point.x - self.startPoint.x) > 4.0) {
             self.dragging = YES;
             if (!gesture.cancelsTouchesInView) {
                 self.heldButton = [self buttonForItem:self.touchedItem];
@@ -1917,8 +2130,8 @@ static void YTKACEClearLensHole(UIView *lens) {
             }
         }
         if (!self.lifted) return;
-        lens.center = center;
-        YTKACESyncLensMask(lens);
+        YTKACELensSpring(0.2, 0.15, 0.0, ^{ lens.center = center; });
+        YTKACETrackLens(lens, 0.4);
         return;
     }
     if (gesture.state != UIGestureRecognizerStateEnded &&
@@ -1927,6 +2140,7 @@ static void YTKACEClearLensHole(UIView *lens) {
     }
     BOOL dragging = self.dragging;
     self.pressID += 1;
+    YTKACESetBarExpanded(bar, NO);
     UIView *draggedFrom = self.touchedItem;
     if ([objc_getAssociatedObject(draggedFrom, YTKACETabDragOutAssociation) boolValue]) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -1942,6 +2156,11 @@ static void YTKACEClearLensHole(UIView *lens) {
         if (!bump) {
             objc_setAssociatedObject(lens, YTKACEPivotBarFadedAssociation, nil,
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            UIView *tapped = self.touchedItem;
+            if (gesture.state == UIGestureRecognizerStateEnded && tapped != nil &&
+                YTKACEPivotItemIdentifier(tapped) != nil && tapped != YTKACESelectedPivotItem(bar)) {
+                YTKACESelectPivotItem(tapped);
+            }
             return;
         }
         id bumpToken = [NSObject new];
@@ -1975,21 +2194,19 @@ static void YTKACEClearLensHole(UIView *lens) {
     id token = [NSObject new];
     objc_setAssociatedObject(lens, YTKACEPivotBarFadedAssociation, token,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    UIView *nearest = dragging ? [self pivotItemNearX:lens.center.x inView:host bar:bar] : self.touchedItem;
+    UIView *nearest = dragging ? [self pivotItemNearX:point.x inView:bar bar:bar] : self.touchedItem;
+    if (gesture.state == UIGestureRecognizerStateCancelled) nearest = YTKACESelectedPivotItem(bar);
     if (nearest != nil && YTKACEPivotItemIdentifier(nearest) == nil) nearest = YTKACESelectedPivotItem(bar);
     CGRect target = nearest != nil
         ? [bar convertRect:YTKACEPillFrameForItem(bar, (UIVisualEffectView *)glass, nearest) toView:host]
         : lens.frame;
     __weak UIView *weakLens = lens;
-    CFTimeInterval wait = MAX(0.0, 0.3 - (now - self.pressStart));
     CGPoint slide = CGPointMake(CGRectGetMidX(target), CGRectGetMidY(target));
-    [UIView animateWithDuration:0.25 delay:0.0 usingSpringWithDamping:0.8 initialSpringVelocity:0.0
-                        options:UIViewAnimationOptionBeginFromCurrentState
-                     animations:^{
+    YTKACELensSpring(0.4, 0.15, 0.0, ^{
         lens.center = slide;
         YTKACESyncLensMask(lens);
-    } completion:nil];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    });
+    YTKACELowerWhenArrived(lens, slide, token, ^{
         UIView *lowering = weakLens;
         if (lowering == nil || objc_getAssociatedObject(lowering, YTKACEPivotBarFadedAssociation) != token) return;
         UIView *copy = objc_getAssociatedObject(lowering, YTKACEPivotBarMagnifyAssociation);
@@ -2040,8 +2257,6 @@ static void YTKACEClearLensHole(UIView *lens) {
     UIView *bar = gesture.view;
     UIView *glass = objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation);
     UIView *pill = objc_getAssociatedObject(bar, YTKACEPivotBarPillAssociation);
-    if (gesture.state != UIGestureRecognizerStateChanged) {
-    }
     if (glass == nil || pill == nil) return;
     if (YTKACEIsSystemLens(pill)) {
         [self handleSystemLens:pill gesture:gesture bar:bar glass:glass];
@@ -2128,9 +2343,9 @@ static void YTKACEInstallGlassSlide(UIView *bar) {
     UILongPressGestureRecognizer *press = [[UILongPressGestureRecognizer alloc]
         initWithTarget:[YTKACEGlassSlideHandler sharedHandler] action:@selector(handlePress:)];
     press.minimumPressDuration = 0.0;
+    press.allowableMovement = CGFLOAT_MAX;
     press.cancelsTouchesInView = NO;
     press.delaysTouchesEnded = NO;
-    press.allowableMovement = CGFLOAT_MAX;
     press.delegate = [YTKACEGlassSlideHandler sharedHandler];
     [bar addGestureRecognizer:press];
 }
@@ -2195,7 +2410,19 @@ static BOOL YTKACEApplyPivotBarGlass(UIView *receiver, UIView *blur) {
     CGFloat extra = 7.0;
     CGFloat glassHeight = MAX(itemHeight, 44.0) + extra * 2.0;
     CGFloat glassTop = MIN(0.0, CGRectGetHeight(receiver.bounds) - glassHeight - 4.0);
-    CGRect frame = CGRectMake(14.0, glassTop, CGRectGetWidth(receiver.bounds) - 28.0, glassHeight);
+    BOOL expanded = [objc_getAssociatedObject(receiver, YTKACEPivotBarExpandedAssociation) boolValue];
+    NSUInteger tabs = 0;
+    for (UIView *item in YTKACESortedPivotItems(receiver)) {
+        if (!item.hidden && CGRectGetWidth(item.bounds) > 0.0) tabs += 1;
+    }
+    CGFloat barWidth = CGRectGetWidth(receiver.bounds);
+    CGFloat margin = tabs > 5 ? 14.0 : (expanded ? 14.0 : 21.0);
+    CGFloat glassWidth = barWidth - margin * 2.0;
+    if (tabs > 0 && tabs < 5) {
+        CGFloat slot = (glassWidth - 8.0) / 5.0;
+        glassWidth = slot * (CGFloat)tabs + 8.0;
+    }
+    CGRect frame = CGRectMake((barWidth - glassWidth) * 0.5, glassTop, glassWidth, glassHeight);
     receiver.clipsToBounds = NO;
     receiver.layer.masksToBounds = NO;
     glass.frame = frame;
