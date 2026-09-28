@@ -1173,17 +1173,131 @@ static void YTKACEApplyExtraTabIcon(UIView *view) {
     );
 }
 
+static NSString *const YTKACETintModeKey = @"YTKACE.Preference.Tabs.SelectedTint";
+static NSString *const YTKACETintColorKey = @"YTKACE.Preference.Tabs.SelectedTintColor";
+static const void *YTKACENativeTextColorAssociation = &YTKACENativeTextColorAssociation;
+static const void *YTKACENativeIconAssociation = &YTKACENativeIconAssociation;
+static IMP OriginalPivotLabelSetTextColor;
+static NSInteger YTKACETintMode;
+static UIColor *YTKACETintColor;
+
+static NSString *YTKACEPivotItemIdentifier(UIView *item);
+static UIImageView *YTKACEFindPhotoView(UIView *view);
+
+static BOOL YTKACERefreshTabTint(void) {
+    NSInteger mode = [YTKACEPreferenceObject(YTKACETintModeKey) integerValue];
+    id stored = YTKACEPreferenceObject(YTKACETintColorKey);
+    NSString *value = [[([stored isKindOfClass:NSString.class] ? stored : @"#0A84FF")
+        stringByReplacingOccurrencesOfString:@"#" withString:@""] uppercaseString];
+    unsigned int rgb = 0x0A84FF;
+    if (value.length == 6) [[NSScanner scannerWithString:value] scanHexInt:&rgb];
+    UIColor *color = [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                                     green:((rgb >> 8) & 0xFF) / 255.0
+                                      blue:(rgb & 0xFF) / 255.0
+                                     alpha:1.0];
+    BOOL changed = mode != YTKACETintMode || ![color isEqual:YTKACETintColor];
+    YTKACETintMode = mode;
+    YTKACETintColor = color;
+    return changed;
+}
+
+static void YTKACESetLabelColor(UILabel *label, UIColor *color) {
+    if (color == nil || [label.textColor isEqual:color]) return;
+    if (OriginalPivotLabelSetTextColor != NULL) {
+        ((void (*)(id, SEL, id))OriginalPivotLabelSetTextColor)(label, @selector(setTextColor:), color);
+    } else {
+        label.textColor = color;
+    }
+}
+
+static void YTKACEPivotLabelSetTextColor(UILabel *receiver, SEL selector, UIColor *color) {
+    if (YTKACETintMode != 0) {
+        UIView *item = YTKACEPivotItemAncestor(receiver);
+        if (item != nil) {
+            objc_setAssociatedObject(receiver, YTKACENativeTextColorAssociation, color,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            if (YTKACEPivotItemSelected(item)) color = YTKACETintColor;
+        }
+    }
+    if (OriginalPivotLabelSetTextColor != NULL) {
+        ((void (*)(id, SEL, id))OriginalPivotLabelSetTextColor)(receiver, selector, color);
+    }
+}
+
+static void YTKACECollectLabels(UIView *view, NSMutableArray<UILabel *> *labels) {
+    for (UIView *subview in view.subviews) {
+        if ([subview isKindOfClass:UILabel.class]) [labels addObject:(UILabel *)subview];
+        YTKACECollectLabels(subview, labels);
+    }
+}
+
+static void YTKACEApplyTabTint(UIView *item) {
+    BOOL tinted = YTKACETintMode != 0 && YTKACEPivotItemSelected(item);
+    NSMutableArray<UILabel *> *labels = [NSMutableArray array];
+    YTKACECollectLabels(item, labels);
+    for (UILabel *label in labels) {
+        UIColor *native = objc_getAssociatedObject(label, YTKACENativeTextColorAssociation);
+        if (YTKACETintMode == 0) {
+            if (native == nil) continue;
+            objc_setAssociatedObject(label, YTKACENativeTextColorAssociation, nil,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            YTKACESetLabelColor(label, native);
+            continue;
+        }
+        if (native == nil && label.textColor != nil && ![label.textColor isEqual:YTKACETintColor]) {
+            native = label.textColor;
+            objc_setAssociatedObject(label, YTKACENativeTextColorAssociation, native,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        YTKACESetLabelColor(label, tinted ? YTKACETintColor : native);
+    }
+    BOOL avatar = [YTKACEPivotItemIdentifier(item) isEqualToString:@"FElibrary"] &&
+        YTKACEFindPhotoView(item) != nil;
+    BOOL tintIcon = tinted && YTKACETintMode == 2 && !avatar;
+    for (NSNumber *tag in @[@0x59414345, @(YTKACEExtraIconTag)]) {
+        UIView *custom = [item viewWithTag:tag.integerValue];
+        if (tintIcon && [custom isKindOfClass:UIImageView.class]) custom.tintColor = YTKACETintColor;
+    }
+    UIImageView *icon = YTKACEFindImageView(item);
+    NSArray *native = icon != nil ? objc_getAssociatedObject(icon, YTKACENativeIconAssociation) : nil;
+    if (native == nil) return;
+    objc_setAssociatedObject(icon, YTKACENativeIconAssociation, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (icon.image == native[1]) icon.image = native[0];
+    icon.tintColor = native[2];
+}
+
+static IMP OriginalIconTintSelected;
+
+static UIColor *YTKACEIconTintSelected(UIView *receiver, SEL selector) {
+    if (YTKACETintMode == 2 && ![YTKACEPivotItemIdentifier(receiver) isEqualToString:@"FElibrary"]) {
+        return YTKACETintColor;
+    }
+    return OriginalIconTintSelected == NULL ? nil
+        : ((id (*)(id, SEL))OriginalIconTintSelected)(receiver, selector);
+}
+
+static void YTKACERestyleSelectedTab(UIView *item) {
+    SEL setter = NSSelectorFromString(@"setSelected:");
+    if (!YTKACEPivotItemSelected(item) || ![item respondsToSelector:setter]) return;
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(item, setter, YES);
+}
+
 static void YTKACEApplyPivotItemPresentation(UIView *view) {
     BOOL hideLabels = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
     YTKACESetLabelsHidden(view, hideLabels);
     YTKACEApplyDownloadIcon(view);
     YTKACEApplyExtraTabIcon(view);
     YTKACECenterPivotIcon(view, hideLabels);
+    YTKACEApplyTabTint(view);
 }
 
 static void YTKACEPivotButtonLayout(UIView *receiver, SEL selector) {
     if (OriginalPivotButtonLayout != NULL) {
         ((void (*)(id, SEL))OriginalPivotButtonLayout)(receiver, selector);
+    }
+    if (YTKACETintMode != 0) {
+        UIView *tintItem = YTKACEPivotItemAncestor(receiver);
+        if (tintItem != nil) YTKACEApplyTabTint(tintItem);
     }
     if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden")) return;
     UIView *item = YTKACEPivotItemAncestor(receiver);
@@ -1250,8 +1364,22 @@ static id YTKACEInfoObject(NSBundle *self, SEL _cmd, NSString *key) {
 }
 
 __attribute__((constructor)) static void YTKACEInstallLiquidGlassDesign(void) {
-    if (NSClassFromString(@"UIGlassEffect") == Nil ||
-        ![NSUserDefaults.standardUserDefaults boolForKey:@"YTKACE.Preference.Tabs.Glass"]) return;
+    if (NSClassFromString(@"UIGlassEffect") == Nil) return;
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    BOOL any = NO;
+    for (NSString *key in @[@"YTKACE.Preference.Tabs.Glass", @"YTKACE.Preference.Glass.TopBar",
+                            @"YTKACE.Preference.Glass.Menus", @"YTKACE.Preference.Glass.Notices",
+                            @"YTKACE.Preference.Glass.Player"]) {
+        if ([defaults boolForKey:key]) any = YES;
+    }
+    if (!any) return;
+    id info = (__bridge id)CFBundleGetInfoDictionary(CFBundleGetMainBundle());
+    if ([info respondsToSelector:@selector(removeObjectForKey:)]) {
+        @try {
+            [info removeObjectForKey:YTKACEDesignCompatibilityKey];
+        } @catch (__unused NSException *exception) {
+        }
+    }
     YTKACEInstallInstanceHook(@"NSBundle", @"infoDictionary",
         (IMP)YTKACEInfoDictionary, &YTKACEOrigInfoDictionary);
     YTKACEInstallInstanceHook(@"NSBundle", @"objectForInfoDictionaryKey:",
@@ -1335,23 +1463,34 @@ static NSArray<UIView *> *YTKACESortedPivotItems(UIView *bar) {
     return visible;
 }
 
+static void YTKACETabGeometry(CGRect glass, NSUInteger count, CGFloat *start, CGFloat *step, CGFloat *overlap) {
+    CGFloat spill = count <= 4 ? 8.0 : 16.0;
+    CGFloat pitch = count == 0 ? 0.0 : (CGRectGetWidth(glass) - 8.0 - spill) / (CGFloat)count;
+    if (start) *start = CGRectGetMinX(glass) + 4.0;
+    if (step) *step = pitch;
+    if (overlap) *overlap = spill;
+}
+
 static CGRect YTKACEPillFrameForItem(UIView *bar, UIVisualEffectView *glass, UIView *item) {
     NSArray<UIView *> *sorted = YTKACESortedPivotItems(bar);
     NSUInteger index = [sorted indexOfObject:item];
     CGRect itemFrame = [item convertRect:item.bounds toView:bar];
-    if (index != NSNotFound) {
-        CGFloat slot = (CGRectGetWidth(glass.frame) - 8.0) / (CGFloat)sorted.count;
-        itemFrame = CGRectMake(CGRectGetMinX(glass.frame) + 4.0 + slot * index, CGRectGetMinY(itemFrame),
-                               slot, CGRectGetHeight(itemFrame));
-    }
     CGFloat inset = 4.0;
-    CGFloat left = MAX(CGRectGetMinX(itemFrame) + 2.0, CGRectGetMinX(glass.frame) + inset);
-    CGFloat right = MIN(CGRectGetMaxX(itemFrame) - 2.0, CGRectGetMaxX(glass.frame) - inset);
+    CGFloat left = CGRectGetMinX(itemFrame) + 2.0;
+    CGFloat right = CGRectGetMaxX(itemFrame) - 2.0;
+    if (index != NSNotFound) {
+        CGFloat start = 0.0, step = 0.0, overlap = 0.0;
+        YTKACETabGeometry(glass.frame, sorted.count, &start, &step, &overlap);
+        left = start + step * (CGFloat)index;
+        right = left + step + overlap;
+    }
+    left = MAX(left, CGRectGetMinX(glass.frame) + inset);
+    right = MIN(right, CGRectGetMaxX(glass.frame) - inset);
     return CGRectMake(left, CGRectGetMinY(glass.frame) + inset,
                       MAX(right - left, 20.0), CGRectGetHeight(glass.frame) - inset * 2.0);
 }
 
-static void YTKACELayoutItemsInGlass(UIView *bar, UIView *glass) {
+static void YTKACELayoutItemsInGlass(UIView *bar, CGRect glassFrame) {
     NSMutableArray<UIView *> *items = [NSMutableArray array];
     YTKACECollectPivotItems(bar, items);
     NSMutableArray<UIView *> *visible = [NSMutableArray array];
@@ -1364,14 +1503,14 @@ static void YTKACELayoutItemsInGlass(UIView *bar, UIView *glass) {
         CGFloat b = CGRectGetMinX([right convertRect:right.bounds toView:bar]);
         return a < b ? NSOrderedAscending : (a > b ? NSOrderedDescending : NSOrderedSame);
     }];
-    CGFloat inset = 4.0;
-    CGFloat slot = (CGRectGetWidth(glass.frame) - inset * 2.0) / (CGFloat)visible.count;
+    CGFloat start = 0.0, slot = 0.0, overlap = 0.0;
+    YTKACETabGeometry(glassFrame, visible.count, &start, &slot, &overlap);
     for (NSUInteger index = 0; index < visible.count; index++) {
         UIView *item = visible[index];
         if (item.superview == nil) continue;
         CGRect current = [item convertRect:item.bounds toView:bar];
-        CGRect target = CGRectMake(CGRectGetMinX(glass.frame) + inset + slot * index,
-                                   CGRectGetMidY(glass.frame) - CGRectGetHeight(current) * 0.5,
+        CGRect target = CGRectMake(start + overlap * 0.5 + slot * index,
+                                   CGRectGetMidY(glassFrame) - CGRectGetHeight(current) * 0.5,
                                    slot, CGRectGetHeight(current));
         CGRect local = [bar convertRect:target toView:item.superview];
         if (!CGRectEqualToRect(CGRectIntegral(item.frame), CGRectIntegral(local))) {
@@ -1495,6 +1634,287 @@ static void YTKACELensSpring(NSTimeInterval response, CGFloat bounce, CGFloat ve
 
 static const void *YTKACEPivotBarExpandedAssociation = &YTKACEPivotBarExpandedAssociation;
 
+static const void *YTKACEPivotBarMinimizedAssociation = &YTKACEPivotBarMinimizedAssociation;
+static const void *YTKACEPivotBarMiniAppliedAssociation = &YTKACEPivotBarMiniAppliedAssociation;
+static const void *YTKACEPivotBarMiniMaskAssociation = &YTKACEPivotBarMiniMaskAssociation;
+static NSString *const YTKACEMinimizeKey = @"YTKACE.Preference.Tabs.GlassMinimize";
+static __weak UIView *YTKACEMinimizeBar;
+static BOOL YTKACEMinimizeEnabled;
+static CGFloat YTKACEMinimizeProgress;
+
+static BOOL YTKACEBarMinimized(UIView *bar) {
+    return bar != nil && [objc_getAssociatedObject(bar, YTKACEPivotBarMinimizedAssociation) boolValue];
+}
+
+
+static NSString *YTKACEPivotItemIdentifier(UIView *item);
+
+static void YTKACEBarSpring(NSTimeInterval response, CGFloat damping, NSTimeInterval delay,
+                            dispatch_block_t animations, void (^completion)(BOOL)) {
+    UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState |
+        UIViewAnimationOptionAllowUserInteraction;
+    SEL spring = NSSelectorFromString(@"animateWithSpringDuration:bounce:initialSpringVelocity:delay:options:animations:completion:");
+    if ([UIView respondsToSelector:spring]) {
+        ((void (*)(id, SEL, NSTimeInterval, CGFloat, CGFloat, NSTimeInterval, UIViewAnimationOptions, id, id))objc_msgSend)(
+            UIView.class, spring, response, 1.0 - damping, 0.0, delay, options, animations, completion);
+    } else {
+        [UIView animateWithDuration:response * 1.5 delay:delay usingSpringWithDamping:damping
+              initialSpringVelocity:0.0 options:options animations:animations completion:completion];
+    }
+}
+
+static void YTKACESetBarScale(UIView *bar, CGFloat scale, NSTimeInterval response, CGFloat damping) {
+    UIView *glass = objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation);
+    CATransform3D transform = CATransform3DIdentity;
+    if (glass != nil && fabs(scale - 1.0) > 0.0001) {
+        CGFloat dx = CGRectGetMidX(glass.frame) - CGRectGetMidX(bar.bounds);
+        CGFloat dy = CGRectGetMidY(glass.frame) - CGRectGetMidY(bar.bounds);
+        transform = CATransform3DTranslate(transform, dx, dy, 0.0);
+        transform = CATransform3DScale(transform, scale, scale, 1.0);
+        transform = CATransform3DTranslate(transform, -dx, -dy, 0.0);
+    }
+    CALayer *layer = bar.layer;
+    if (CATransform3DEqualToTransform(layer.sublayerTransform, transform)) return;
+    CALayer *shown = layer.presentationLayer ?: layer;
+    CATransform3D from = shown.sublayerTransform;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    layer.sublayerTransform = transform;
+    [CATransaction commit];
+    if (response <= 0.0) {
+        [layer removeAnimationForKey:@"ytkace.scale"];
+        return;
+    }
+    CASpringAnimation *animation = [CASpringAnimation animationWithKeyPath:@"sublayerTransform"];
+    animation.mass = 1.0;
+    animation.stiffness = pow(2.0 * M_PI / response, 2.0);
+    animation.damping = 4.0 * M_PI * damping / response;
+    animation.fromValue = [NSValue valueWithCATransform3D:from];
+    animation.toValue = [NSValue valueWithCATransform3D:transform];
+    animation.duration = animation.settlingDuration;
+    [layer addAnimation:animation forKey:@"ytkace.scale"];
+}
+
+static const void *YTKACEPivotBarMiniIconAssociation = &YTKACEPivotBarMiniIconAssociation;
+static const void *YTKACEPivotBarMiniIconRectAssociation = &YTKACEPivotBarMiniIconRectAssociation;
+static NSTimeInterval YTKACEMiniMaskResponse;
+static CGFloat YTKACEMiniMaskDamping;
+
+static void YTKACESpringLayer(CALayer *layer, NSString *key, id from, id to, NSTimeInterval response, CGFloat damping) {
+    CASpringAnimation *animation = [CASpringAnimation animationWithKeyPath:key];
+    animation.mass = 1.0;
+    animation.stiffness = pow(2.0 * M_PI / response, 2.0);
+    animation.damping = 4.0 * M_PI * damping / response;
+    animation.fromValue = from;
+    animation.toValue = to;
+    animation.duration = animation.settlingDuration;
+    [layer addAnimation:animation forKey:[@"ytkace." stringByAppendingString:key]];
+}
+
+static void YTKACEInstallMiniMask(UIView *bar) {
+    UIView *container = YTKACEPivotItemsContainer(bar);
+    UIView *glass = objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation);
+    if (container == nil || glass == nil) return;
+    CALayer *mask = objc_getAssociatedObject(bar, YTKACEPivotBarMiniMaskAssociation);
+    if (mask == nil) {
+        mask = [CALayer layer];
+        mask.backgroundColor = UIColor.blackColor.CGColor;
+        mask.cornerCurve = kCACornerCurveContinuous;
+        objc_setAssociatedObject(bar, YTKACEPivotBarMiniMaskAssociation, mask, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (container.layer.mask == mask) return;
+    CGRect frame = [bar convertRect:glass.frame toView:container];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    [mask removeAllAnimations];
+    mask.bounds = CGRectMake(0, 0, CGRectGetWidth(frame), CGRectGetHeight(frame));
+    mask.position = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+    mask.cornerRadius = CGRectGetHeight(frame) * 0.5;
+    container.layer.mask = mask;
+    [CATransaction commit];
+}
+
+static void YTKACEUpdateMiniMask(UIView *bar, CGRect glassFrame) {
+    CALayer *mask = objc_getAssociatedObject(bar, YTKACEPivotBarMiniMaskAssociation);
+    UIView *container = YTKACEPivotItemsContainer(bar);
+    if (mask == nil || container == nil || container.layer.mask != mask) return;
+    CGRect frame = [bar convertRect:glassFrame toView:container];
+    CGRect bounds = CGRectMake(0, 0, CGRectGetWidth(frame), CGRectGetHeight(frame));
+    CGPoint position = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+    CGFloat radius = CGRectGetHeight(frame) * 0.5;
+    if (CGRectEqualToRect(mask.bounds, bounds) && CGPointEqualToPoint(mask.position, position)) return;
+    CALayer *shown = mask.presentationLayer ?: mask;
+    CGRect fromBounds = shown.bounds;
+    CGPoint fromPosition = shown.position;
+    CGFloat fromRadius = shown.cornerRadius;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    mask.bounds = bounds;
+    mask.position = position;
+    mask.cornerRadius = radius;
+    [CATransaction commit];
+    if (YTKACEMiniMaskResponse <= 0.0) return;
+    YTKACESpringLayer(mask, @"bounds", [NSValue valueWithCGRect:fromBounds], [NSValue valueWithCGRect:bounds],
+                      YTKACEMiniMaskResponse, YTKACEMiniMaskDamping);
+    YTKACESpringLayer(mask, @"position", [NSValue valueWithCGPoint:fromPosition], [NSValue valueWithCGPoint:position],
+                      YTKACEMiniMaskResponse, YTKACEMiniMaskDamping);
+    YTKACESpringLayer(mask, @"cornerRadius", @(fromRadius), @(radius), YTKACEMiniMaskResponse, YTKACEMiniMaskDamping);
+}
+
+static void YTKACERemoveMiniMask(UIView *bar) {
+    CALayer *mask = objc_getAssociatedObject(bar, YTKACEPivotBarMiniMaskAssociation);
+    UIView *container = YTKACEPivotItemsContainer(bar);
+    if (mask != nil && container.layer.mask == mask) container.layer.mask = nil;
+}
+
+static UIImage *YTKACERenderItemIcon(UIView *item, CGRect *iconRect) {
+    CGSize size = item.bounds.size;
+    CGFloat scale = item.window.screen.scale ?: 3.0;
+    size_t width = (size_t)ceil(size.width * scale);
+    size_t height = (size_t)ceil(size.height * scale);
+    if (width == 0 || height == 0) return nil;
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(NULL, width, height, 8, width * 4, space,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(space);
+    if (context == NULL) return nil;
+    CGContextTranslateCTM(context, 0.0, (CGFloat)height);
+    CGContextScaleCTM(context, scale, -scale);
+    NSMutableArray<UILabel *> *labels = [NSMutableArray array];
+    YTKACECollectLabels(item, labels);
+    NSMutableArray<NSNumber *> *opacity = [NSMutableArray array];
+    for (UILabel *label in labels) {
+        [opacity addObject:@(label.layer.opacity)];
+        label.layer.opacity = 0.0;
+    }
+    CGFloat alpha = item.alpha;
+    item.layer.opacity = 1.0;
+    [item.layer renderInContext:context];
+    item.layer.opacity = (float)alpha;
+    for (NSUInteger index = 0; index < labels.count; index++) {
+        labels[index].layer.opacity = opacity[index].floatValue;
+    }
+    uint8_t *pixels = (uint8_t *)CGBitmapContextGetData(context);
+    size_t minX = width, minY = height, maxX = 0, maxY = 0;
+    for (size_t y = 0; y < height; y++) {
+        for (size_t x = 0; x < width; x++) {
+            if (pixels[(y * width + x) * 4 + 3] < 24) continue;
+            minX = MIN(minX, x); maxX = MAX(maxX, x);
+            minY = MIN(minY, y); maxY = MAX(maxY, y);
+        }
+    }
+    CGImageRef full = CGBitmapContextCreateImage(context);
+    CGContextRelease(context);
+    if (full == NULL || maxX < minX || maxY < minY) {
+        if (full != NULL) CGImageRelease(full);
+        return nil;
+    }
+    CGRect pixelsRect = CGRectMake(minX, minY, maxX - minX + 1, maxY - minY + 1);
+    CGImageRef cropped = CGImageCreateWithImageInRect(full, pixelsRect);
+    CGImageRelease(full);
+    if (cropped == NULL) return nil;
+    UIImage *image = [UIImage imageWithCGImage:cropped scale:scale orientation:UIImageOrientationUp];
+    CGImageRelease(cropped);
+    if (iconRect != NULL) {
+        *iconRect = CGRectMake(pixelsRect.origin.x / scale, pixelsRect.origin.y / scale,
+                               pixelsRect.size.width / scale, pixelsRect.size.height / scale);
+    }
+    return image;
+}
+
+static UIImageView *YTKACEMiniIcon(UIView *bar) {
+    UIImageView *icon = objc_getAssociatedObject(bar, YTKACEPivotBarMiniIconAssociation);
+    if (icon == nil) {
+        icon = [UIImageView new];
+        icon.userInteractionEnabled = NO;
+        icon.hidden = YES;
+        objc_setAssociatedObject(bar, YTKACEPivotBarMiniIconAssociation, icon, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return icon;
+}
+
+static CGPoint YTKACEMiniIconHome(UIView *bar, UIView *glass, UIView *selected) {
+    NSValue *stored = objc_getAssociatedObject(bar, YTKACEPivotBarMiniIconRectAssociation);
+    CGRect rect = stored != nil ? stored.CGRectValue : selected.bounds;
+    CGRect inBar = [selected convertRect:rect toView:bar];
+    return CGPointMake(CGRectGetMidX(inBar) - CGRectGetMinX(glass.frame),
+                       CGRectGetMidY(inBar) - CGRectGetMinY(glass.frame));
+}
+
+static void YTKACEApplyMiniAlpha(UIView *bar, BOOL minimized) {
+    BOOL applied = [objc_getAssociatedObject(bar, YTKACEPivotBarMiniAppliedAssociation) boolValue];
+    if (applied == minimized) return;
+    objc_setAssociatedObject(bar, YTKACEPivotBarMiniAppliedAssociation, minimized ? @YES : nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    UIView *selected = YTKACESelectedPivotItem(bar);
+    UIView *pill = objc_getAssociatedObject(bar, YTKACEPivotBarPillAssociation);
+    pill.alpha = minimized ? 0.0 : 1.0;
+    for (UIView *item in YTKACESortedPivotItems(bar)) {
+        if (item != selected) item.alpha = minimized ? 0.0 : 1.0;
+    }
+}
+
+static void YTKACERestoreMiniIcon(UIView *bar) {
+    UIImageView *icon = objc_getAssociatedObject(bar, YTKACEPivotBarMiniIconAssociation);
+    if (icon != nil) icon.hidden = YES;
+    for (UIView *item in YTKACESortedPivotItems(bar)) item.alpha = 1.0;
+}
+
+static void YTKACESetBarMinimized(UIView *bar, BOOL minimized) {
+    if (bar == nil || YTKACEBarMinimized(bar) == minimized) return;
+    UIView *selected = YTKACESelectedPivotItem(bar);
+    UIView *glass = objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation);
+    if (minimized && (selected == nil || glass == nil ||
+                      [YTKACEPivotItemIdentifier(selected) isEqualToString:@"FEshorts"])) return;
+    if (minimized) {
+        CGRect rect = CGRectZero;
+        UIImage *image = YTKACERenderItemIcon(selected, &rect);
+        if (image == nil) return;
+        objc_setAssociatedObject(bar, YTKACEPivotBarMiniIconRectAssociation, [NSValue valueWithCGRect:rect],
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        UIImageView *icon = YTKACEMiniIcon(bar);
+        UIView *host = ((UIVisualEffectView *)glass).contentView;
+        if (icon.superview != host) [host addSubview:icon];
+        [host bringSubviewToFront:icon];
+        [UIView performWithoutAnimation:^{
+            icon.image = image;
+            icon.bounds = CGRectMake(0, 0, CGRectGetWidth(rect), CGRectGetHeight(rect));
+            icon.center = YTKACEMiniIconHome(bar, glass, selected);
+            icon.alpha = 1.0;
+            icon.hidden = NO;
+            selected.alpha = 0.0;
+        }];
+    }
+    objc_setAssociatedObject(bar, YTKACEPivotBarMinimizedAssociation, minimized ? @YES : nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    YTKACEMinimizeProgress = minimized ? 1.0 : 0.0;
+    YTKACESetBarScale(bar, 1.0, 0.3, 0.8);
+    YTKACEInstallMiniMask(bar);
+    __weak UIView *weakBar = bar;
+    NSTimeInterval response = minimized ? 0.36 : 0.3;
+    YTKACEMiniMaskResponse = response;
+    YTKACEMiniMaskDamping = 0.72;
+    YTKACEBarSpring(response, 0.72, 0.0, ^{
+        [bar setNeedsLayout];
+        [bar layoutIfNeeded];
+    }, ^(__unused BOOL finished) {
+        UIView *strongBar = weakBar;
+        if (strongBar != nil && !YTKACEBarMinimized(strongBar)) YTKACERestoreMiniIcon(strongBar);
+    });
+    YTKACEMiniMaskResponse = 0.0;
+    UIImageView *miniIcon = objc_getAssociatedObject(bar, YTKACEPivotBarMiniIconAssociation);
+    YTKACEBarSpring(minimized ? 0.42 : 0.36, minimized ? 0.76 : 0.72, 0.05, ^{
+        YTKACEApplyMiniAlpha(bar, minimized);
+        if (!minimized) {
+            selected.alpha = 1.0;
+            miniIcon.alpha = 0.0;
+        }
+    }, ^(__unused BOOL finished) {
+        UIView *strongBar = weakBar;
+        if (strongBar != nil && !YTKACEBarMinimized(strongBar)) YTKACERemoveMiniMask(strongBar);
+    });
+}
+
 static void YTKACESetBarExpanded(UIView *bar, BOOL expanded) {
     if (bar == nil || [objc_getAssociatedObject(bar, YTKACEPivotBarExpandedAssociation) boolValue] == expanded) return;
     objc_setAssociatedObject(bar, YTKACEPivotBarExpandedAssociation, expanded ? @YES : nil,
@@ -1562,15 +1982,28 @@ static void YTKACEUpdateGlassPill(UIView *bar, UIVisualEffectView *glass) {
         return;
     }
     CGRect target = YTKACEPillFrameForItem(bar, glass, selected);
-    if (YTKACEIsSystemLens(pill)) target = [bar convertRect:target toView:pill.superview];
+    BOOL systemLens = YTKACEIsSystemLens(pill);
+    if (systemLens) target = [bar convertRect:target toView:pill.superview];
     CGRect current = pill.frame;
+    if (systemLens) {
+        current = CGRectMake(pill.center.x - CGRectGetWidth(pill.bounds) * 0.5,
+                             pill.center.y - CGRectGetHeight(pill.bounds) * 0.5,
+                             CGRectGetWidth(pill.bounds), CGRectGetHeight(pill.bounds));
+    }
     BOOL moved = fabs(CGRectGetMidX(current) - CGRectGetMidX(target)) > 1.0 ||
         fabs(CGRectGetMidY(current) - CGRectGetMidY(target)) > 1.0 ||
-        fabs(CGRectGetWidth(current) - CGRectGetWidth(target)) > 1.0;
+        fabs(CGRectGetWidth(current) - CGRectGetWidth(target)) > 1.0 ||
+        fabs(CGRectGetHeight(current) - CGRectGetHeight(target)) > 1.0;
     BOOL animate = !pill.hidden && !CGRectIsEmpty(current) && moved;
     pill.hidden = NO;
-    if (!YTKACEIsSystemLens(pill)) pill.layer.cornerRadius = CGRectGetHeight(target) * 0.5;
-    if (animate && YTKACEIsSystemLens(pill)) {
+    if (!systemLens) pill.layer.cornerRadius = CGRectGetHeight(target) * 0.5;
+    if (systemLens && !moved) return;
+    if (systemLens && (!animate || fabs(CGRectGetMidX(current) - CGRectGetMidX(target)) < 12.0)) {
+        [UIView performWithoutAnimation:^{
+            pill.bounds = CGRectMake(0, 0, CGRectGetWidth(target), CGRectGetHeight(target));
+            pill.center = CGPointMake(CGRectGetMidX(target), CGRectGetMidY(target));
+        }];
+    } else if (animate && systemLens) {
         id token = [NSObject new];
         objc_setAssociatedObject(pill, YTKACEPivotBarFadedAssociation, token,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1676,16 +2109,6 @@ static UIImageView *YTKACEAvatarView(UIView *bar) {
         if ([identifier isEqual:@"FElibrary"]) return YTKACEFindPhotoView(item);
     }
     return nil;
-}
-
-static void YTKACERefreshBarGlass(UIView *lens) {
-    UIVisualEffectView *barGlass = (UIVisualEffectView *)lens.superview.superview;
-    if (![barGlass isKindOfClass:UIVisualEffectView.class]) return;
-    UIVisualEffect *effect = barGlass.effect;
-    [UIView performWithoutAnimation:^{
-        barGlass.effect = nil;
-        barGlass.effect = effect;
-    }];
 }
 
 static const void *YTKACEStencilSlicesAssociation = &YTKACEStencilSlicesAssociation;
@@ -1820,6 +2243,9 @@ static void YTKACEClearLensHole(UIView *lens) {
     objc_setAssociatedObject(lens, YTKACEPivotBarHoleAssociation, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+static UIView *YTKACEScrubTarget(UIView *bar, CGPoint point, UIEvent *event);
+static UIView *YTKACEInlinePlayerBar(UIView *bar);
+
 @implementation YTKACEGlassSlideHandler
 
 + (instancetype)sharedHandler {
@@ -1833,8 +2259,14 @@ static void YTKACEClearLensHole(UIView *lens) {
     UIView *bar = gesture.view;
     UIView *glass = objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation);
     if (glass == nil) return NO;
+    if (YTKACEBarMinimized(bar)) {
+        YTKACESetBarMinimized(bar, NO);
+        return NO;
+    }
     CGPoint point = [gesture locationInView:bar];
     if (!CGRectContainsPoint(glass.frame, point)) return NO;
+    UIView *scrub = YTKACEScrubTarget(bar, point, nil);
+    if (scrub != nil && scrub != YTKACEInlinePlayerBar(bar)) return NO;
     UIView *touched = [self pivotItemNearX:point.x inView:bar bar:bar];
     if (touched != nil && YTKACEPivotItemIdentifier(touched) == nil) return NO;
     gesture.cancelsTouchesInView = touched == nil || touched != YTKACESelectedPivotItem(bar);
@@ -1863,8 +2295,9 @@ static void YTKACEClearLensHole(UIView *lens) {
     UIView *glass = objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation);
     if (sorted.count == 0 || glass == nil) return nil;
     CGFloat barX = [view convertPoint:CGPointMake(x, 0.0) toView:bar].x;
-    CGFloat slot = (CGRectGetWidth(glass.frame) - 8.0) / (CGFloat)sorted.count;
-    NSInteger index = (NSInteger)floor((barX - CGRectGetMinX(glass.frame) - 4.0) / slot);
+    CGFloat start = 0.0, slot = 0.0, overlap = 0.0;
+    YTKACETabGeometry(glass.frame, sorted.count, &start, &slot, &overlap);
+    NSInteger index = slot > 0.0 ? (NSInteger)floor((barX - start - overlap * 0.5) / slot) : 0;
     index = MAX(0, MIN((NSInteger)sorted.count - 1, index));
     return sorted[(NSUInteger)index];
 }
@@ -1933,7 +2366,8 @@ static void YTKACEClearLensHole(UIView *lens) {
         weight += 1.0;
     }
     BOOL brightIcons = weight == 0.0 || total / weight > 0.5;
-    for (size_t index = 0; index < width * height; index++) {
+    BOOL keepColor = YTKACETintMode != 0;
+    for (size_t index = 0; !keepColor && index < width * height; index++) {
         uint8_t *pixel = pixels + index * 4;
         uint8_t alpha = pixel[3];
         uint8_t level = 0;
@@ -1964,7 +2398,8 @@ static void YTKACEClearLensHole(UIView *lens) {
         if (piece == NULL) continue;
         UIImageView *slice = [[UIImageView alloc] initWithImage:
             [[UIImage imageWithCGImage:piece scale:scale orientation:UIImageOrientationUp]
-                imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]];
+                imageWithRenderingMode:keepColor ? UIImageRenderingModeAlwaysOriginal
+                                                 : UIImageRenderingModeAlwaysTemplate]];
         CGImageRelease(piece);
         slice.frame = CGRectMake(pixels.origin.x / scale, pixels.origin.y / scale,
                                  pixels.size.width / scale, pixels.size.height / scale);
@@ -2209,7 +2644,6 @@ static void YTKACEClearLensHole(UIView *lens) {
             if (settled != nil && objc_getAssociatedObject(settled, YTKACEPivotBarFadedAssociation) == token) {
                 objc_setAssociatedObject(settled, YTKACEPivotBarFadedAssociation, nil,
                                          OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                YTKACERefreshBarGlass(settled);
             }
         });
         YTKACESetSystemLensLifted(lowering, NO, @"up", ^{
@@ -2221,7 +2655,6 @@ static void YTKACEClearLensHole(UIView *lens) {
             if (strongLens != nil && objc_getAssociatedObject(strongLens, YTKACEPivotBarFadedAssociation) == token) {
                 objc_setAssociatedObject(strongLens, YTKACEPivotBarFadedAssociation, nil,
                                          OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                YTKACERefreshBarGlass(strongLens);
             }
         });
     });
@@ -2346,6 +2779,210 @@ BOOL YTKACELiquidGlassAvailable(void) {
     return NSClassFromString(@"UIGlassEffect") != Nil;
 }
 
+static BOOL YTKACEViewLooksLikeScrubber(UIView *view, NSUInteger depth) {
+    NSString *name = NSStringFromClass(view.class).lowercaseString;
+    for (NSString *word in @[@"scrub", @"progress", @"playerbar", @"slider", @"seek", @"timebar"]) {
+        if ([name containsString:word]) return YES;
+    }
+    if (depth == 0) return NO;
+    for (UIView *subview in view.subviews) {
+        if (YTKACEViewLooksLikeScrubber(subview, depth - 1)) return YES;
+    }
+    return NO;
+}
+
+static UIView *YTKACEInlinePlayerBar(UIView *bar) {
+    Class playerBarClass = NSClassFromString(@"YTInlinePlayerBarContainerView");
+    if (playerBarClass == Nil || objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation) == nil) return nil;
+    for (UIView *child in bar.subviews) {
+        if ([child isKindOfClass:playerBarClass] && !child.hidden && child.alpha > 0.01 &&
+            child.userInteractionEnabled && child.window != nil) {
+            return child;
+        }
+    }
+    return nil;
+}
+
+static UIView *YTKACEScrubTarget(UIView *bar, CGPoint point, UIEvent *event) {
+    UIView *playerBar = YTKACEInlinePlayerBar(bar);
+    if (playerBar == nil) return nil;
+    CGPoint local = [bar convertPoint:point toView:playerBar];
+    if (CGRectContainsPoint(playerBar.bounds, local)) return [playerBar hitTest:local withEvent:event];
+    UIView *glass = objc_getAssociatedObject(bar, YTKACEPivotBarGlassAssociation);
+    if (point.y >= CGRectGetMinY(glass.frame) + 12.0) return nil;
+    Class gestureClass = NSClassFromString(@"YTInlineScrubGestureView");
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:playerBar];
+    while (queue.count != 0) {
+        UIView *node = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        if (gestureClass != Nil && [node isKindOfClass:gestureClass] && !node.hidden && node.userInteractionEnabled) {
+            CGPoint inside = [bar convertPoint:point toView:node];
+            return CGRectContainsPoint(node.bounds, inside) ? node : nil;
+        }
+        [queue addObjectsFromArray:node.subviews];
+    }
+    return nil;
+}
+
+static IMP OriginalPivotBarPointInside;
+static IMP OriginalPivotBarHitTest;
+
+static BOOL YTKACEPivotBarPointInside(UIView *receiver, SEL selector, CGPoint point, UIEvent *event) {
+    BOOL inside = OriginalPivotBarPointInside != NULL &&
+        ((BOOL (*)(id, SEL, CGPoint, id))OriginalPivotBarPointInside)(receiver, selector, point, event);
+    if (YTKACEBarMinimized(receiver)) {
+        UIView *glass = objc_getAssociatedObject(receiver, YTKACEPivotBarGlassAssociation);
+        return glass != nil && CGRectContainsPoint(CGRectInset(glass.frame, -6.0, -6.0), point);
+    }
+    if (inside) return YES;
+    UIView *playerBar = YTKACEInlinePlayerBar(receiver);
+    return playerBar != nil && CGRectContainsPoint(playerBar.frame, point);
+}
+
+static UIView *YTKACEPivotBarHitTest(UIView *receiver, SEL selector, CGPoint point, UIEvent *event) {
+    if (YTKACEBarMinimized(receiver)) {
+        UIView *glass = objc_getAssociatedObject(receiver, YTKACEPivotBarGlassAssociation);
+        return glass != nil && CGRectContainsPoint(CGRectInset(glass.frame, -6.0, -6.0), point) ? receiver : nil;
+    }
+    UIView *scrub = YTKACEScrubTarget(receiver, point, event);
+    if (scrub != nil && scrub != YTKACEInlinePlayerBar(receiver)) return scrub;
+    if (!CGRectContainsPoint(receiver.bounds, point)) return nil;
+    return OriginalPivotBarHitTest == NULL ? nil
+        : ((id (*)(id, SEL, CGPoint, id))OriginalPivotBarHitTest)(receiver, selector, point, event);
+}
+
+static CGFloat const YTKACEMinimizeDistance = 64.0;
+static BOOL YTKACEMinimizeActive;
+static __weak UIScrollView *YTKACEMinimizeScroll;
+static CGFloat YTKACEMinimizeLastOffset;
+static const void *YTKACEMinimizePanAssociation = &YTKACEMinimizePanAssociation;
+
+static BOOL YTKACEMinimizeEligible(UIScrollView *scrollView, UIView *bar) {
+    UIWindow *window = bar.window;
+    if (window == nil || scrollView.window != window || bar.hidden || bar.alpha < 0.01) return NO;
+    if (CGRectGetHeight(scrollView.bounds) < CGRectGetHeight(window.bounds) * 0.4) return NO;
+    CGFloat range = scrollView.contentSize.height + scrollView.adjustedContentInset.top +
+        scrollView.adjustedContentInset.bottom - CGRectGetHeight(scrollView.bounds);
+    if (range < YTKACEMinimizeDistance * 1.5) return NO;
+    if (!CGRectIntersectsRect([bar convertRect:bar.bounds toView:window], window.bounds)) return NO;
+    UIView *selected = YTKACESelectedPivotItem(bar);
+    return selected != nil && ![YTKACEPivotItemIdentifier(selected) isEqualToString:@"FEshorts"];
+}
+
+static void YTKACEApplyMinimizeProgress(UIView *bar, CGFloat progress, BOOL tracking) {
+    YTKACEMinimizeProgress = progress;
+    CGFloat scale = (progress <= 0.0 || progress >= 1.0) ? 1.0 : 1.0 - progress * 0.05;
+    if (tracking) YTKACESetBarScale(bar, scale, 0.1, 0.8);
+    else YTKACESetBarScale(bar, scale, 0.3, 0.8);
+}
+
+@interface YTKACEMinimizePanTracker : NSObject
+@end
+
+@implementation YTKACEMinimizePanTracker
+
+- (void)pan:(UIPanGestureRecognizer *)pan {
+    UIScrollView *scrollView = (UIScrollView *)pan.view;
+    UIView *bar = YTKACEMinimizeBar;
+    if (!YTKACEMinimizeEnabled || bar == nil || ![scrollView isKindOfClass:UIScrollView.class]) return;
+    if (pan.state == UIGestureRecognizerStateBegan) {
+        if (!YTKACEMinimizeEligible(scrollView, bar)) return;
+        YTKACEMinimizeActive = YES;
+        YTKACEMinimizeScroll = scrollView;
+        YTKACEMinimizeLastOffset = scrollView.contentOffset.y;
+        return;
+    }
+    if (pan.state != UIGestureRecognizerStateEnded && pan.state != UIGestureRecognizerStateCancelled &&
+        pan.state != UIGestureRecognizerStateFailed) return;
+    if (!YTKACEMinimizeActive || YTKACEMinimizeScroll != scrollView) return;
+    YTKACEMinimizeActive = NO;
+    BOOL minimized = YTKACEBarMinimized(bar);
+    CGFloat progress = YTKACEMinimizeProgress;
+    CGFloat velocity = -[pan velocityInView:scrollView].y;
+    if (pan.state == UIGestureRecognizerStateEnded && fabs(velocity) > 50.0) {
+        CGFloat rate = scrollView.decelerationRate;
+        CGFloat travel = velocity / 1000.0 * rate / MAX(0.0001, 1.0 - rate);
+        CGFloat minY = -scrollView.adjustedContentInset.top;
+        CGFloat maxY = MAX(minY, scrollView.contentSize.height + scrollView.adjustedContentInset.bottom -
+                                 CGRectGetHeight(scrollView.bounds));
+        CGFloat target = MAX(minY, MIN(maxY, scrollView.contentOffset.y + travel));
+        progress += (target - scrollView.contentOffset.y) / YTKACEMinimizeDistance;
+        if (target <= minY + 0.5) progress = 0.0;
+    }
+    if (progress >= 1.0) {
+        if (minimized) YTKACEApplyMinimizeProgress(bar, 1.0, NO);
+        else YTKACESetBarMinimized(bar, YES);
+    } else if (minimized) {
+        YTKACESetBarMinimized(bar, NO);
+    } else {
+        YTKACEApplyMinimizeProgress(bar, 0.0, NO);
+    }
+}
+
+@end
+
+static IMP OriginalScrollSetContentOffset;
+
+static void YTKACEScrollSetContentOffset(UIScrollView *receiver, SEL selector, CGPoint offset) {
+    if (OriginalScrollSetContentOffset != NULL) {
+        ((void (*)(id, SEL, CGPoint))OriginalScrollSetContentOffset)(receiver, selector, offset);
+    }
+    if (!YTKACEMinimizeEnabled) return;
+    UIView *bar = YTKACEMinimizeBar;
+    if (bar == nil) return;
+    if (objc_getAssociatedObject(receiver, YTKACEMinimizePanAssociation) == nil && receiver.isTracking) {
+        static YTKACEMinimizePanTracker *tracker;
+        if (tracker == nil) tracker = [YTKACEMinimizePanTracker new];
+        objc_setAssociatedObject(receiver, YTKACEMinimizePanAssociation, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [receiver.panGestureRecognizer addTarget:tracker action:@selector(pan:)];
+        if (YTKACEMinimizeEligible(receiver, bar)) {
+            YTKACEMinimizeActive = YES;
+            YTKACEMinimizeScroll = receiver;
+            YTKACEMinimizeLastOffset = receiver.contentOffset.y;
+        }
+        return;
+    }
+    if (receiver != YTKACEMinimizeScroll) return;
+    CGFloat y = receiver.contentOffset.y;
+    BOOL minimized = YTKACEBarMinimized(bar);
+    if (y <= -receiver.adjustedContentInset.top + 0.5) {
+        YTKACEMinimizeLastOffset = y;
+        if (minimized) YTKACESetBarMinimized(bar, NO);
+        else if (YTKACEMinimizeProgress > 0.0) YTKACEApplyMinimizeProgress(bar, 0.0, receiver.isTracking);
+        return;
+    }
+    if (!YTKACEMinimizeActive || !receiver.isTracking) return;
+    CGFloat delta = y - YTKACEMinimizeLastOffset;
+    YTKACEMinimizeLastOffset = y;
+    if (fabs(delta) < 0.01) return;
+    CGFloat progress = YTKACEMinimizeProgress + delta / YTKACEMinimizeDistance;
+    progress = MAX(minimized ? 0.01 : 0.0, MIN(1.0, progress));
+    if (!minimized && progress >= 1.0) {
+        YTKACEMinimizeActive = NO;
+        YTKACESetBarMinimized(bar, YES);
+        return;
+    }
+    YTKACEApplyMinimizeProgress(bar, progress, YES);
+}
+
+static IMP OriginalHidePivotBarOnScroll;
+static IMP OriginalUpdatePivotBarVisibility;
+
+static BOOL YTKACEHidePivotBarOnScroll(id receiver, SEL selector) {
+    if (YTKACEMinimizeEnabled) return NO;
+    return OriginalHidePivotBarOnScroll != NULL &&
+        ((BOOL (*)(id, SEL))OriginalHidePivotBarOnScroll)(receiver, selector);
+}
+
+static void YTKACEUpdatePivotBarVisibility(id receiver, SEL selector, UIScrollView *scrollView,
+                                           CGFloat offsetY, BOOL atBottom) {
+    if (YTKACEMinimizeEnabled) return;
+    if (OriginalUpdatePivotBarVisibility != NULL) {
+        ((void (*)(id, SEL, id, CGFloat, BOOL))OriginalUpdatePivotBarVisibility)(
+            receiver, selector, scrollView, offsetY, atBottom);
+    }
+}
+
 static BOOL YTKACEApplyPivotBarGlass(UIView *receiver, UIView *blur) {
     UIVisualEffectView *glass = objc_getAssociatedObject(receiver, YTKACEPivotBarGlassAssociation);
     BOOL wanted = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.Glass") &&
@@ -2384,7 +3021,9 @@ static BOOL YTKACEApplyPivotBarGlass(UIView *receiver, UIView *blur) {
         if (YTKACEViewContainsPivotItem(sibling)) {
             sibling.opaque = NO;
             sibling.backgroundColor = UIColor.clearColor;
-        } else if (sibling.alpha > 0.0) {
+        } else if (sibling.alpha > 0.0 && !YTKACEViewLooksLikeScrubber(sibling, 3) &&
+                   (CGRectGetHeight(sibling.frame) >= CGRectGetHeight(receiver.bounds) * 0.6 ||
+                    CGRectGetHeight(sibling.frame) <= 1.5)) {
             sibling.alpha = 0.0;
             [faded addObject:sibling];
         }
@@ -2408,19 +3047,39 @@ static BOOL YTKACEApplyPivotBarGlass(UIView *receiver, UIView *blur) {
         if (!item.hidden && CGRectGetWidth(item.bounds) > 0.0) tabs += 1;
     }
     CGFloat barWidth = CGRectGetWidth(receiver.bounds);
-    CGFloat margin = tabs > 5 ? 14.0 : (expanded ? 14.0 : 21.0);
+    CGFloat margin = expanded ? 14.0 : 21.0;
     CGFloat glassWidth = barWidth - margin * 2.0;
-    if (tabs > 0 && tabs < 5) {
-        CGFloat slot = (glassWidth - 8.0) / 5.0;
-        glassWidth = slot * (CGFloat)tabs + 8.0;
+    if (tabs > 0 && tabs <= 4) {
+        glassWidth = MIN(glassWidth, 86.0 * (CGFloat)tabs + 16.0);
     }
     CGRect frame = CGRectMake((barWidth - glassWidth) * 0.5, glassTop, glassWidth, glassHeight);
+    UIView *current = YTKACESelectedPivotItem(receiver);
+    BOOL darkBar = current != nil && [YTKACEPivotItemIdentifier(current) isEqualToString:@"FEshorts"];
+    YTKACEMinimizeEnabled = YTKACEFeatureEnabled(YTKACEMinimizeKey);
+    YTKACEMinimizeBar = receiver;
+    BOOL minimized = YTKACEBarMinimized(receiver);
+    if (minimized && (!YTKACEMinimizeEnabled || darkBar || current == nil)) {
+        objc_setAssociatedObject(receiver, YTKACEPivotBarMinimizedAssociation, nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        minimized = NO;
+        YTKACEApplyMiniAlpha(receiver, NO);
+        YTKACERestoreMiniIcon(receiver);
+        YTKACERemoveMiniMask(receiver);
+    }
+    if (!YTKACEMinimizeEnabled || darkBar) {
+        YTKACEMinimizeProgress = 0.0;
+        YTKACESetBarScale(receiver, 1.0, 0.0, 1.0);
+    }
+    CGRect fullFrame = frame;
+    CGFloat circle = MIN(48.0, glassHeight);
+    if (minimized) {
+        frame = CGRectMake(28.0, CGRectGetMidY(frame) - circle * 0.5, circle, circle);
+    }
     receiver.clipsToBounds = NO;
     receiver.layer.masksToBounds = NO;
     glass.frame = frame;
     glass.layer.cornerRadius = CGRectGetHeight(frame) * 0.5;
-    UIView *current = YTKACESelectedPivotItem(receiver);
-    BOOL darkBar = current != nil && [YTKACEPivotItemIdentifier(current) isEqualToString:@"FEshorts"];
+    YTKACEUpdateMiniMask(receiver, frame);
     UIUserInterfaceStyle style = darkBar ? UIUserInterfaceStyleDark : UIUserInterfaceStyleUnspecified;
     if (glass.overrideUserInterfaceStyle != UIUserInterfaceStyleUnspecified) {
         glass.overrideUserInterfaceStyle = UIUserInterfaceStyleUnspecified;
@@ -2430,13 +3089,24 @@ static BOOL YTKACEApplyPivotBarGlass(UIView *receiver, UIView *blur) {
         for (UIView *item in YTKACESortedPivotItems(receiver)) YTKACEApplyPivotItemPresentation(item);
     }
     glass.alpha = 1.0;
-    YTKACELayoutItemsInGlass(receiver, glass);
-    YTKACEUpdateGlassPill(receiver, glass);
+    YTKACELayoutItemsInGlass(receiver, fullFrame);
+    UIImageView *miniIcon = objc_getAssociatedObject(receiver, YTKACEPivotBarMiniIconAssociation);
+    if (miniIcon != nil && !miniIcon.hidden && current != nil) {
+        miniIcon.center = minimized ? CGPointMake(CGRectGetWidth(frame) * 0.5, CGRectGetHeight(frame) * 0.5)
+                                    : YTKACEMiniIconHome(receiver, glass, current);
+    }
+    if (!minimized) YTKACEUpdateGlassPill(receiver, glass);
     YTKACEInstallGlassSlide(receiver);
     return YES;
 }
 
 static void YTKACEApplyPivotBarBackground(UIView *receiver) {
+    if (YTKACERefreshTabTint()) {
+        for (UIView *item in YTKACESortedPivotItems(receiver)) {
+            YTKACERestyleSelectedTab(item);
+            YTKACEApplyPivotItemPresentation(item);
+        }
+    }
     SEL blurSelector = NSSelectorFromString(@"blurView");
     UIView *blur = [receiver respondsToSelector:blurSelector]
         ? ((id (*)(id, SEL))objc_msgSend)(receiver, blurSelector)
@@ -2665,6 +3335,7 @@ static void YTKACEPivotItemLayout(UIView *receiver, SEL selector) {
 static void YTKACEPivotItemSetSelected(UIView *receiver,
                                        SEL selector,
                                        BOOL selected) {
+    BOOL wasSelected = [objc_getAssociatedObject(receiver, YTKACETabSelectedAssociation) boolValue];
     if (OriginalPivotItemSetSelected != NULL) {
         ((void (*)(id, SEL, BOOL))OriginalPivotItemSetSelected)(
             receiver, selector, selected
@@ -2681,6 +3352,7 @@ static void YTKACEPivotItemSetSelected(UIView *receiver,
         while (bar != nil && ![NSStringFromClass(bar.class) isEqualToString:@"YTPivotBarView"]) {
             bar = bar.superview;
         }
+        if (!wasSelected) YTKACESetBarMinimized(bar, NO);
         [bar setNeedsLayout];
     }
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -2711,6 +3383,15 @@ static void YTKACEPivotItemTraitChanged(UIView *receiver,
 }
 
 void YTKACEInstallTabBarHooks(void) {
+    YTKACERefreshTabTint();
+    YTKACEInstallInstanceHook(@"YTPivotBarItemView",
+                              @"iconTintColorSelected",
+                              (IMP)YTKACEIconTintSelected,
+                              &OriginalIconTintSelected);
+    YTKACEInstallInstanceHook(@"UILabel",
+                              @"setTextColor:",
+                              (IMP)YTKACEPivotLabelSetTextColor,
+                              &OriginalPivotLabelSetTextColor);
     YTKACEInstallInstanceHook(@"UILabel",
                               @"setHidden:",
                               (IMP)YTKACEPivotLabelSetHidden,
@@ -2743,6 +3424,28 @@ void YTKACEInstallTabBarHooks(void) {
                               @"layoutSubviews",
                               (IMP)YTKACEPivotBarLayout,
                               &OriginalPivotBarLayout);
+    YTKACEInstallInstanceHook(@"YTPivotBarView",
+                              @"pointInside:withEvent:",
+                              (IMP)YTKACEPivotBarPointInside,
+                              &OriginalPivotBarPointInside);
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.Glass") && YTKACELiquidGlassAvailable()) {
+        YTKACEInstallInstanceHook(@"UIScrollView",
+                                  @"setContentOffset:",
+                                  (IMP)YTKACEScrollSetContentOffset,
+                                  &OriginalScrollSetContentOffset);
+        YTKACEInstallInstanceHook(@"YTScrollableNavigationController",
+                                  @"hidePivotBarOnScroll",
+                                  (IMP)YTKACEHidePivotBarOnScroll,
+                                  &OriginalHidePivotBarOnScroll);
+        YTKACEInstallInstanceHook(@"YTScrollableNavigationController",
+                                  @"updatePivotBarVisibilityForScrollView:contentOffsetY:isAtBottom:",
+                                  (IMP)YTKACEUpdatePivotBarVisibility,
+                                  &OriginalUpdatePivotBarVisibility);
+    }
+    YTKACEInstallInstanceHook(@"YTPivotBarView",
+                              @"hitTest:withEvent:",
+                              (IMP)YTKACEPivotBarHitTest,
+                              &OriginalPivotBarHitTest);
     YTKACEInstallInstanceHook(@"YTPivotBarViewController",
                               @"viewDidAppear:",
                               (IMP)YTKACEPivotControllerAppear,

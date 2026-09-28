@@ -36,8 +36,7 @@ static const void *YTKACESideButtonsAssociation = &YTKACESideButtonsAssociation;
 
 
 static BOOL YTKACEGlassChromeEnabled(void) {
-    return YTKACELiquidGlassAvailable() && YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.Glass") &&
-        YTKACEFeatureEnabled(@"YTKACE.Preference.Glass.TopBar");
+    return YTKACELiquidGlassAvailable() && YTKACEFeatureEnabled(@"YTKACE.Preference.Glass.TopBar");
 }
 
 static UIVisualEffectView *YTKACEChromeGlass(UIView *owner, const void *key) {
@@ -130,6 +129,8 @@ static void YTKACERestoreButtons(UIView *container) {
     YTKACERestoreButtonsForKey(container, YTKACETopGlassAssociation);
 }
 
+static void YTKACEQuietButtonsIn(UIView *view);
+
 static void YTKACEApplyNativeGlass(UIView *container, const void *key) {
     UIVisualEffectView *glass = YTKACEChromeGlass(container, key);
     if (glass.superview != container) {
@@ -163,6 +164,7 @@ static void YTKACEApplyNativeGlass(UIView *container, const void *key) {
         }
     }
     container.backgroundColor = UIColor.clearColor;
+    YTKACEQuietButtonsIn(glass.contentView);
 }
 
 static void YTKACEApplyNativeTopGlass(UIView *container) {
@@ -395,7 +397,81 @@ static BOOL YTKACEMirrorIcon(UIView *button, UIVisualEffectView *glass) {
     return YES;
 }
 
+static const void *YTKACEQuietButtonAssociation = &YTKACEQuietButtonAssociation;
+static IMP OriginalQTMSetBackground;
+static IMP OriginalQTMTouchesBegan;
+
+static BOOL YTKACEButtonIsQuiet(UIView *button) {
+    return YTKACEGlassChromeEnabled() && objc_getAssociatedObject(button, YTKACEQuietButtonAssociation) != nil;
+}
+
+static void YTKACEHideButtonFeedback(UIView *button) {
+    for (NSString *key in @[@"_touchFeedbackView", @"_inkView", @"_hitTargetBorderView"]) {
+        id view = nil;
+        @try { view = [button valueForKey:key]; } @catch (__unused NSException *exception) {}
+        if ([view isKindOfClass:UIView.class]) {
+            ((UIView *)view).hidden = YES;
+            ((UIView *)view).alpha = 0.0;
+        }
+    }
+}
+
+static void YTKACEQuietSystemButton(UIView *button) {
+    if (![button isKindOfClass:UIButton.class]) return;
+    for (UIView *subview in button.subviews) {
+        if (![NSStringFromClass(subview.class) isEqualToString:@"_UISystemBackgroundView"]) continue;
+        subview.hidden = NO;
+        subview.alpha = 1.0;
+        for (UIView *fill in subview.subviews) {
+            CGFloat alpha = fill.backgroundColor != nil ? CGColorGetAlpha(fill.backgroundColor.CGColor) : 0.0;
+            if (alpha > 0.0 || fill.layer.borderWidth > 0.0) fill.alpha = 0.0;
+        }
+    }
+}
+
+static void YTKACEQuietButton(UIView *button) {
+    static Class qtmClass;
+    if (qtmClass == Nil) qtmClass = NSClassFromString(@"YTLightweightQTMButton");
+    YTKACEQuietSystemButton(button);
+    if (qtmClass == Nil || ![button isKindOfClass:qtmClass]) return;
+    objc_setAssociatedObject(button, YTKACEQuietButtonAssociation, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    YTKACEHideButtonFeedback(button);
+    SEL enabled = NSSelectorFromString(@"setEnabledBackgroundColor:");
+    if ([button respondsToSelector:enabled]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(button, enabled, UIColor.clearColor);
+    }
+    button.backgroundColor = UIColor.clearColor;
+    button.layer.backgroundColor = UIColor.clearColor.CGColor;
+}
+
+static void YTKACEQuietButtonsIn(UIView *view) {
+    for (UIView *subview in view.subviews) {
+        if ([subview isKindOfClass:UIButton.class]) YTKACEQuietButton(subview);
+        YTKACEQuietButtonsIn(subview);
+    }
+}
+
+static void YTKACEQTMSetBackground(UIView *receiver, SEL selector, UIColor *color) {
+    if (YTKACEButtonIsQuiet(receiver)) color = UIColor.clearColor;
+    if (OriginalQTMSetBackground != NULL) ((void (*)(id, SEL, id))OriginalQTMSetBackground)(receiver, selector, color);
+}
+
+static void YTKACEQTMTouchesBegan(UIView *receiver, SEL selector, NSSet *touches, UIEvent *event) {
+    if (OriginalQTMTouchesBegan != NULL) {
+        ((void (*)(id, SEL, id, id))OriginalQTMTouchesBegan)(receiver, selector, touches, event);
+    }
+    if (YTKACEButtonIsQuiet(receiver)) YTKACEHideButtonFeedback(receiver);
+}
+
+static BOOL YTKACEInsideGlassView(UIView *view, UIView *stop) {
+    for (UIView *current = view.superview; current != nil && current != stop; current = current.superview) {
+        if ([current isKindOfClass:UIVisualEffectView.class]) return YES;
+    }
+    return NO;
+}
+
 static void YTKACEGlassInsideButton(UIView *button, CGFloat side) {
+    YTKACEQuietButton(button);
     if ([button.superview isKindOfClass:NSClassFromString(@"_UIVisualEffectContentView")]) {
         return;
     }
@@ -473,6 +549,11 @@ static void YTKACEUpdateMultiSearch(UIView *field) {
         if ([subview isKindOfClass:UIButton.class]) [buttons addObject:subview];
         else YTKACECollectButtons(subview, buttons);
     }
+    NSUInteger rightSide = 0;
+    for (UIView *button in buttons) {
+        CGRect frame = [button convertRect:button.bounds toView:strip];
+        if (CGRectGetMinX(frame) >= CGRectGetMaxX(pillFrame) - 2.0 && CGRectGetWidth(frame) <= 64.0) rightSide++;
+    }
     NSHashTable<UIView *> *previous = objc_getAssociatedObject(strip, YTKACESideButtonsAssociation);
     NSHashTable<UIView *> *current = [NSHashTable weakObjectsHashTable];
     for (UIView *button in buttons) {
@@ -481,6 +562,12 @@ static void YTKACEUpdateMultiSearch(UIView *field) {
             CGRectGetMinX(frame) >= CGRectGetMaxX(pillFrame) - 2.0;
         BOOL small = CGRectGetWidth(frame) <= 64.0 && CGRectGetHeight(frame) <= 64.0;
         if (!beside || !small) continue;
+        BOOL grouped = CGRectGetMinX(frame) >= CGRectGetMaxX(pillFrame) - 2.0 && rightSide > 1;
+        if (grouped || YTKACEInsideGlassView(button, strip)) {
+            YTKACEClearInsideGlass(button);
+            YTKACEQuietButton(button);
+            continue;
+        }
         YTKACEGlassInsideButton(button, CGRectGetHeight(pillFrame));
         YTKACERemoveChromeGlass(button, YTKACESideGlassAssociation);
         [current addObject:button];
@@ -556,8 +643,15 @@ static void YTKACEUpdateSettingsButtons(UIViewController *controller) {
     NSMutableArray<UIView *> *buttons = [NSMutableArray array];
     for (UIView *root in roots) YTKACECollectTopButtons(root, window, buttons);
     for (UIView *button in buttons) {
-        if (enabled) YTKACEGlassInsideButton(button, 36.0);
-        else YTKACEClearInsideGlass(button);
+        BOOL inBar = bar != nil && [button isDescendantOfView:bar];
+        if (enabled && inBar) {
+            YTKACEClearInsideGlass(button);
+            YTKACEQuietButton(button);
+        } else if (enabled) {
+            YTKACEGlassInsideButton(button, 36.0);
+        } else {
+            YTKACEClearInsideGlass(button);
+        }
     }
 }
 
@@ -619,6 +713,10 @@ static void YTKACETopMoveToSuperview(UIView *receiver, SEL selector) {
 
 __attribute__((constructor)) static void YTKACEInstallGlassChrome(void) {
     if (!YTKACELiquidGlassAvailable()) return;
+    YTKACEInstallInstanceHook(@"YTLightweightQTMButton", @"setBackgroundColor:",
+                              (IMP)YTKACEQTMSetBackground, &OriginalQTMSetBackground);
+    YTKACEInstallInstanceHook(@"YTLightweightQTMButton", @"touchesBegan:withEvent:",
+                              (IMP)YTKACEQTMTouchesBegan, &OriginalQTMTouchesBegan);
     YTKACEInstallInstanceHook(@"YTRightNavigationButtons", @"didMoveToWindow",
                               (IMP)YTKACETopMoveToWindow, &OriginalTopMoveToWindow);
     YTKACEInstallInstanceHook(@"YTRightNavigationButtons", @"didMoveToSuperview",

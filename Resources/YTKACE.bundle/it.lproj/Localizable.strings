@@ -693,6 +693,7 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 
 /* Shorts download button position picker options */
 "Remove Frosted Tab Bar" = "Rimuovi barra schede con effetto frost";
+"Shrink Tab Bar When Scrolling" = "Riduci barra schede durante lo scorrimento";
 
 /* Sleep timer */
 "Sleep Timer Button" = "Pulsante timer di sospensione";
@@ -809,3 +810,14 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Liquid Glass Tab Bar" = "Barra delle schede Liquid Glass";
 "Liquid Glass" = "Liquid Glass";
 "Tab Bar and Top Bar" = "Barra delle schede e barra superiore";
+"Menus and Sheets" = "Menu e schede";
+"Notices" = "Avvisi";
+"Player Buttons" = "Pulsanti del player";
+"GLASS" = "VETRO";
+"EXTRAS" = "EXTRA";
+"Selected Tab Color" = "Colore scheda selezionata";
+"Text Only" = "Solo testo";
+"Text and Icon" = "Testo e icona";
+"Color" = "Colore";
+"Top Bar Buttons" = "Pulsanti barra superiore";
+"Tab bar, menus, notices, and player" = "Barra schede, menu, avvisi e player";

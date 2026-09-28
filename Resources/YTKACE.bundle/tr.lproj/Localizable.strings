@@ -693,6 +693,7 @@ CC BY-NC-SA 4.0 lisansı altında.";
 
 /* Shorts download button position picker options */
 "Remove Frosted Tab Bar" = "Buzlu sekme çubuğunu kaldır";
+"Shrink Tab Bar When Scrolling" = "Kaydırırken sekme çubuğunu küçült";
 
 /* Sleep timer */
 "Sleep Timer Button" = "Uyku Zamanlayıcı Düğmesi";
@@ -809,3 +810,14 @@ CC BY-NC-SA 4.0 lisansı altında.";
 "Liquid Glass Tab Bar" = "Liquid Glass sekme çubuğu";
 "Liquid Glass" = "Liquid Glass";
 "Tab Bar and Top Bar" = "Sekme Çubuğu ve Üst Çubuk";
+"Menus and Sheets" = "Menüler ve sayfalar";
+"Notices" = "Bildirimler";
+"Player Buttons" = "Oynatıcı düğmeleri";
+"GLASS" = "CAM";
+"EXTRAS" = "EKSTRALAR";
+"Selected Tab Color" = "Seçili sekme rengi";
+"Text Only" = "Yalnızca metin";
+"Text and Icon" = "Metin ve simge";
+"Color" = "Renk";
+"Top Bar Buttons" = "Üst çubuk düğmeleri";
+"Tab bar, menus, notices, and player" = "Sekme çubuğu, menüler, bildirimler ve oynatıcı";

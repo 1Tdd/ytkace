@@ -693,6 +693,7 @@ Na licencji CC BY-NC-SA 4.0.";
 
 /* Shorts download button position picker options */
 "Remove Frosted Tab Bar" = "Usuń matowy pasek kart";
+"Shrink Tab Bar When Scrolling" = "Zmniejszaj pasek kart podczas przewijania";
 
 /* Sleep timer */
 "Sleep Timer Button" = "Przycisk licznika usypiania";
@@ -809,3 +810,14 @@ Na licencji CC BY-NC-SA 4.0.";
 "Liquid Glass Tab Bar" = "Pasek kart Liquid Glass";
 "Liquid Glass" = "Liquid Glass";
 "Tab Bar and Top Bar" = "Pasek kart i górny pasek";
+"Menus and Sheets" = "Menu i arkusze";
+"Notices" = "Powiadomienia";
+"Player Buttons" = "Przyciski odtwarzacza";
+"GLASS" = "SZKŁO";
+"EXTRAS" = "DODATKI";
+"Selected Tab Color" = "Kolor wybranej karty";
+"Text Only" = "Tylko tekst";
+"Text and Icon" = "Tekst i ikona";
+"Color" = "Kolor";
+"Top Bar Buttons" = "Przyciski górnego paska";
+"Tab bar, menus, notices, and player" = "Pasek kart, menu, powiadomienia i odtwarzacz";

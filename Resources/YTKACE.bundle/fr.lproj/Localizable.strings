@@ -693,6 +693,7 @@ Sous licence CC BY-NC-SA 4.0.";
 
 /* Shorts download button position picker options */
 "Remove Frosted Tab Bar" = "Supprimer la barre d'onglets givrée";
+"Shrink Tab Bar When Scrolling" = "Réduire la barre d'onglets au défilement";
 
 /* Sleep timer */
 "Sleep Timer Button" = "Bouton minuteur de sommeil";
@@ -809,3 +810,14 @@ Sous licence CC BY-NC-SA 4.0.";
 "Liquid Glass Tab Bar" = "Barre d’onglets Liquid Glass";
 "Liquid Glass" = "Liquid Glass";
 "Tab Bar and Top Bar" = "Barre d’onglets et barre supérieure";
+"Menus and Sheets" = "Menus et feuilles";
+"Notices" = "Notifications";
+"Player Buttons" = "Boutons du lecteur";
+"GLASS" = "VERRE";
+"EXTRAS" = "EXTRAS";
+"Selected Tab Color" = "Couleur de l'onglet sélectionné";
+"Text Only" = "Texte seul";
+"Text and Icon" = "Texte et icône";
+"Color" = "Couleur";
+"Top Bar Buttons" = "Boutons de la barre supérieure";
+"Tab bar, menus, notices, and player" = "Barre d'onglets, menus, notifications et lecteur";

@@ -702,6 +702,7 @@ CC BY-NC-SA 4.0 ライセンス。";
 /* Skip time stepper */
 "Skip Time" = "スキップ時間";
 "Remove Frosted Tab Bar" = "フロストタブバーを削除";
+"Shrink Tab Bar When Scrolling" = "スクロール時にタブバーを縮小";
 
 /* Sleep timer */
 "Sleep Timer Button" = "スリープタイマーボタン";
@@ -818,3 +819,14 @@ CC BY-NC-SA 4.0 ライセンス。";
 "Liquid Glass Tab Bar" = "Liquid Glass タブバー";
 "Liquid Glass" = "Liquid Glass";
 "Tab Bar and Top Bar" = "タブバーとトップバー";
+"Menus and Sheets" = "メニューとシート";
+"Notices" = "通知";
+"Player Buttons" = "プレーヤーのボタン";
+"GLASS" = "ガラス";
+"EXTRAS" = "その他";
+"Selected Tab Color" = "選択中タブの色";
+"Text Only" = "テキストのみ";
+"Text and Icon" = "テキストとアイコン";
+"Color" = "色";
+"Top Bar Buttons" = "トップバーのボタン";
+"Tab bar, menus, notices, and player" = "タブバー、メニュー、通知、プレーヤー";

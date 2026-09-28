@@ -303,6 +303,11 @@ BOOL YTKACEPreferenceNeedsRestart(NSString *key) {
         @"YTKACE.Preference.App.RTLDisabled",
         @"YTKACE.Preference.Playback.LegacyQualityMenu",
         @"YTKACE.Preference.Navigation.StatusBarHidden",
+        @"YTKACE.Preference.Tabs.Glass",
+        @"YTKACE.Preference.Glass.TopBar",
+        @"YTKACE.Preference.Glass.Menus",
+        @"YTKACE.Preference.Glass.Notices",
+        @"YTKACE.Preference.Glass.Player",
         @"YTKACE.Preference.Tabs.Startup",
         @"YTKACE.Preference.Playback.CaptionsAlwaysOn",
         @"YTKACE.Preference.Navigation.NotificationsHidden"
@@ -313,23 +318,30 @@ void YTKACEShowRestartNotice(UIViewController *controller) {
     UIView *host = controller.navigationController.view ?: controller.view;
     UIView *old = [host viewWithTag:0x594B524E];
     [old removeFromSuperview];
-    UILabel *notice = [UILabel new];
+    UIView *notice = [UIView new];
     notice.tag = 0x594B524E;
-    notice.text = YTKACELocalized(@"Your changes take effect once YouTube restarts.");
-    notice.textColor = UIColor.labelColor;
     notice.backgroundColor = [UIColor colorWithWhite:0.72 alpha:0.96];
-    notice.font = [UIFont systemFontOfSize:13.0];
     notice.layer.cornerRadius = 8.0;
     notice.layer.masksToBounds = YES;
-    notice.textAlignment = NSTextAlignmentLeft;
     notice.translatesAutoresizingMaskIntoConstraints = NO;
+    UILabel *label = [UILabel new];
+    label.text = YTKACELocalized(@"Your changes take effect once YouTube restarts.");
+    label.textColor = UIColor.labelColor;
+    label.font = [UIFont systemFontOfSize:13.0];
+    label.numberOfLines = 2;
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [notice addSubview:label];
+    if (YTKACEApplyGlassBackground(notice, NO)) notice.layer.cornerRadius = 16.0;
     [host addSubview:notice];
     UILayoutGuide *safe = host.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
         [notice.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:8.0],
         [notice.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-8.0],
         [notice.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-8.0],
-        [notice.heightAnchor constraintEqualToConstant:48.0]
+        [notice.heightAnchor constraintEqualToConstant:48.0],
+        [label.leadingAnchor constraintEqualToAnchor:notice.leadingAnchor constant:14.0],
+        [label.trailingAnchor constraintEqualToAnchor:notice.trailingAnchor constant:-14.0],
+        [label.centerYAnchor constraintEqualToAnchor:notice.centerYAnchor]
     ]];
     notice.alpha = 0.0;
     [UIView animateWithDuration:0.2 animations:^{ notice.alpha = 1.0; }];
@@ -1642,6 +1654,25 @@ static NSDictionary *YTKACENavigationOptionsDefinition(void) {
     ], @[YTKACELocalized(@"BRAND & CAST"), YTKACELocalized(@"TOP BUTTONS"), YTKACELocalized(@"PAGE CHROME")]);
 }
 
+static NSDictionary *YTKACEGlassOptionsDefinition(void) {
+    return YTKACEPageDefinition(@"glass", @"Liquid Glass", @[
+        @[
+            YTKACEToggle(@"Tab Bar", @"YTKACE.Preference.Tabs.Glass", @"", @""),
+            YTKACEToggle(@"Top Bar Buttons", @"YTKACE.Preference.Glass.TopBar", @"", @""),
+            YTKACEToggle(@"Menus and Sheets", @"YTKACE.Preference.Glass.Menus", @"", @""),
+            YTKACEToggle(@"Notices", @"YTKACE.Preference.Glass.Notices", @"", @""),
+            YTKACEToggle(@"Player Buttons", @"YTKACE.Preference.Glass.Player", @"", @"")
+        ],
+        @[
+            YTKACEToggle(@"Shrink Tab Bar When Scrolling", @"YTKACE.Preference.Tabs.GlassMinimize", @"", @""),
+            YTKACEPicker(@"Selected Tab Color", @"YTKACE.Preference.Tabs.SelectedTint",
+                         @[YTKACELocalized(@"Off"), YTKACELocalized(@"Text Only"), YTKACELocalized(@"Text and Icon")],
+                         @[@0, @1, @2], 0, @"", @""),
+            YTKACEColor(@"Color", @"YTKACE.Preference.Tabs.SelectedTintColor", @"#0A84FF")
+        ]
+    ], @[YTKACELocalized(@"GLASS"), YTKACELocalized(@"EXTRAS")]);
+}
+
 static NSDictionary *YTKACEShortsOptionsDefinition(void) {
     return YTKACEPageDefinition(@"shorts", @"Shorts", @[
         @[
@@ -1785,6 +1816,10 @@ UIViewController *YTKACEMakeNavigationOptionsController(void) {
     return YTKACEPageFromDefinition(YTKACENavigationOptionsDefinition());
 }
 
+UIViewController *YTKACEMakeGlassOptionsController(void) {
+    return YTKACEPageFromDefinition(YTKACEGlassOptionsDefinition());
+}
+
 UIViewController *YTKACEMakeShortsOptionsController(void) {
     return YTKACEPageFromDefinition(YTKACEShortsOptionsDefinition());
 }
@@ -1804,6 +1839,7 @@ NSArray<NSDictionary *> *YTKACEAllPageDefinitions(void) {
         YTKACEOverlayOptionsDefinition(),
         YTKACEStreamingOptionsDefinition(),
         YTKACENavigationOptionsDefinition(),
+        YTKACEGlassOptionsDefinition(),
         YTKACEShortsOptionsDefinition(),
         YTKACEMiscOptionsDefinition(),
         YTKACEGestureOptionsDefinition()

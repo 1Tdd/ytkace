@@ -693,6 +693,7 @@ Licensed under CC BY-NC-SA 4.0." = "يستخدم YTKACE بيانات SponsorBloc
 
 /* Shorts download button position picker options */
 "Remove Frosted Tab Bar" = "إزالة شريط التبويب المصفر";
+"Shrink Tab Bar When Scrolling" = "تصغير شريط التبويبات عند التمرير";
 
 /* Sleep timer */
 "Sleep Timer Button" = "زر مؤقت النوم";
@@ -809,3 +810,14 @@ Licensed under CC BY-NC-SA 4.0." = "يستخدم YTKACE بيانات SponsorBloc
 "Liquid Glass Tab Bar" = "شريط تبويب Liquid Glass";
 "Liquid Glass" = "Liquid Glass";
 "Tab Bar and Top Bar" = "شريط التبويب والشريط العلوي";
+"Menus and Sheets" = "القوائم والأوراق";
+"Notices" = "الإشعارات";
+"Player Buttons" = "أزرار المشغل";
+"GLASS" = "الزجاج";
+"EXTRAS" = "إضافات";
+"Selected Tab Color" = "لون التبويب المحدد";
+"Text Only" = "النص فقط";
+"Text and Icon" = "النص والأيقونة";
+"Color" = "اللون";
+"Top Bar Buttons" = "أزرار الشريط العلوي";
+"Tab bar, menus, notices, and player" = "شريط التبويبات والقوائم والإشعارات والمشغل";

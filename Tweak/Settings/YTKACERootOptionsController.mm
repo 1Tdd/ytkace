@@ -467,7 +467,7 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
         case 0: return 1;
         case 1: return 4;
         case 2: return 5;
-        case 3: return 2;
+        case 3: return 3;
         case 4: return 2;
         default: return 0;
     }
@@ -641,12 +641,13 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
     }
 
     if (indexPath.section == 3) {
-        NSArray *titles = @[YTKACELocalized(@"Navigation"), YTKACELocalized(@"Other")];
+        NSArray *titles = @[YTKACELocalized(@"Navigation"), YTKACELocalized(@"Liquid Glass"), YTKACELocalized(@"Other")];
         NSArray *details = @[
             YTKACELocalized(@"Top bar buttons, logo, and cast"),
+            YTKACELocalized(@"Tab bar, menus, notices, and player"),
             YTKACELocalized(@"Appearance, privacy, and compatibility")
         ];
-        NSArray *symbols = @[@"rectangle.topthird.inset.filled", @"ellipsis.circle"];
+        NSArray *symbols = @[@"rectangle.topthird.inset.filled", @"drop", @"ellipsis.circle"];
         UITableViewCell *cell = [self baseCellForTableView:tableView style:UITableViewCellStyleSubtitle];
         cell.textLabel.text = titles[(NSUInteger)indexPath.row];
         cell.detailTextLabel.text = details[(NSUInteger)indexPath.row];
@@ -726,6 +727,7 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
     } else if (group == 3) {
         NSArray *builders = @[
             [^UIViewController *{ return YTKACEMakeNavigationOptionsController(); } copy],
+            [^UIViewController *{ return YTKACEMakeGlassOptionsController(); } copy],
             [^UIViewController *{ return YTKACEMakeMiscOptionsController(); } copy]
         ];
         UIViewController *(^builder)(void) = builders[(NSUInteger)indexPath.row];

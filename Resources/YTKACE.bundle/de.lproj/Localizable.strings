@@ -693,6 +693,7 @@ Lizenziert unter CC BY-NC-SA 4.0.";
 
 /* Shorts download button position picker options */
 "Remove Frosted Tab Bar" = "Frosted Tab Bar entfernen";
+"Shrink Tab Bar When Scrolling" = "Registerleiste beim Scrollen verkleinern";
 
 /* Sleep timer */
 "Sleep Timer Button" = "Schlaf-Timer-Taste";
@@ -809,3 +810,14 @@ Lizenziert unter CC BY-NC-SA 4.0.";
 "Liquid Glass Tab Bar" = "Liquid Glass-Tableiste";
 "Liquid Glass" = "Liquid Glass";
 "Tab Bar and Top Bar" = "Tab-Leiste und obere Leiste";
+"Menus and Sheets" = "Menüs und Blätter";
+"Notices" = "Hinweise";
+"Player Buttons" = "Player-Tasten";
+"GLASS" = "GLAS";
+"EXTRAS" = "EXTRAS";
+"Selected Tab Color" = "Farbe des ausgewählten Tabs";
+"Text Only" = "Nur Text";
+"Text and Icon" = "Text und Symbol";
+"Color" = "Farbe";
+"Top Bar Buttons" = "Tasten der oberen Leiste";
+"Tab bar, menus, notices, and player" = "Registerleiste, Menüs, Hinweise und Player";
