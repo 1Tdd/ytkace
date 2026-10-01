@@ -175,6 +175,7 @@
 "Remove Download" = "Remove Download";
 "Remove End Screen" = "Remove End Screen";
 "Remove Fullscreen Actions" = "Remove Fullscreen Actions";
+"Remove Horizontal Shelves" = "Remove Horizontal Shelves";
 "Remove Hype" = "Remove Hype";
 "Remove Info Cards" = "Remove Info Cards";
 "Remove Like" = "Remove Like";
@@ -208,6 +209,7 @@
 "Remove YouTube Logo" = "Remove YouTube Logo";
 "Removes YouTube Mix playlists from the feed." = "Removes YouTube Mix playlists from the feed.";
 "Removes community posts from the feed." = "Removes community posts from the feed.";
+"Removes horizontal shelves like Watch again from the feed." = "Removes horizontal shelves like Watch again from the feed.";
 "Removes playable games from the feed." = "Removes playable games from the feed.";
 "Removes the Messages button." = "Removes the Messages button.";
 "Rename" = "Rename";
