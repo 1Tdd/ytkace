@@ -8,6 +8,15 @@
 #import <objc/runtime.h>
 #import <stdatomic.h>
 
+static BOOL YTKACEShortsSuggestionPillHidden(void) {
+    id stored = [NSUserDefaults.standardUserDefaults objectForKey:@"YTKACE.Preference.Shorts.SuggestionPillHidden"];
+    if (stored == nil) {
+        BOOL legacy = [NSUserDefaults.standardUserDefaults boolForKey:@"YTKACE.Preference.Overlay.CommentPreviewsHidden"];
+        [NSUserDefaults.standardUserDefaults setBool:legacy forKey:@"YTKACE.Preference.Shorts.SuggestionPillHidden"];
+    }
+    return YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.SuggestionPillHidden");
+}
+
 static IMP OriginalDisplayViewDidMove;
 static IMP OriginalActionCellPrepareForReuse;
 static IMP OriginalFixedBarLayout;
@@ -1108,6 +1117,7 @@ static void YTKACEFeedRefreshFlags(void) {
         actionHideAny ||
         YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CommentsHidden") ||
         YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CommentPreviewsHidden") ||
+        YTKACEShortsSuggestionPillHidden() ||
         YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CommentGuidelinesHidden") ||
         YTKACEFeatureEnabled(@"YTKACE.Preference.Navigation.TopicsHidden") ||
         YTKACEFeatureEnabled(@"YTKACE.Preference.Privacy.SearchHistoryDisabled") ||
@@ -1921,7 +1931,7 @@ static BOOL YTKACEContentShouldHide(UIView *view, BOOL *hideSuperview) {
         [identifier isEqualToString:@"id_ui_comments_entry_point_teaser"]) {
         return YES;
     }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CommentPreviewsHidden") &&
+    if (YTKACEShortsSuggestionPillHidden() &&
         [identifier isEqualToString:
             @"id_elements_components_suggested_action"] &&
         YTKACEViewInsideReelOverlay(view)) {
@@ -1958,7 +1968,8 @@ static BOOL YTKACEContentShouldHide(UIView *view, BOOL *hideSuperview) {
         YTKACEContentContains(token, @[@"premium_upsell", @"premium_promo"])) {
         return YES;
     }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.App.UpdatePromptHidden") &&
+    if ((YTKACEFeatureEnabled(@"YTKACE.Preference.Ads.PremiumPromosHidden") ||
+         YTKACEFeatureEnabled(@"YTKACE.Preference.App.UpdatePromptHidden")) &&
         YTKACEContentContains(token, @[@"update_dialog", @"upgrade_dialog"])) {
         return YES;
     }

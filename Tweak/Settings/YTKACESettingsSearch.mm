@@ -7,24 +7,7 @@
 #import <objc/runtime.h>
 
 static UIViewController *YTKACEControllerForPageID(NSString *pageID) {
-    static NSDictionary<NSString *, UIViewController *(^)(void)> *builders;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        builders = @{
-            @"sponsorblock": ^UIViewController *{ return YTKACEMakeSponsorBlockController(); },
-            @"player": ^UIViewController *{ return YTKACEMakePlayerControlsController(); },
-            @"overlay": ^UIViewController *{ return YTKACEMakeOverlayOptionsController(); },
-            @"playback": ^UIViewController *{ return YTKACEMakeStreamingOptionsController(); },
-            @"navigation": ^UIViewController *{ return YTKACEMakeNavigationOptionsController(); },
-            @"glass": ^UIViewController *{ return YTKACEMakeGlassOptionsController(); },
-            @"tabs": ^UIViewController *{ return YTKACEMakeTabBarOptionsController(); },
-            @"shorts": ^UIViewController *{ return YTKACEMakeShortsOptionsController(); },
-            @"other": ^UIViewController *{ return YTKACEMakeMiscOptionsController(); },
-            @"gestures": ^UIViewController *{ return YTKACEMakeGestureOptionsController(); }
-        };
-    });
-    UIViewController *(^builder)(void) = builders[pageID ?: @""];
-    return builder != nil ? builder() : nil;
+    return pageID.length != 0 ? YTKACEMakeSettingsPage(pageID) : nil;
 }
 
 static NSArray<NSDictionary *> *YTKACESearchIndex(void) {
@@ -45,6 +28,7 @@ static NSArray<NSDictionary *> *YTKACESearchIndex(void) {
                 NSString *subtitle = [item[@"subtitle"] isKindOfClass:NSString.class]
                     ? item[@"subtitle"] : @"";
                 [records addObject:@{
+                    @"en": [item[@"en"] isKindOfClass:NSString.class] ? item[@"en"] : @"",
                     @"item": item,
                     @"pageID": page[@"id"],
                     @"pageTitle": pageTitle,
@@ -65,6 +49,9 @@ static NSInteger YTKACEMatchScore(NSDictionary *record, NSString *query) {
     NSRange inTitle = [record[@"title"] rangeOfString:query options:options];
     if (inTitle.location == 0) return 0;
     if (inTitle.location != NSNotFound) return 1;
+    NSRange inEnglish = [record[@"en"] rangeOfString:query options:options];
+    if (inEnglish.location == 0) return 1;
+    if (inEnglish.location != NSNotFound) return 2;
     if ([record[@"subtitle"] rangeOfString:query options:options].location != NSNotFound) return 2;
     if ([record[@"header"] rangeOfString:query options:options].location != NSNotFound ||
         [record[@"pageTitle"] rangeOfString:query options:options].location != NSNotFound) return 3;

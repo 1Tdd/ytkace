@@ -87,6 +87,78 @@ void YTKACESetShortsOverlayFullscreen(UIView *overlay,
     }
 }
 
+static void YTKACECollectShortsElements(UIView *view, NSMutableArray<UIView *> *found, NSUInteger depth) {
+    if (view == nil || depth > 12) return;
+    NSString *name = NSStringFromClass(view.class);
+    if ([name isEqualToString:@"YTReelElementAsyncComponentView"] ||
+        [name isEqualToString:@"YTReelGradientView"] ||
+        [name hasPrefix:@"YTShortsStickersView"]) {
+        [found addObject:view];
+        return;
+    }
+    for (UIView *subview in view.subviews) YTKACECollectShortsElements(subview, found, depth + 1);
+}
+
+void YTKACESetShortsElementsFullscreen(UIView *container, BOOL fullscreen) {
+    NSMutableArray<UIView *> *elements = [NSMutableArray array];
+    YTKACECollectShortsElements(container, elements, 0);
+    for (UIView *element in elements) {
+        if (YTKACEContainsShortsDownloadButton(element)) continue;
+        if (fullscreen) {
+            if (objc_getAssociatedObject(element, YTKACEShortsFullscreenAlphaKey) == nil) {
+                objc_setAssociatedObject(element, YTKACEShortsFullscreenAlphaKey, @(element.alpha),
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            element.alpha = 0.0;
+        } else {
+            NSNumber *alpha = objc_getAssociatedObject(element, YTKACEShortsFullscreenAlphaKey);
+            element.alpha = alpha != nil ? alpha.doubleValue : 1.0;
+            objc_setAssociatedObject(element, YTKACEShortsFullscreenAlphaKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+}
+
+UIView *YTKACEShortsContainerForView(UIView *view, UIView *fallbackRoot) {
+    Class containerClass = NSClassFromString(@"YTReelContainerView");
+    if (containerClass == Nil) return nil;
+    for (UIView *candidate = view; candidate != nil; candidate = candidate.superview) {
+        if ([candidate isKindOfClass:containerClass]) return candidate;
+    }
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:fallbackRoot ?: [UIView new]];
+    while (stack.count != 0) {
+        UIView *candidate = stack.lastObject;
+        [stack removeLastObject];
+        if ([candidate isKindOfClass:containerClass] && candidate.window != nil &&
+            CGRectIntersectsRect([candidate convertRect:candidate.bounds toView:nil], candidate.window.bounds)) {
+            return candidate;
+        }
+        [stack addObjectsFromArray:candidate.subviews];
+    }
+    return nil;
+}
+
+static BOOL YTKACEShortsGlobalFullscreen;
+
+BOOL YTKACEShortsNewFullscreenActive(void) {
+    return YTKACEShortsGlobalFullscreen;
+}
+
+void YTKACESetShortsNewFullscreen(UIView *container, BOOL fullscreen) {
+    YTKACEShortsGlobalFullscreen = fullscreen;
+    SEL pivotSelector = NSSelectorFromString(fullscreen ? @"hidePivotBar" : @"showPivotBar");
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            id root = window.rootViewController;
+            if ([root respondsToSelector:pivotSelector]) ((void (*)(id, SEL))objc_msgSend)(root, pivotSelector);
+        }
+    }
+    if (container == nil) return;
+    [UIView animateWithDuration:0.25 animations:^{
+        YTKACESetShortsElementsFullscreen(container, fullscreen);
+    }];
+}
+
 @implementation YTKACEDownloadJob
 @end
 
@@ -906,6 +978,12 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 
 - (void)toggleShortsFullscreenFromView:(UIView *)sourceView {
     UIViewController *controller = [self shortsControllerFromView:sourceView];
+    if (controller == nil) {
+        UIView *container = YTKACEShortsContainerForView(sourceView, sourceView.window);
+        if (container == nil) return;
+        YTKACESetShortsNewFullscreen(container, !YTKACEShortsGlobalFullscreen);
+        return;
+    }
     if (controller != nil) {
             BOOL fullscreen = [objc_getAssociatedObject(
                 controller, YTKACEShortsFullscreenKey) boolValue];
@@ -919,12 +997,18 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
             SEL overlaySelector = NSSelectorFromString(@"playbackOverlay");
             id overlay = [shortsView respondsToSelector:overlaySelector]
                 ? ((id (*)(id, SEL))objc_msgSend)(shortsView, overlaySelector) : nil;
+            UIView *container = [overlay isKindOfClass:UIView.class]
+                ? nil : YTKACEShortsContainerForView(sourceView, controller.view);
             [UIView animateWithDuration:0.3 animations:^{
                 if ([overlay isKindOfClass:UIView.class]) {
                     YTKACESetShortsOverlayFullscreen(
                         (UIView *)overlay, !fullscreen);
+                } else if (container != nil) {
+                    YTKACESetShortsElementsFullscreen(container, !fullscreen);
                 }
             }];
+            YTKACEDownloadLog(@"shorts", @"fullscreen=%d overlay=%d container=%d", !fullscreen,
+                              [overlay isKindOfClass:UIView.class], container != nil);
             objc_setAssociatedObject(controller, YTKACEShortsFullscreenKey, @(!fullscreen),
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             for (NSNumber *delay in @[@0.05, @0.20]) {
@@ -951,8 +1035,9 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     UIImage *chevron = [self menuIcon:@"chevron.right"];
     BOOL autoSkip = YTKACEFeatureEnabled(@"autoSkipShorts");
     UIViewController *shortsController = [self shortsControllerFromView:sourceView];
-    BOOL fullscreen = [objc_getAssociatedObject(
-        shortsController, YTKACEShortsFullscreenKey) boolValue];
+    BOOL fullscreen = shortsController != nil
+        ? [objc_getAssociatedObject(shortsController, YTKACEShortsFullscreenKey) boolValue]
+        : YTKACEShortsGlobalFullscreen;
     NSString *fullscreenTitle = fullscreen ? YTKACELocalized(@"Exit Fullscreen") : YTKACELocalized(@"Fullscreen");
     NSString *fullscreenIcon = fullscreen
         ? @"arrow.down.right.and.arrow.up.left"

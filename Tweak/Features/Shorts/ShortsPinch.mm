@@ -152,7 +152,18 @@ static void YTKACEReelWillDisappear(id receiver, SEL selector, BOOL animated) {
     }
 }
 
+static IMP OriginalReelRootWillDisappear;
+
+static void YTKACEReelRootWillDisappear(id receiver, SEL selector, BOOL animated) {
+    if (YTKACEShortsNewFullscreenActive()) YTKACESetShortsNewFullscreen(nil, NO);
+    if (OriginalReelRootWillDisappear != NULL) {
+        ((void (*)(id, SEL, BOOL))OriginalReelRootWillDisappear)(receiver, selector, animated);
+    }
+}
+
 void YTKACEInstallShortsPinchHooks(void) {
+    YTKACEInstallInstanceHook(@"YTReelWatchRootViewController", @"viewWillDisappear:",
+                              (IMP)YTKACEReelRootWillDisappear, &OriginalReelRootWillDisappear);
     YTKACEInstallInstanceHook(@"YTPlayerView", @"didPinch:",
                               (IMP)YTKACEDidPinch, &OriginalDidPinch);
     YTKACEInstallInstanceHook(@"YTReelPlayerViewController",

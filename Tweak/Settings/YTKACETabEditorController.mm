@@ -41,6 +41,10 @@ static NSArray<NSString *> *YTKACETintTitles(void) {
     return @[YTKACELocalized(@"Off"), YTKACELocalized(@"Text Only"), YTKACELocalized(@"Text and Icon")];
 }
 
+static NSArray<NSString *> *YTKACEFrostedTitles(void) {
+    return @[YTKACELocalized(@"Default"), YTKACELocalized(@"On"), YTKACELocalized(@"Off")];
+}
+
 static NSUInteger YTKACETintIndex(void) {
     NSInteger mode = [YTKACEPreferenceObject(@"YTKACE.Preference.Tabs.SelectedTint") integerValue];
     return (NSUInteger)MAX(0, MIN(2, mode));
@@ -75,7 +79,7 @@ static NSString *YTKACETintHexFromColor(UIColor *color) {
 @implementation YTKACETabEditorController
 
 - (NSArray<NSString *> *)mainRows {
-    NSMutableArray<NSString *> *rows = [@[@"labels", @"shorts", @"frosted"] mutableCopy];
+    NSMutableArray<NSString *> *rows = [@[@"labels", @"shorts", @"hometabs", @"frosted"] mutableCopy];
     [rows addObject:@"tint"];
     [rows addObject:@"tintColor"];
     return rows;
@@ -231,6 +235,13 @@ willDisplayHeaderView:(UIView *)view
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         return cell;
     }
+    if ([row isEqualToString:@"frosted"]) {
+        cell.textLabel.text = YTKACELocalized(@"Frosted Tab Bar");
+        cell.detailTextLabel.text = YTKACEFrostedTitles()[(NSUInteger)YTKACEFrostedTabBarMode()];
+        cell.detailTextLabel.textColor = YTKACEAccentColor();
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        return cell;
+    }
     if ([row isEqualToString:@"tintColor"]) {
         cell.textLabel.text = YTKACELocalized(@"Color");
         UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(0.0, 0.0, 28.0, 28.0)];
@@ -246,12 +257,12 @@ willDisplayHeaderView:(UIView *)view
 
     if (indexPath.section == 0) {
         NSDictionary *titles = @{@"labels": YTKACELocalized(@"Hide Tab Labels"),
-                                 @"shorts": YTKACELocalized(@"Prevent Open in Shorts"),
-                                 @"frosted": YTKACELocalized(@"Remove Frosted Tab Bar"),
+                                 @"shorts": YTKACELocalized(@"Don't Open App in Shorts"),
+                                 @"hometabs": YTKACELocalized(@"Remove Home Top Tabs"),
                                  };
         NSDictionary *keys = @{@"labels": @"YTKACE.Preference.Tabs.LabelsHidden",
                                @"shorts": @"YTKACE.Preference.Shorts.PreventAutoOpen",
-                               @"frosted": @"YTKACE.Preference.Tabs.FrostedHidden",
+                               @"hometabs": @"YTKACE.Preference.Feed.HomeTabsHidden",
                                };
         cell.textLabel.text = titles[row];
         UISwitch *toggle = [UISwitch new];
@@ -330,8 +341,7 @@ willDisplayHeaderView:(UIView *)view
 - (void)toggleChanged:(UISwitch *)sender {
     NSString *key = objc_getAssociatedObject(sender, YTKACETabSwitchKey);
     YTKACESetPreference(key, sender.isOn);
-    if ([key isEqualToString:@"YTKACE.Preference.Tabs.FrostedHidden"] ||
-        [key isEqualToString:@"YTKACE.Preference.Tabs.Glass"] ||
+    if ([key isEqualToString:@"YTKACE.Preference.Tabs.Glass"] ||
         [key isEqualToString:@"YTKACE.Preference.Tabs.GlassMinimize"]) {
         YTKACERefreshPivotBarBackground();
         return;
@@ -442,6 +452,18 @@ commitEditingStyle:(UITableViewCellEditingStyle)editingStyle
                 [self.tableView reloadRowsAtIndexPaths:@[indexPath]
                                       withRowAnimation:UITableViewRowAnimationNone];
                 YTKACERefreshPivotBarBackground();
+            });
+        return;
+    }
+    if ([row isEqualToString:@"frosted"]) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+        YTKACEPresentSelectionMenu(self, cell, YTKACELocalized(@"Frosted Tab Bar"), YTKACEFrostedTitles(),
+            (NSUInteger)YTKACEFrostedTabBarMode(), ^(NSUInteger index) {
+                YTKACESetPreferenceObject(@"YTKACE.Preference.Tabs.Frosted", @(index));
+                [self.tableView reloadRowsAtIndexPaths:@[indexPath]
+                                      withRowAnimation:UITableViewRowAnimationNone];
+                YTKACERefreshPivotBarBackground();
+                YTKACEShowRestartNotice(self);
             });
         return;
     }
