@@ -891,8 +891,8 @@
 "Turns captions on in this language when a video has them." = "Ativa as legendas neste idioma quando o vídeo as tiver.";
 "Hide the comments box under the video." = "Oculta a caixa de comentários abaixo do vídeo.";
 "Hide shopping and product tags in videos, Shorts and feeds." = "Oculta tags de compras e produtos em vídeos, Shorts e feeds.";
-"Remove Home Top Tabs" = "Ocultar abas no topo do Início";
-"Hide the Subscriptions, Music and Live tabs inside Home." = "Oculta as abas Inscrições, Música e Ao vivo dentro do Início.";
+"Normal Home Layout" = "Layout normal do Início";
+"Switches the tabbed Home redesign some accounts get back to the normal layout." = "Volta o redesign do Início com abas, que algumas contas recebem, para o layout normal.";
 "Remove Filter Chips" = "Ocultar filtros";
 "Hide the filter chips at the top of Home and Subscriptions." = "Oculta os filtros no topo do Início e de Inscrições.";
 "Show a thin progress line at the bottom of Shorts." = "Mostra uma linha fina de progresso na parte de baixo dos Shorts.";
@@ -932,3 +932,7 @@
 "Loading playlist…" = "Carregando playlist…";
 "Hold to Copy Text" = "Segurar para copiar texto";
 "Hold a post or comment to copy its text." = "Segure uma publicação ou comentário para copiar o texto.";
+"%lu downloading" = "%lu baixando";
+"%lu failed" = "%lu com falha";
+"Downloading" = "Baixando";
+"All" = "Tudo";

@@ -79,7 +79,7 @@ static NSString *YTKACETintHexFromColor(UIColor *color) {
 @implementation YTKACETabEditorController
 
 - (NSArray<NSString *> *)mainRows {
-    NSMutableArray<NSString *> *rows = [@[@"labels", @"shorts", @"hometabs", @"frosted"] mutableCopy];
+    NSMutableArray<NSString *> *rows = [@[@"labels", @"shorts", @"frosted"] mutableCopy];
     [rows addObject:@"tint"];
     [rows addObject:@"tintColor"];
     return rows;
@@ -258,11 +258,9 @@ willDisplayHeaderView:(UIView *)view
     if (indexPath.section == 0) {
         NSDictionary *titles = @{@"labels": YTKACELocalized(@"Hide Tab Labels"),
                                  @"shorts": YTKACELocalized(@"Don't Open App in Shorts"),
-                                 @"hometabs": YTKACELocalized(@"Remove Home Top Tabs"),
                                  };
         NSDictionary *keys = @{@"labels": @"YTKACE.Preference.Tabs.LabelsHidden",
                                @"shorts": @"YTKACE.Preference.Shorts.PreventAutoOpen",
-                               @"hometabs": @"YTKACE.Preference.Feed.HomeTabsHidden",
                                };
         cell.textLabel.text = titles[row];
         UISwitch *toggle = [UISwitch new];

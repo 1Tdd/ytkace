@@ -166,6 +166,7 @@ void YTKACESetShortsNewFullscreen(UIView *container, BOOL fullscreen) {
 @property(nonatomic, strong) NSURLSession *session;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, YTKACEDownloadJob *> *jobs;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, YTKACEDownloadJob *> *activeJobs;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, YTKACEDownloadJob *> *retryableJobs;
 @property(nonatomic, weak) UIView *downloadSourceView;
 @property(nonatomic, strong, nullable) id externalResponse;
 @property(nonatomic, weak) UIView *externalSourceView;
@@ -186,6 +187,8 @@ void YTKACESetShortsNewFullscreen(UIView *container, BOOL fullscreen) {
                      audioOnly:(BOOL)audioOnly
                       category:(NSString *)category;
 - (void)presentShareSheetForURL:(NSURL *)url;
+- (void)launchJob:(YTKACEDownloadJob *)job;
+- (void)retryJobWithIdentifier:(NSString *)identifier;
 - (void)resolveAudioDestinationFromView:(nullable UIView *)sourceView
                                    then:(dispatch_block_t)continuation;
 - (void)mergeVideoURL:(NSURL *)videoURL audioURL:(NSURL *)audioURL
@@ -290,6 +293,9 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
                                                  delegate:self
                                             delegateQueue:queue];
         __weak YTKACEDownloadCoordinator *weakSelf = self;
+        YTKACEDownloadProgressView.sharedView.retryHandler = ^(NSString *identifier) {
+            [weakSelf retryJobWithIdentifier:identifier];
+        };
         YTKACEDownloadProgressView.sharedView.cancelHandler = ^(NSString *identifier) {
             YTKACEDownloadJob *job = weakSelf.activeJobs[identifier];
             if (job != nil && job.sabrTask == nil && job.task == nil && job.directTask == nil) {
@@ -1435,6 +1441,15 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     YTKACEDownloadLog(job.identifier, @"destination photos=%d share=%d",
         job.savesToPhotos, job.sharesFile);
     [self chooseCaptionsForJob:job then:^{
+        [self launchJob:job];
+    }];
+}
+
+- (void)launchJob:(YTKACEDownloadJob *)job {
+    {
+        if (self.retryableJobs == nil) self.retryableJobs = [NSMutableDictionary dictionary];
+        if (self.retryableJobs.count >= 24) [self.retryableJobs removeAllObjects];
+        self.retryableJobs[job.identifier] = job;
         self.activeJobs[job.identifier] = job;
         [YTKACEDownloadProgressView.sharedView beginJob:job.identifier
             title:job.title thumbnailURL:job.thumbnailURL];
@@ -1449,7 +1464,34 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         } else {
             [self startSABRJob:job];
         }
-    }];
+    }
+}
+
+- (void)retryJobWithIdentifier:(NSString *)identifier {
+    YTKACEDownloadJob *old = self.retryableJobs[identifier];
+    if (old == nil) {
+        YTKACEShowNotice(YTKACELocalized(@"Download unavailable"));
+        return;
+    }
+    [self.retryableJobs removeObjectForKey:identifier];
+    YTKACEDownloadJob *job = [YTKACEDownloadJob new];
+    job.identifier = NSUUID.UUID.UUIDString;
+    job.title = old.title;
+    job.author = old.author;
+    job.videoID = old.videoID;
+    job.thumbnailURL = old.thumbnailURL;
+    job.category = old.category;
+    job.playerResponse = old.playerResponse;
+    job.videoOption = old.videoOption;
+    job.audioOption = old.audioOption;
+    job.audioOnly = old.audioOnly;
+    job.savesToPhotos = old.savesToPhotos;
+    job.sharesFile = old.sharesFile;
+    job.useDirect = old.useDirect;
+    job.captionURL = old.captionURL;
+    job.captionLanguage = old.captionLanguage;
+    YTKACEDownloadLog(job.identifier, @"retry of %@", identifier);
+    [self launchJob:job];
 }
 
 - (void)chooseCaptionsForJob:(YTKACEDownloadJob *)job

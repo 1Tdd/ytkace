@@ -1619,8 +1619,8 @@ static NSDictionary *YTKACEWatchPageDefinition(void) {
 static NSDictionary *YTKACEFeedDefinition(void) {
     return YTKACEPageDefinition(@"feed", @"Home & Feed", @[
         @[
-            YTKACEToggleDetail(@"Remove Home Top Tabs",
-                               @"Hide the Subscriptions, Music and Live tabs inside Home.",
+            YTKACEToggleDetail(@"Normal Home Layout",
+                               @"Switches the tabbed Home redesign some accounts get back to the normal layout.",
                                @"YTKACE.Preference.Feed.HomeTabsHidden"),
             YTKACEToggleDetail(@"Remove Filter Chips", @"Hide the filter chips at the top of Home and Subscriptions.",
                                @"YTKACE.Preference.Navigation.TopicsHidden")
@@ -1987,7 +1987,6 @@ NSArray<NSDictionary *> *YTKACEAllPageDefinitions(void) {
         @[
             YTKACEToggle(@"Hide Tab Labels", @"YTKACE.Preference.Tabs.LabelsHidden", @"", @""),
             YTKACEToggle(@"Don't Open App in Shorts", @"YTKACE.Preference.Shorts.PreventAutoOpen", @"", @""),
-            YTKACEToggle(@"Remove Home Top Tabs", @"YTKACE.Preference.Feed.HomeTabsHidden", @"", @""),
             YTKACEPicker(@"Frosted Tab Bar", @"YTKACE.Preference.Tabs.Frosted",
                          @[@"Default", @"On", @"Off"], @[@0, @1, @2], 0, @"", @""),
             YTKACEPicker(@"Selected Tab Color", @"YTKACE.Preference.Tabs.SelectedTint",
