@@ -608,7 +608,7 @@ static NSArray<NSDictionary *> *YTKACEFetchPlaylistPages(NSString *playlistID, N
     NSMutableSet<NSString *> *seen = [NSMutableSet set];
     NSString *continuation = nil;
     NSString *visitor = nil;
-    NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"21.39.4";
+    NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"21.40.5";
     NSString *agent = [NSString stringWithFormat:
         @"com.google.ios.youtube/%@ (iPhone16,2; U; CPU iOS 18_6 like Mac OS X; en_US)", version];
     NSURLSessionConfiguration *config = NSURLSessionConfiguration.ephemeralSessionConfiguration;
