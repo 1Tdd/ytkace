@@ -619,6 +619,33 @@ static void YTKACEUpdateShortsProgress(void) {
 
 @implementation YTKACEShortsPinchTarget
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    if ([other isKindOfClass:UIPinchGestureRecognizer.class]) return NO;
+    if ([other.view isKindOfClass:UIScrollView.class] &&
+        other == ((UIScrollView *)other.view).panGestureRecognizer) return NO;
+    return YES;
+}
+
+- (void)stopPagerUnder:(UIView *)view {
+    UIScrollView *pager = nil;
+    for (UIView *candidate = view.superview; candidate != nil; candidate = candidate.superview) {
+        if ([candidate isKindOfClass:UIScrollView.class]) {
+            pager = (UIScrollView *)candidate;
+            break;
+        }
+    }
+    if (pager == nil) return;
+    CGFloat page = CGRectGetHeight(pager.bounds);
+    CGPoint offset = pager.contentOffset;
+    pager.panGestureRecognizer.enabled = NO;
+    pager.panGestureRecognizer.enabled = YES;
+    if (page > 1.0) {
+        CGFloat snapped = round(offset.y / page) * page;
+        if (fabs(snapped - offset.y) > 0.5) [pager setContentOffset:CGPointMake(offset.x, snapped) animated:YES];
+    }
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
+    if (![other isKindOfClass:UIPinchGestureRecognizer.class] || other == gesture) return NO;
     return YES;
 }
 
@@ -627,16 +654,35 @@ static void YTKACEUpdateShortsProgress(void) {
 }
 
 - (void)pinched:(UIPinchGestureRecognizer *)pinch {
+    if (pinch.state == UIGestureRecognizerStateBegan) {
+        [self stopPagerUnder:pinch.view];
+        return;
+    }
     if (pinch.state != UIGestureRecognizerStateEnded) return;
-    if (pinch.scale > 1.05 && !YTKACEShortsNewFullscreenActive()) {
+    BOOL active = YTKACEShortsNewFullscreenActive();
+    if (pinch.scale > 1.0 && !active) {
         YTKACESetShortsNewFullscreen(pinch.view, YES);
-    } else if (pinch.scale < 0.95 && YTKACEShortsNewFullscreenActive()) {
+    } else if (pinch.scale < 1.0 && active) {
         YTKACESetShortsNewFullscreen(pinch.view, NO);
     }
 }
 @end
 
 static const void *YTKACEShortsPinchAssociation = &YTKACEShortsPinchAssociation;
+static IMP OriginalReelElementLayout;
+
+static void YTKACEReelElementLayout(UIView *receiver, SEL selector) {
+    if (OriginalReelElementLayout != NULL) ((void (*)(id, SEL))OriginalReelElementLayout)(receiver, selector);
+    if (!YTKACEShortsNewFullscreenActive() || receiver.alpha <= 0.01 || receiver.window == nil) return;
+    Class containerClass = NSClassFromString(@"YTReelContainerView");
+    UIView *container = receiver.superview;
+    for (NSUInteger depth = 0; container != nil && depth < 8 && ![container isKindOfClass:containerClass]; depth++) {
+        container = container.superview;
+    }
+    if (![container isKindOfClass:containerClass]) return;
+    YTKACERegisterFadedShortsContainer(container);
+    YTKACEFadeShortsElement(receiver);
+}
 
 static void YTKACEPrepareNewShortsContainer(UIView *receiver) {
     if (![NSStringFromClass(receiver.class) isEqualToString:@"YTReelContainerView"]) return;
@@ -649,9 +695,6 @@ static void YTKACEPrepareNewShortsContainer(UIView *receiver) {
         pinch.cancelsTouchesInView = NO;
         [receiver addGestureRecognizer:pinch];
         objc_setAssociatedObject(receiver, YTKACEShortsPinchAssociation, pinch, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    if (YTKACEShortsNewFullscreenActive() && receiver.window != nil) {
-        YTKACESetShortsElementsFullscreen(receiver, YES);
     }
 }
 
@@ -953,6 +996,8 @@ void YTKACEInstallShortsHooks(void) {
     ]) {
         YTKACEInstallShortsLayout(className, (IMP)YTKACEReelLayout);
     }
+    YTKACEInstallInstanceHook(@"YTReelElementAsyncComponentView", @"layoutSubviews",
+                              (IMP)YTKACEReelElementLayout, &OriginalReelElementLayout);
     YTKACEInstallShortsLayout(@"YTReelWatchPlaybackOverlayView",
                               (IMP)YTKACEReelOverlayLayout);
     for (NSString *className in @[

@@ -138,14 +138,36 @@ UIView *YTKACEShortsContainerForView(UIView *view, UIView *fallbackRoot) {
 }
 
 static BOOL YTKACEShortsGlobalFullscreen;
+static NSHashTable<UIView *> *YTKACEFadedShortsContainers;
+static BOOL YTKACEShortsPivotBypass;
+
+BOOL YTKACEShortsPivotShowBlocked(void) {
+    return YTKACEShortsGlobalFullscreen && !YTKACEShortsPivotBypass;
+}
 
 BOOL YTKACEShortsNewFullscreenActive(void) {
     return YTKACEShortsGlobalFullscreen;
 }
 
+void YTKACEFadeShortsElement(UIView *element) {
+    if (element == nil || element.alpha <= 0.01 || YTKACEContainsShortsDownloadButton(element)) return;
+    if (objc_getAssociatedObject(element, YTKACEShortsFullscreenAlphaKey) == nil) {
+        objc_setAssociatedObject(element, YTKACEShortsFullscreenAlphaKey, @(element.alpha),
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    element.alpha = 0.0;
+}
+
+void YTKACERegisterFadedShortsContainer(UIView *container) {
+    if (container == nil) return;
+    if (YTKACEFadedShortsContainers == nil) YTKACEFadedShortsContainers = [NSHashTable weakObjectsHashTable];
+    [YTKACEFadedShortsContainers addObject:container];
+}
+
 void YTKACESetShortsNewFullscreen(UIView *container, BOOL fullscreen) {
     YTKACEShortsGlobalFullscreen = fullscreen;
     SEL pivotSelector = NSSelectorFromString(fullscreen ? @"hidePivotBar" : @"showPivotBar");
+    YTKACEShortsPivotBypass = YES;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
         for (UIWindow *window in ((UIWindowScene *)scene).windows) {
@@ -153,9 +175,19 @@ void YTKACESetShortsNewFullscreen(UIView *container, BOOL fullscreen) {
             if ([root respondsToSelector:pivotSelector]) ((void (*)(id, SEL))objc_msgSend)(root, pivotSelector);
         }
     }
-    if (container == nil) return;
+    YTKACEShortsPivotBypass = NO;
+    if (fullscreen) {
+        if (container == nil) return;
+        YTKACERegisterFadedShortsContainer(container);
+        [UIView animateWithDuration:0.25 animations:^{
+            YTKACESetShortsElementsFullscreen(container, YES);
+        }];
+        return;
+    }
+    NSArray<UIView *> *faded = YTKACEFadedShortsContainers.allObjects;
+    [YTKACEFadedShortsContainers removeAllObjects];
     [UIView animateWithDuration:0.25 animations:^{
-        YTKACESetShortsElementsFullscreen(container, fullscreen);
+        for (UIView *view in faded) YTKACESetShortsElementsFullscreen(view, NO);
     }];
 }
 
@@ -1013,8 +1045,6 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
                     YTKACESetShortsElementsFullscreen(container, !fullscreen);
                 }
             }];
-            YTKACEDownloadLog(@"shorts", @"fullscreen=%d overlay=%d container=%d", !fullscreen,
-                              [overlay isKindOfClass:UIView.class], container != nil);
             objc_setAssociatedObject(controller, YTKACEShortsFullscreenKey, @(!fullscreen),
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             for (NSNumber *delay in @[@0.05, @0.20]) {
