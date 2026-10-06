@@ -19,6 +19,8 @@ YTKACE_FILES = \
 	Tweak/Features/SponsorBlock/SponsorClient.mm \
 	Tweak/Features/SponsorBlock/SponsorPreferences.mm \
 	Tweak/Features/SponsorBlock/SponsorHooks.mm \
+	Tweak/Features/SponsorBlock/SponsorSubmitController.mm \
+	Tweak/Features/SponsorBlock/SponsorThumbnailBadge.mm \
 	Tweak/Features/SponsorBlock/DeArrow.mm \
 	Tweak/Features/Downloads/StreamResolver.mm \
 	Tweak/Features/Downloads/SABRDownloader.mm \
@@ -30,6 +32,7 @@ YTKACE_FILES = \
 	Tweak/Features/Downloads/DownloadLog.mm \
 	Tweak/Features/Downloads/DownloadProgressView.mm \
 	Tweak/Features/Downloads/DownloadCoordinator.mm \
+	Tweak/Features/Downloads/DownloadOptionsSheet.mm \
 	Tweak/Features/Downloads/DownloadSponsor.mm \
 	Tweak/Features/Downloads/DownloadHooks.mm \
 	Tweak/Features/Downloads/PlaylistDownloader.mm \

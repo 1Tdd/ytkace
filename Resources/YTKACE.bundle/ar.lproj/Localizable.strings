@@ -991,3 +991,6 @@ Licensed under CC BY-NC-SA 4.0." = "يستخدم YTKACE بيانات SponsorBloc
 "Debug: Off" = "التصحيح: متوقف";
 "Debug logs on" = "تم تفعيل سجلات التصحيح";
 "Debug logs off" = "تم إيقاف سجلات التصحيح";
+"Remove Live Streams" = "إزالة البث المباشر";
+"Hide live streams from the Shorts feed." = "إخفاء البث المباشر من موجز Shorts.";
+

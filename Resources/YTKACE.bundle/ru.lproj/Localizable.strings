@@ -991,3 +991,6 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE использует данные Spo
 "Debug: Off" = "Отладка: Выкл";
 "Debug logs on" = "Журнал отладки включён";
 "Debug logs off" = "Журнал отладки выключен";
+"Remove Live Streams" = "Удалить прямые трансляции";
+"Hide live streams from the Shorts feed." = "Скрывать прямые трансляции из ленты Shorts.";
+

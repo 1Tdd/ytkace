@@ -63,13 +63,18 @@ static BOOL YTKACEOverlayTokenMatches(NSString *token,
 }
 
 static NSArray<NSString *> *YTKACEPreviousNextTokens(void) {
-    return @[
-        @"id.player.previous.button", @"id.player.next.button",
-        @"previous.button", @"next.button",
-        @"previousbutton", @"nextbutton", @"previous_button", @"next_button",
-        @"previous button", @"next button", @"skipprevious", @"skipnext",
-        @"replaynextbutton", @"replay_next_button"
-    ];
+    static NSArray<NSString *> *tokens;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        tokens = @[
+            @"id.player.previous.button", @"id.player.next.button",
+            @"previous.button", @"next.button",
+            @"previousbutton", @"nextbutton", @"previous_button", @"next_button",
+            @"previous button", @"next button", @"skipprevious", @"skipnext",
+            @"replaynextbutton", @"replay_next_button"
+        ];
+    });
+    return tokens;
 }
 
 static void YTKACESetPreviousNextContainerEnabled(UIView *view, BOOL enabled) {
@@ -162,66 +167,69 @@ static BOOL YTKACEMatchesAncestorButton(UIView *view, NSString *accessor) {
 }
 
 static BOOL YTKACEOverlayShouldHide(UIView *view) {
-    NSString *token = YTKACEOverlayToken(view);
     if (YTKACEOverlayPreference(@"YTKACE.Preference.Overlay.DimmingRemoved") &&
         YTKACEIsDarkOverlayView(view)) {
         return YES;
     }
-    if (YTKACEOverlayPreference(@"YTKACE.Preference.Overlay.QuickActionsHidden") &&
-        YTKACEOverlayTokenMatches(token, @[
-            @"quickaction", @"quick_action", @"actionbar", @"action_bar"
-        ])) {
-        return YES;
+    static NSArray<NSString *> *quickActionNeedles;
+    static NSArray<NSString *> *continueWatchingNeedles;
+    static NSArray<NSString *> *relatedVideoNeedles;
+    static NSArray<NSString *> *autoplayNeedles;
+    static NSArray<NSString *> *captionNeedles;
+    static NSArray<NSString *> *castNeedles;
+    static NSArray<NSString *> *watermarkNeedles;
+    static NSArray<NSString *> *infoCardNeedles;
+    static NSArray<NSString *> *endScreenNeedles;
+    static NSArray<NSString *> *playPauseNeedles;
+    static NSArray<NSString *> *moreButtonNeedles;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        quickActionNeedles = @[@"quickaction", @"quick_action", @"actionbar", @"action_bar"];
+        continueWatchingNeedles = @[@"continuewatching", @"continue_watching"];
+        relatedVideoNeedles = @[@"relatedvideo", @"related_video", @"morevideos", @"more_videos"];
+        autoplayNeedles = @[@"autoplay", @"autonav"];
+        captionNeedles = @[@"caption", @"subtitle", @"closedcaption"];
+        castNeedles = @[@"cast", @"airplay", @"routebutton"];
+        watermarkNeedles = @[@"watermark", @"branding"];
+        infoCardNeedles = @[@"infocard", @"info_card", @"cardsbutton"];
+        endScreenNeedles = @[@"endscreen", @"end_screen"];
+        playPauseNeedles = @[@"playpause", @"play_pause"];
+        moreButtonNeedles = @[@"overflowbutton", @"settingsbutton", @"morebutton"];
+    });
+
+    BOOL checkQuick = YTKACEOverlayPreference(@"YTKACE.Preference.Overlay.QuickActionsHidden");
+    BOOL checkContinue = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ContinueWatchingDisabled");
+    BOOL checkRelated = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.RelatedVideosHidden");
+    BOOL checkAutoplay = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.AutoplayHidden");
+    BOOL checkCaption = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CaptionsButtonHidden");
+    BOOL checkCast = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CastHidden");
+    BOOL checkWatermark = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.WatermarkHidden");
+    BOOL checkInfo = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.InfoCardsHidden");
+    BOOL checkEnd = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.EndScreenHidden");
+    BOOL checkPlayPause = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PlayPauseHidden");
+    BOOL checkMore = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.MoreButtonHidden");
+    BOOL checkPrevNext = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden");
+
+    if (!checkQuick && !checkContinue && !checkRelated && !checkAutoplay &&
+        !checkCaption && !checkCast && !checkWatermark && !checkInfo &&
+        !checkEnd && !checkPlayPause && !checkMore && !checkPrevNext) {
+        return NO;
     }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ContinueWatchingDisabled") &&
-        YTKACEOverlayTokenMatches(token, @[
-            @"continuewatching", @"continue_watching"
-        ])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.RelatedVideosHidden") &&
-        YTKACEOverlayTokenMatches(token, @[
-            @"relatedvideo", @"related_video", @"morevideos", @"more_videos"
-        ])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.AutoplayHidden") &&
-        YTKACEOverlayTokenMatches(token, @[@"autoplay", @"autonav"])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CaptionsButtonHidden") &&
-        YTKACEOverlayTokenMatches(token, @[@"caption", @"subtitle", @"closedcaption"])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CastHidden") &&
-        (YTKACEOverlayTokenMatches(token, @[@"cast", @"airplay", @"routebutton"]) ||
-         YTKACEMatchesAncestorButton(view, @"playbackRouteButton"))) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.WatermarkHidden") &&
-        YTKACEOverlayTokenMatches(token, @[@"watermark", @"branding"])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.InfoCardsHidden") &&
-        YTKACEOverlayTokenMatches(token, @[@"infocard", @"info_card", @"cardsbutton"])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.EndScreenHidden") &&
-        YTKACEOverlayTokenMatches(token, @[@"endscreen", @"end_screen"])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PlayPauseHidden") &&
-        YTKACEOverlayTokenMatches(token, @[@"playpause", @"play_pause"])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.MoreButtonHidden") &&
-        YTKACEOverlayTokenMatches(token, @[@"overflowbutton", @"settingsbutton", @"morebutton"])) {
-        return YES;
-    }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden") &&
-        YTKACEOverlayTokenMatches(token, YTKACEPreviousNextTokens())) {
-        return YES;
-    }
+
+    NSString *token = YTKACEOverlayToken(view);
+    if (checkQuick && YTKACEOverlayTokenMatches(token, quickActionNeedles)) return YES;
+    if (checkContinue && YTKACEOverlayTokenMatches(token, continueWatchingNeedles)) return YES;
+    if (checkRelated && YTKACEOverlayTokenMatches(token, relatedVideoNeedles)) return YES;
+    if (checkAutoplay && YTKACEOverlayTokenMatches(token, autoplayNeedles)) return YES;
+    if (checkCaption && YTKACEOverlayTokenMatches(token, captionNeedles)) return YES;
+    if (checkCast && (YTKACEOverlayTokenMatches(token, castNeedles) ||
+                      YTKACEMatchesAncestorButton(view, @"playbackRouteButton"))) return YES;
+    if (checkWatermark && YTKACEOverlayTokenMatches(token, watermarkNeedles)) return YES;
+    if (checkInfo && YTKACEOverlayTokenMatches(token, infoCardNeedles)) return YES;
+    if (checkEnd && YTKACEOverlayTokenMatches(token, endScreenNeedles)) return YES;
+    if (checkPlayPause && YTKACEOverlayTokenMatches(token, playPauseNeedles)) return YES;
+    if (checkMore && YTKACEOverlayTokenMatches(token, moreButtonNeedles)) return YES;
+    if (checkPrevNext && YTKACEOverlayTokenMatches(token, YTKACEPreviousNextTokens())) return YES;
     return NO;
 }
 
@@ -271,12 +279,17 @@ static BOOL YTKACEIsTimelyShelfOverlayIdentifier(NSString *identifier) {
 
 static BOOL YTKACEProductPayloadMatches(id object) {
     if (object == nil || [object isKindOfClass:UIView.class]) return NO;
-    for (NSString *key in @[@"productsInVideoOverlayRenderer",
-                            @"productsInVideoEntity",
-                            @"productsInVideoEntityModel",
-                            @"productCard",
-                            @"shoppingAdInfoCardContentRenderer",
-                            @"infoCardProduct"]) {
+    static NSArray<NSString *> *keys;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        keys = @[@"productsInVideoOverlayRenderer",
+                 @"productsInVideoEntity",
+                 @"productsInVideoEntityModel",
+                 @"productCard",
+                 @"shoppingAdInfoCardContentRenderer",
+                 @"infoCardProduct"];
+    });
+    for (NSString *key in keys) {
         if (YTKACEProductOverlayModelValue(object, key) != nil) return YES;
     }
     if (YTKACEProductOverlayBoolValue(object, @"hasProductCard")) {

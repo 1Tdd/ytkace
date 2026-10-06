@@ -19,6 +19,8 @@ void YTKACEHandleAdCellReuse(UIView *cell);
 NSArray *YTKACEFilterAdSections(NSArray *sections);
 void YTKACEInstallPromoHooks(void);
 void YTKACEInstallSponsorBlockHooks(void);
+void YTKACESponsorUserDidManualSeek(void);
+void YTKACEInstallSponsorSubmitControls(void);
 void YTKACEInstallDownloadHooks(void);
 void YTKACEInstallQueueHooks(void);
 void YTKACEQueuePrepareMenuRenderers(id _Nullable renderers);
@@ -46,6 +48,9 @@ NSString *_Nullable YTKACECaptionTrackLanguage(id track);
 NSURL *_Nullable YTKACECaptionTrackURL(id track);
 void YTKACEFetchCuesForURL(NSURL *_Nullable url,
                            void (^completion)(NSArray<NSDictionary *> *_Nullable cues));
+void YTKACEResolveCaptionTrack(id playerResponse,
+                               void (^completion)(NSURL *_Nullable url,
+                                                  NSString *_Nullable language));
 void YTKACEFetchCaptionCues(id playerResponse,
                             void (^completion)(NSArray<NSDictionary *> *_Nullable cues,
                                                NSString *_Nullable language));

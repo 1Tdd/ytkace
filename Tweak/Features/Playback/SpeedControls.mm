@@ -193,6 +193,7 @@ static UIImage *YTKACESpeedButtonImage(BOOL plus) {
 - (void)increase;
 - (void)reset;
 - (void)valueTapped:(UIButton *)sender;
+- (void)valueLongPressed:(UILongPressGestureRecognizer *)gesture;
 @end
 
 @implementation YTKACESpeedCoordinator
@@ -447,6 +448,19 @@ static UIImage *YTKACESpeedButtonImage(BOOL plus) {
         }
     }
     [self reset];
+}
+
+- (void)valueLongPressed:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        SEL open = NSSelectorFromString(@"didPressVarispeed:");
+        for (UIResponder *responder = self.overlay; responder != nil;
+             responder = responder.nextResponder) {
+            if ([responder respondsToSelector:open]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(responder, open, (id)gesture.view);
+                return;
+            }
+        }
+    }
 }
 
 @end
@@ -753,6 +767,86 @@ void YTKACERouteSpeedMenuItem(id renderers, id actions, UIView *view, id respond
     }
 }
 
+static const void *YTKACESpeedStackAssociation = &YTKACESpeedStackAssociation;
+
+static void YTKACESetButtonConstraints(UIButton *button, CGFloat width, CGFloat height, BOOL minWidth) {
+    BOOL hasWidth = NO;
+    BOOL hasHeight = NO;
+    for (NSLayoutConstraint *c in button.constraints) {
+        if (c.firstAttribute == NSLayoutAttributeWidth) hasWidth = YES;
+        if (c.firstAttribute == NSLayoutAttributeHeight) hasHeight = YES;
+    }
+    if (!hasWidth) {
+        if (minWidth) {
+            [button.widthAnchor constraintGreaterThanOrEqualToConstant:width].active = YES;
+        } else {
+            [button.widthAnchor constraintEqualToConstant:width].active = YES;
+        }
+    }
+    if (!hasHeight) {
+        [button.heightAnchor constraintEqualToConstant:height].active = YES;
+    }
+}
+
+static UIStackView *YTKACESpeedStackForOverlay(UIView *overlay, UIStackView *sourceStack) {
+    UIStackView *speedStack = objc_getAssociatedObject(overlay, YTKACESpeedStackAssociation);
+    if (speedStack != nil && speedStack.superview == overlay) {
+        return speedStack;
+    }
+    if (speedStack != nil && speedStack.superview != nil) {
+        [speedStack removeFromSuperview];
+    }
+
+    speedStack = [UIStackView new];
+    speedStack.axis = UILayoutConstraintAxisVertical;
+    speedStack.alignment = UIStackViewAlignmentCenter;
+    speedStack.distribution = UIStackViewDistributionEqualSpacing;
+    speedStack.spacing = 6.0;
+    speedStack.layoutMargins = UIEdgeInsetsZero;
+    speedStack.layoutMarginsRelativeArrangement = YES;
+    speedStack.backgroundColor = UIColor.clearColor;
+    speedStack.alpha = sourceStack != nil ? sourceStack.alpha : 1.0;
+    speedStack.userInteractionEnabled = sourceStack != nil ? sourceStack.userInteractionEnabled : YES;
+    speedStack.translatesAutoresizingMaskIntoConstraints = NO;
+    speedStack.accessibilityIdentifier = @"YTKACEOverlayControls";
+
+    [overlay addSubview:speedStack];
+    [NSLayoutConstraint activateConstraints:@[
+        [speedStack.leadingAnchor constraintEqualToAnchor:overlay.safeAreaLayoutGuide.leadingAnchor constant:12.0],
+        [speedStack.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor]
+    ]];
+
+    objc_setAssociatedObject(overlay, YTKACESpeedStackAssociation, speedStack, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return speedStack;
+}
+
+static UIButton *YTKACESpeedButton(UIStackView *stack,
+                                   NSString *identifier,
+                                   id target,
+                                   SEL action) {
+    for (UIView *view in stack.arrangedSubviews) {
+        if ([view.accessibilityIdentifier isEqualToString:identifier] &&
+            [view isKindOfClass:UIButton.class]) {
+            return (UIButton *)view;
+        }
+    }
+
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.accessibilityIdentifier = identifier;
+    button.accessibilityLabel = identifier;
+    button.tintColor = UIColor.whiteColor;
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.imageView.contentMode = UIViewContentModeScaleAspectFit;
+    button.layer.shadowColor = UIColor.blackColor.CGColor;
+    button.layer.shadowOpacity = 0.75f;
+    button.layer.shadowRadius = 2.5f;
+    button.layer.shadowOffset = CGSizeMake(0.0, 1.0);
+    button.layer.masksToBounds = NO;
+    [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:button];
+    return button;
+}
+
 void YTKACEInstallSpeedHooks(void) {
     YTKACEInstallInstanceHook(@"YTVarispeedSwitchControllerImpl", @"init",
                               (IMP)YTKACEVarispeedInit, &OriginalVarispeedInit);
@@ -763,51 +857,71 @@ void YTKACEInstallSpeedHooks(void) {
     (void)YTKACESpeedCoordinator.sharedCoordinator;
 
     YTKACERegisterOverlayConfigurator(@"speed", ^(UIView *overlay, UIStackView *stack) {
+        for (UIView *view in [stack.arrangedSubviews copy]) {
+            if ([view.accessibilityIdentifier isEqualToString:@"YTKACE Slower"] ||
+                [view.accessibilityIdentifier isEqualToString:@"YTKACE Speed"] ||
+                [view.accessibilityIdentifier isEqualToString:@"YTKACE Faster"]) {
+                [stack removeArrangedSubview:view];
+                [view removeFromSuperview];
+            }
+        }
+
         YTKACESpeedCoordinator *coordinator = YTKACESpeedCoordinator.sharedCoordinator;
         coordinator.overlay = overlay;
 
-        UIButton *minus = YTKACEOverlayButton(
-            stack,
-            @"YTKACE Slower",
-            @"minus.circle",
-            coordinator,
-            @selector(decrease)
-        );
-        UIButton *value = YTKACEOverlayButton(
-            stack,
-            @"YTKACE Speed",
-            @"speedometer",
-            coordinator,
-            @selector(valueTapped:)
-        );
-        UIButton *plus = YTKACEOverlayButton(
-            stack,
-            @"YTKACE Faster",
-            @"plus.circle",
-            coordinator,
-            @selector(increase)
-        );
-        [minus setImage:YTKACESpeedButtonImage(NO) forState:UIControlStateNormal];
+        UIStackView *speedStack = YTKACESpeedStackForOverlay(overlay, stack);
+
+        // Dedicated vertical stack on the left:
+        // Top: + (Faster)
+        // Middle: 1x (Speed Value)
+        // Bottom: - (Slower)
+        UIButton *plus = YTKACESpeedButton(speedStack, @"YTKACE Faster", coordinator, @selector(increase));
+        UIButton *value = YTKACESpeedButton(speedStack, @"YTKACE Speed", coordinator, @selector(valueTapped:));
+        UIButton *minus = YTKACESpeedButton(speedStack, @"YTKACE Slower", coordinator, @selector(decrease));
+
+        [speedStack addArrangedSubview:plus];
+        [speedStack addArrangedSubview:value];
+        [speedStack addArrangedSubview:minus];
+
         [plus setImage:YTKACESpeedButtonImage(YES) forState:UIControlStateNormal];
+        YTKACESetButtonConstraints(plus, 40.0, 40.0, NO);
+
+        [minus setImage:YTKACESpeedButtonImage(NO) forState:UIControlStateNormal];
+        YTKACESetButtonConstraints(minus, 40.0, 40.0, NO);
+
         coordinator.valueButton = value;
-        [value setTitle:YTKACESpeedText(coordinator.currentRate)
-               forState:UIControlStateNormal];
+        [value setTitle:YTKACESpeedText(coordinator.currentRate) forState:UIControlStateNormal];
         [value setImage:nil forState:UIControlStateNormal];
         [value setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        value.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
-        for (NSLayoutConstraint *constraint in value.constraints) {
-            if (constraint.firstAttribute == NSLayoutAttributeWidth) {
-                constraint.active = NO;
-            }
-        }
-        [value.widthAnchor constraintGreaterThanOrEqualToConstant:52.0].active = YES;
+        value.titleLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightBold];
         value.titleLabel.adjustsFontSizeToFitWidth = NO;
         value.titleLabel.lineBreakMode = NSLineBreakByClipping;
-        [value sizeToFit];
+        value.titleLabel.textAlignment = NSTextAlignmentCenter;
+        value.titleLabel.layer.shadowColor = UIColor.blackColor.CGColor;
+        value.titleLabel.layer.shadowOpacity = 0.75f;
+        value.titleLabel.layer.shadowRadius = 2.5f;
+        value.titleLabel.layer.shadowOffset = CGSizeMake(0.0, 1.0);
+        value.titleLabel.layer.masksToBounds = NO;
+        YTKACESetButtonConstraints(value, 44.0, 32.0, YES);
 
-        BOOL hidden = !YTKACEFeatureEnabled(YTKACESpeedKey);
-        minus.hidden = hidden || YTKACESpeedMenuStyle();
-        value.hidden = hidden;
-        plus.hidden = hidden || YTKACESpeedMenuStyle();
+        if (value.gestureRecognizers.count == 0) {
+            UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc]
+                initWithTarget:coordinator action:@selector(valueLongPressed:)];
+            [value addGestureRecognizer:longPress];
+        }
+
+        BOOL speedEnabled = YTKACEFeatureEnabled(YTKACESpeedKey);
+        if (!speedEnabled) {
+            speedStack.hidden = YES;
+            plus.hidden = YES;
+            value.hidden = YES;
+            minus.hidden = YES;
+        } else {
+            BOOL menuStyle = YTKACESpeedMenuStyle();
+            speedStack.hidden = NO;
+            plus.hidden = menuStyle;
+            value.hidden = NO;
+            minus.hidden = menuStyle;
+        }
     });
 }

@@ -121,11 +121,25 @@ static NSString *YTKACEParseTranscript(NSData *data, BOOL timestamps) {
 
 
 static id YTKACEProbe(id object, NSArray<NSString *> *names) {
+    if (object == nil) return nil;
+    if ([object isKindOfClass:NSDictionary.class]) {
+        for (NSString *name in names) {
+            id value = [(NSDictionary *)object objectForKey:name];
+            if (value != nil && value != [NSNull null]) return value;
+        }
+    }
     for (NSString *name in names) {
         SEL selector = NSSelectorFromString(name);
-        if (object != nil && [object respondsToSelector:selector]) {
+        if ([object respondsToSelector:selector]) {
             id value = ((id (*)(id, SEL))objc_msgSend)(object, selector);
             if (value != nil) return value;
+        }
+    }
+    for (NSString *name in names) {
+        @try {
+            id value = [object valueForKey:name];
+            if (value != nil && value != [NSNull null]) return value;
+        } @catch (__unused NSException *e) {
         }
     }
     return nil;
@@ -136,7 +150,7 @@ static NSString *YTKACEFormattedText(id value);
 static NSURL *YTKACEURLFromValue(id value) {
     if ([value isKindOfClass:NSURL.class]) return value;
     if ([value isKindOfClass:NSString.class]) return [NSURL URLWithString:value];
-    id nested = YTKACEProbe(value, @[@"baseUrl", @"URL", @"url", @"privateDoNotAccessOrElseSafeUrlStringValue"]);
+    id nested = YTKACEProbe(value, @[@"baseUrl", @"baseURL", @"URL", @"url", @"safeBaseUrl", @"privateDoNotAccessOrElseSafeUrlStringValue"]);
     if (nested != nil && nested != value) return YTKACEURLFromValue(nested);
     return nil;
 }
@@ -200,6 +214,17 @@ static id YTKACEDeepCaptionTracks(id root, int depth, NSMutableSet *seen) {
     }
     if ([root isKindOfClass:NSArray.class]) {
         for (id child in (NSArray *)root) {
+            id found = YTKACEDeepCaptionTracks(child, depth - 1, seen);
+            if (found != nil) return found;
+        }
+        return nil;
+    }
+    if ([root isKindOfClass:NSDictionary.class]) {
+        NSDictionary *dict = (NSDictionary *)root;
+        id tracks = dict[@"captionTracks"] ?: dict[@"captionTracksArray"];
+        if ([tracks isKindOfClass:NSArray.class] && [tracks count] != 0) return tracks;
+        for (id key in dict) {
+            id child = dict[key];
             id found = YTKACEDeepCaptionTracks(child, depth - 1, seen);
             if (found != nil) return found;
         }
@@ -372,7 +397,7 @@ NSString *YTKACECaptionTrackLabel(id track) {
     NSString *text = YTKACEFormattedText(
         YTKACEProbe(track, @[@"name", @"displayName", @"trackName"]));
     if (text.length != 0) return text;
-    id language = YTKACEProbe(track, @[@"languageCode"]);
+    id language = YTKACEProbe(track, @[@"languageCode", @"language"]);
     if ([language isKindOfClass:NSString.class] && [language length] != 0) {
         NSString *display = [NSLocale.currentLocale
             localizedStringForLanguageCode:language];
@@ -382,12 +407,21 @@ NSString *YTKACECaptionTrackLabel(id track) {
 }
 
 NSString *YTKACECaptionTrackLanguage(id track) {
-    id language = YTKACEProbe(track, @[@"languageCode"]);
+    id language = YTKACEProbe(track, @[@"languageCode", @"language"]);
     return [language isKindOfClass:NSString.class] ? language : nil;
 }
 
 NSURL *YTKACECaptionTrackURL(id track) {
-    NSURL *URL = YTKACEURLFromValue(YTKACEProbe(track, @[@"baseUrl", @"baseURL"]));
+    if (track == nil) return nil;
+    NSURL *URL = nil;
+    if ([track isKindOfClass:NSURL.class]) {
+        URL = track;
+    } else if ([track isKindOfClass:NSString.class]) {
+        URL = [NSURL URLWithString:track];
+    } else {
+        id urlValue = YTKACEProbe(track, @[@"baseUrl", @"baseURL", @"URL", @"url", @"safeBaseUrl", @"privateDoNotAccessOrElseSafeUrlStringValue"]);
+        URL = YTKACEURLFromValue(urlValue);
+    }
     if (URL == nil) return nil;
     NSURLComponents *components =
         [NSURLComponents componentsWithURL:URL resolvingAgainstBaseURL:NO];
@@ -448,24 +482,9 @@ void YTKACEResolveCaptionTrack(id playerResponse,
         return;
     }
     id track = [tracks firstObject];
-    NSURL *URL = YTKACEURLFromValue(YTKACEProbe(track, @[@"baseUrl", @"baseURL"]));
-    id languageValue = YTKACEProbe(track, @[@"languageCode"]);
-    NSString *language = [languageValue isKindOfClass:NSString.class]
-        ? languageValue : nil;
-    if (URL == nil) {
-        completion(nil, nil);
-        return;
-    }
-    NSURLComponents *components =
-        [NSURLComponents componentsWithURL:URL resolvingAgainstBaseURL:NO];
-    NSMutableArray<NSURLQueryItem *> *items = [NSMutableArray array];
-    for (NSURLQueryItem *item in components.queryItems) {
-        if ([item.name isEqualToString:@"fmt"]) continue;
-        [items addObject:item];
-    }
-    [items addObject:[NSURLQueryItem queryItemWithName:@"fmt" value:@"json3"]];
-    components.queryItems = items;
-    completion(components.URL ?: URL, language);
+    NSURL *URL = YTKACECaptionTrackURL(track);
+    NSString *language = YTKACECaptionTrackLanguage(track);
+    completion(URL, language);
 }
 
 void YTKACEFetchCaptionCues(id playerResponse,

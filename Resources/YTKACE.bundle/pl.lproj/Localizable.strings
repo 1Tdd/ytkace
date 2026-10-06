@@ -973,3 +973,6 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE korzysta z danych SponsorBlock.\nLice
 "Debug: Off" = "Debug: Wył.";
 "Debug logs on" = "Logi debugowania włączone";
 "Debug logs off" = "Logi debugowania wyłączone";
+"Remove Live Streams" = "Usuń transmisje na żywo";
+"Hide live streams from the Shorts feed." = "Ukryj transmisje na żywo z kanału Shorts.";
+

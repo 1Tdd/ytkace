@@ -1,4 +1,5 @@
 #import "../Downloads/DownloadLog.h"
+#import "../SponsorBlock/SponsorThumbnailBadge.h"
 #import "../../YTKACE.h"
 #import "../../Runtime/Hooking.h"
 #import "../../Runtime/Preferences.h"
@@ -712,6 +713,7 @@ static void YTKACEThumbBarLayout(id node, SEL selector) {
         ((void (*)(id, SEL))OriginalThumbBarLayout)(node, selector);
     }
     YTKACEThumbBarApply(node);
+    YTKACESponsorUpdateThumbnailBadge(node);
 }
 
 static IMP OriginalThumbVisible;
@@ -722,6 +724,7 @@ static void YTKACEThumbDisplayWillStart(id node, SEL selector) {
         ((void (*)(id, SEL))OriginalThumbDisplayWillStart)(node, selector);
     }
     YTKACEThumbBarApply(node);
+    YTKACESponsorUpdateThumbnailBadge(node);
 }
 
 static void YTKACEThumbDidEnterVisible(id node, SEL selector) {
@@ -729,6 +732,7 @@ static void YTKACEThumbDidEnterVisible(id node, SEL selector) {
         ((void (*)(id, SEL))OriginalThumbVisible)(node, selector);
     }
     YTKACEThumbBarApply(node);
+    YTKACESponsorUpdateThumbnailBadge(node);
 }
 
 static void YTKACEThumbContainerLayout(id node, SEL selector) {
@@ -926,6 +930,7 @@ static void YTKACEThumbSetImage(id node, SEL selector, UIImage *image) {
     if (OriginalThumbSetImage != NULL) {
         ((void (*)(id, SEL, id))OriginalThumbSetImage)(node, selector, use);
     }
+    YTKACESponsorUpdateThumbnailBadge(node);
 }
 
 static IMP OriginalGridCellLayout;

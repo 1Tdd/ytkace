@@ -1002,3 +1002,6 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 数据。
 "Debug: Off" = "调试：关";
 "Debug logs on" = "调试日志已开启";
 "Debug logs off" = "调试日志已关闭";
+"Remove Live Streams" = "移除直播";
+"Hide live streams from the Shorts feed." = "从 Shorts 信息流中隐藏直播。";
+

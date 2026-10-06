@@ -75,21 +75,30 @@ static NSDictionary<NSString *, NSString *> *YTKACEStringsForLanguage(NSString *
     return [NSDictionary dictionaryWithContentsOfFile:path];
 }
 
+#import <os/lock.h>
+
+static os_unfair_lock YTKACELocalizationLock = OS_UNFAIR_LOCK_INIT;
 static NSDictionary<NSString *, NSString *> *YTKACEActiveStrings;
 static NSString *YTKACEActiveLanguage;
 
 void YTKACEResetLocalizationCache(void) {
+    os_unfair_lock_lock(&YTKACELocalizationLock);
     YTKACEActiveStrings = nil;
     YTKACEActiveLanguage = nil;
+    os_unfair_lock_unlock(&YTKACELocalizationLock);
 }
 
 NSString *YTKACELocalized(NSString *key) {
     if (key.length == 0) return key;
-    NSString *language = YTKACEPreferredLanguage();
-    if (![language isEqualToString:YTKACEActiveLanguage]) {
+    os_unfair_lock_lock(&YTKACELocalizationLock);
+    NSDictionary<NSString *, NSString *> *strings = YTKACEActiveStrings;
+    if (strings == nil) {
+        NSString *language = YTKACEPreferredLanguage();
         YTKACEActiveLanguage = language;
-        YTKACEActiveStrings = YTKACEStringsForLanguage(language);
+        YTKACEActiveStrings = YTKACEStringsForLanguage(language) ?: @{};
+        strings = YTKACEActiveStrings;
     }
-    NSString *value = YTKACEActiveStrings[key];
+    os_unfair_lock_unlock(&YTKACELocalizationLock);
+    NSString *value = strings[key];
     return value.length != 0 ? value : key;
 }

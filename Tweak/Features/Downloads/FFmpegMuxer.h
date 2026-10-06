@@ -11,9 +11,18 @@ FOUNDATION_EXPORT void YTKACEFFmpegCancelConversion(NSString *identifier);
 + (void)remuxAudioURL:(NSURL *)audioURL
             outputURL:(NSURL *)outputURL
            completion:(YTKACEFFmpegCompletion)completion;
++ (void)remuxAudioURL:(NSURL *)audioURL
+            outputURL:(NSURL *)outputURL
+      removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
+           completion:(YTKACEFFmpegCompletion)completion;
 + (void)remuxVideoURL:(NSURL *)videoURL
              audioURL:(NSURL *)audioURL
             outputURL:(NSURL *)outputURL
+           completion:(YTKACEFFmpegCompletion)completion;
++ (void)remuxVideoURL:(NSURL *)videoURL
+             audioURL:(NSURL *)audioURL
+            outputURL:(NSURL *)outputURL
+      removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
            completion:(YTKACEFFmpegCompletion)completion;
 + (void)normalizeMediaURL:(NSURL *)mediaURL
                 outputURL:(NSURL *)outputURL

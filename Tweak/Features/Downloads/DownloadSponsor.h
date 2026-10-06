@@ -5,7 +5,11 @@ NS_ASSUME_NONNULL_BEGIN
 FOUNDATION_EXPORT NSNotificationName const YTKACEDownloadInfoDidChangeNotification;
 
 FOUNDATION_EXPORT void YTKACEAttachSponsorSegments(NSURL *fileURL, NSString *videoID,
-                                                 NSString * _Nullable author);
+                                                  NSString * _Nullable author);
+FOUNDATION_EXPORT void YTKACEAttachAdjustedSponsorSegments(NSURL *fileURL, NSString *videoID,
+                                                          NSString * _Nullable author,
+                                                          NSArray<NSDictionary *> *allSegments,
+                                                          NSArray<NSDictionary *> *removedSegments);
 FOUNDATION_EXPORT NSString * _Nullable YTKACEStoredChannelName(NSURL *fileURL);
 FOUNDATION_EXPORT NSArray<NSDictionary<NSString *, id> *> *YTKACEStoredSponsorSegments(NSURL *fileURL);
 FOUNDATION_EXPORT void YTKACERefreshSponsorSegments(

@@ -3,6 +3,7 @@
 #import "YTKACEDownloadPlayerController.h"
 #import "MediaArtwork.h"
 #import "DownloadSponsor.h"
+#import "../SponsorBlock/SponsorPreferences.h"
 #import "../../Settings/YTKACESettingsPages.h"
 #import "../../Runtime/Preferences.h"
 #import "../../Runtime/Localization.h"
@@ -712,8 +713,13 @@ static void YTKACELoadQueueInfo(NSURL *URL, void (^completion)(NSDictionary *inf
         self.slider.maximumValue = MAX(duration, 1.0);
         self.slider.value = MIN(current, self.slider.maximumValue);
     }
+    NSTimeInterval displayDuration = duration;
+    if (YTKACESponsorShowTimeWithSkipsEnabled() && duration > 0.0) {
+        double skipped = YTKACESponsorCalculateSkippedDuration(self.session.sponsorSegments, duration);
+        displayDuration = MAX(0.0, duration - skipped);
+    }
     self.elapsedLabel.text = YTKACEAudioTime(current);
-    self.durationLabel.text = YTKACEAudioTime(duration);
+    self.durationLabel.text = YTKACEAudioTime(displayDuration);
 }
 
 - (void)togglePlayback { [self.session togglePlayback]; [self refresh]; }

@@ -991,3 +991,6 @@ CC BY-NC-SA 4.0 라이선스가 적용됩니다.";
 "Debug: Off" = "디버그: 끔";
 "Debug logs on" = "디버그 로그 켬";
 "Debug logs off" = "디버그 로그 끔";
+"Remove Live Streams" = "실시간 스트리밍 제거";
+"Hide live streams from the Shorts feed." = "Shorts 피드에서 실시간 스트리밍을 숨깁니다.";
+

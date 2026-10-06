@@ -991,3 +991,6 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 資料。
 "Debug: Off" = "偵錯：關";
 "Debug logs on" = "偵錯記錄已開啟";
 "Debug logs off" = "偵錯記錄已關閉";
+"Remove Live Streams" = "移除直播";
+"Hide live streams from the Shorts feed." = "從 Shorts 動態消息中隱藏直播。";
+

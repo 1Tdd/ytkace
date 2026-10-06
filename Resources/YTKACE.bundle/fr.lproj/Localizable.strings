@@ -991,3 +991,6 @@ Sous licence CC BY-NC-SA 4.0.";
 "Debug: Off" = "Débogage : Non";
 "Debug logs on" = "Journaux de débogage activés";
 "Debug logs off" = "Journaux de débogage désactivés";
+"Remove Live Streams" = "Supprimer les diffusions en direct";
+"Hide live streams from the Shorts feed." = "Masquer les diffusions en direct du flux Shorts.";
+

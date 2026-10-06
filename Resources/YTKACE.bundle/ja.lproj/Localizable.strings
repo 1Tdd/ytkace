@@ -991,3 +991,6 @@ CC BY-NC-SA 4.0 でライセンスされています。";
 "Debug: Off" = "デバッグ: オフ";
 "Debug logs on" = "デバッグログ オン";
 "Debug logs off" = "デバッグログ オフ";
+"Remove Live Streams" = "ライブ配信を削除";
+"Hide live streams from the Shorts feed." = "Shortsフィードからライブ配信を非表示にします。";
+

@@ -83,7 +83,7 @@ body:
     attributes:
       label: YouTube App Version
       description: Target YouTube version installed on the device. Check the footer of the YTKACE preferences menu.
-      placeholder: e.g. 21.40.5
+      placeholder: e.g. 21.41.5
     validations:
       required: true
 

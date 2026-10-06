@@ -9,6 +9,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <math.h>
 
 static NSHashTable<UIView *> *YTKACEReelViews;
 static NSMutableDictionary<NSString *, NSValue *> *YTKACEShortsOriginals;
@@ -549,41 +550,226 @@ static id YTKACEShortsParent(id receiver) {
         : nil;
 }
 
-static id YTKACEFindShortsController(id receiver) {
-    id current = receiver;
-    for (NSInteger index = 0; current != nil && index < 10; index++) {
-        NSString *name = NSStringFromClass([current class]).lowercaseString;
-        if ([name containsString:@"shorts"] || [name containsString:@"reel"]) {
-            return current;
+static BOOL YTKACEIsShortsController(id candidate) {
+    if (![candidate isKindOfClass:UIViewController.class]) return NO;
+    NSString *name = NSStringFromClass([candidate class]).lowercaseString;
+    if ([name containsString:@"shorts"] || [name containsString:@"reel"]) {
+        return YES;
+    }
+    for (NSString *selectorName in @[
+        @"playbackSequentialItemControllerDidRequestNextReel:isAutoAdvance:",
+        @"advanceToNextReelWithTransitionType:",
+        @"autoAdvanceIfNeeded",
+        @"reelContentViewRequestsAdvanceToNextVideo:",
+        @"activeReelPlaybackVideoId",
+        @"activeReelPlaybackVideoID",
+        @"advanceToNextVideo:",
+        @"advanceToNextVideo",
+        @"scrollToNextVideo"
+    ]) {
+        if ([candidate respondsToSelector:NSSelectorFromString(selectorName)]) {
+            return YES;
         }
-        id parent = YTKACEShortsParent(current);
-        if (parent != nil && parent != current) {
-            current = parent;
-        } else if ([current isKindOfClass:UIResponder.class]) {
-            current = ((UIResponder *)current).nextResponder;
-        } else {
-            break;
+    }
+    return NO;
+}
+
+static void YTKACEAppendShortsChain(id start,
+                                    NSMutableArray<UIViewController *> *results,
+                                    NSHashTable *visited) {
+    id current = start;
+    for (NSInteger depth = 0; current != nil && depth < 28; depth++) {
+        if ([visited containsObject:current]) break;
+        [visited addObject:current];
+        if (YTKACEIsShortsController(current) && ![results containsObject:current]) {
+            [results addObject:(UIViewController *)current];
+        }
+        for (NSString *relKey in @[
+            @"activePlaybackSequenceItemController",
+            @"delegate",
+            @"parentViewController",
+            @"parentResponder",
+            @"eventsDelegate",
+            @"UIDelegate"
+        ]) {
+            id rel = YTKACEShortsObject(current, relKey);
+            if (rel != nil && ![visited containsObject:rel] && YTKACEIsShortsController(rel) && ![results containsObject:rel]) {
+                if ([relKey isEqualToString:@"activePlaybackSequenceItemController"]) {
+                    [results insertObject:(UIViewController *)rel atIndex:0];
+                } else {
+                    [results addObject:(UIViewController *)rel];
+                }
+            }
+        }
+        id pageVC = YTKACEShortsObject(current, @"scrollablePageViewController");
+        id currentVC = YTKACEShortsObject(pageVC, @"currentViewController");
+        if (YTKACEIsShortsController(currentVC) && ![results containsObject:currentVC]) {
+            [results insertObject:(UIViewController *)currentVC atIndex:0];
+        }
+        id next = YTKACEShortsParent(current);
+        if (next == nil || next == current || [visited containsObject:next]) {
+            next = YTKACEShortsObject(current, @"parentResponder");
+        }
+        if ((next == nil || next == current || [visited containsObject:next]) &&
+            [current isKindOfClass:UIResponder.class]) {
+            next = ((UIResponder *)current).nextResponder;
+        }
+        if (next == current) break;
+        current = next;
+    }
+}
+
+static NSArray<UIViewController *> *YTKACECollectShortsControllers(id receiver) {
+    if (receiver == nil) return @[];
+    NSMutableArray<UIViewController *> *controllers = [NSMutableArray array];
+    NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    YTKACEAppendShortsChain(receiver, controllers, visited);
+    id playerView = YTKACEShortsObject(receiver, @"playerView");
+    id delegate = YTKACEShortsObject(playerView, @"playerViewDelegate");
+    YTKACEAppendShortsChain(delegate, controllers, visited);
+    YTKACEAppendShortsChain(playerView, controllers, visited);
+    if ([receiver isKindOfClass:UIViewController.class] &&
+        ((UIViewController *)receiver).isViewLoaded) {
+        YTKACEAppendShortsChain(((UIViewController *)receiver).view, controllers, visited);
+    }
+    for (UIViewController *found in [controllers copy]) {
+        YTKACEAppendShortsChain(found, controllers, visited);
+        if (found.isViewLoaded) {
+            YTKACEAppendShortsChain(found.view, controllers, visited);
+        }
+    }
+    return controllers;
+}
+
+static NSString *YTKACECurrentShortsVideoID(id player, NSArray<UIViewController *> *controllers) {
+    for (NSString *selName in @[@"currentVideoID", @"videoId", @"activeVideoID", @"activeReelPlaybackVideoId", @"activeReelPlaybackVideoID"]) {
+        id val = YTKACEShortsObject(player, selName);
+        if ([val isKindOfClass:NSString.class] && ((NSString *)val).length > 0) {
+            return (NSString *)val;
+        }
+    }
+    id activeVideo = YTKACEShortsObject(player, @"activeVideo");
+    if (activeVideo != nil) {
+        id val = YTKACEShortsObject(activeVideo, @"videoId");
+        if (![val isKindOfClass:NSString.class]) {
+            id single = YTKACEShortsObject(activeVideo, @"singleVideo");
+            val = YTKACEShortsObject(single, @"videoId");
+        }
+        if ([val isKindOfClass:NSString.class] && ((NSString *)val).length > 0) {
+            return (NSString *)val;
+        }
+    }
+    static NSArray<NSString *> *idSelectors;
+    static dispatch_once_t idOnce;
+    dispatch_once(&idOnce, ^{
+        idSelectors = @[@"activeReelPlaybackVideoId", @"activeReelPlaybackVideoID",
+                        @"activeVideoID", @"currentVideoID", @"videoId"];
+    });
+    for (UIViewController *vc in controllers) {
+        for (NSString *selName in idSelectors) {
+            id val = YTKACEShortsObject(vc, selName);
+            if ([val isKindOfClass:NSString.class] && ((NSString *)val).length > 0) {
+                return (NSString *)val;
+            }
         }
     }
     return nil;
 }
 
-static BOOL YTKACEAdvanceShort(id controller, id sender) {
-    for (NSString *name in @[
-        @"reelContentViewRequestsAdvanceToNextVideo:",
-        @"advanceToNextVideo:",
-        @"advanceToNextVideo",
-        @"scrollToNextVideo"
-    ]) {
+static UIScrollView *YTKACEShortsFindPager(UIView *view, NSUInteger depth) {
+    if (view == nil || depth > 8) return nil;
+    if ([view isKindOfClass:UIScrollView.class]) {
+        UIScrollView *sv = (UIScrollView *)view;
+        CGFloat height = CGRectGetHeight(sv.bounds);
+        if (height > 100.0 && sv.contentSize.height > height * 1.5) {
+            return sv;
+        }
+    }
+    for (UIView *sub in view.subviews) {
+        UIScrollView *found = YTKACEShortsFindPager(sub, depth + 1);
+        if (found != nil) return found;
+    }
+    return nil;
+}
+
+static BOOL YTKACERequestNextReelFromController(id controller) {
+    if (controller == nil) return NO;
+    SEL reqPipSel = NSSelectorFromString(@"playbackSequentialItemControllerDidRequestNextReelFromPIP:isAutoAdvance:");
+    SEL reqSel = NSSelectorFromString(@"playbackSequentialItemControllerDidRequestNextReel:isAutoAdvance:");
+    SEL pipStateSel = NSSelectorFromString(@"isPictureInPicturePlayback");
+    BOOL inPip = [controller respondsToSelector:pipStateSel] &&
+        ((BOOL (*)(id, SEL))objc_msgSend)(controller, pipStateSel);
+
+    id delegate = YTKACEShortsObject(controller, @"delegate");
+    if (delegate != nil && delegate != controller) {
+        if (inPip && [delegate respondsToSelector:reqPipSel]) {
+            ((void (*)(id, SEL, id, BOOL))objc_msgSend)(delegate, reqPipSel, controller, YES);
+            return YES;
+        }
+        if ([delegate respondsToSelector:reqSel]) {
+            ((void (*)(id, SEL, id, BOOL))objc_msgSend)(delegate, reqSel, controller, YES);
+            return YES;
+        }
+    }
+
+    if ([controller respondsToSelector:reqSel]) {
+        id activeItem = YTKACEShortsObject(controller, @"activePlaybackSequenceItemController") ?: controller;
+        ((void (*)(id, SEL, id, BOOL))objc_msgSend)(controller, reqSel, activeItem, YES);
+        return YES;
+    }
+
+    SEL transitionSel = NSSelectorFromString(@"advanceToNextReelWithTransitionType:");
+    if ([controller respondsToSelector:transitionSel]) {
+        ((void (*)(id, SEL, long long))objc_msgSend)(controller, transitionSel, 0);
+        return YES;
+    }
+
+    SEL a11ySkipSel = NSSelectorFromString(@"a11yContainerViewDidTapSkipForwards:");
+    if ([controller respondsToSelector:a11ySkipSel]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(controller, a11ySkipSel, nil);
+        return YES;
+    }
+
+    static NSArray<NSString *> *advanceSelectors;
+    static dispatch_once_t advOnce;
+    dispatch_once(&advOnce, ^{
+        advanceSelectors = @[
+            @"reelContentViewRequestsAdvanceToNextVideo:",
+            @"advanceToNextVideo:",
+            @"advanceToNextVideo",
+            @"advanceToNextReel",
+            @"advanceToNextReelAnimated:",
+            @"advanceToNextPage",
+            @"scrollToNextPageAnimated:",
+            @"scrollToNextPage:",
+            @"scrollToNextItemAnimated:",
+            @"scrollToNextItem:",
+            @"scrollToNextReel",
+            @"scrollToNextVideo",
+            @"scrollToNextVideo:",
+            @"goToNextItem",
+            @"goToNextReel",
+            @"playNextVideo"
+        ];
+    });
+    for (NSString *name in advanceSelectors) {
         SEL selector = NSSelectorFromString(name);
         Method method = class_getInstanceMethod([controller class], selector);
-        if (method == NULL) {
-            continue;
-        }
-        if (method_getNumberOfArguments(method) == 3) {
-            ((void (*)(id, SEL, id))objc_msgSend)(controller, selector, sender);
-        } else {
+        if (method == NULL) continue;
+        unsigned int argCount = method_getNumberOfArguments(method);
+        if (argCount == 3) {
+            char *argType = method_copyArgumentType(method, 2);
+            if (argType != NULL && (argType[0] == 'B' || argType[0] == 'c')) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(controller, selector, YES);
+            } else {
+                id arg = YTKACEShortsObject(controller, @"contentView");
+                ((void (*)(id, SEL, id))objc_msgSend)(controller, selector, arg);
+            }
+            if (argType != NULL) free(argType);
+        } else if (argCount == 2) {
             ((void (*)(id, SEL))objc_msgSend)(controller, selector);
+        } else {
+            continue;
         }
         return YES;
     }
@@ -603,7 +789,8 @@ static BOOL YTKACEAdvanceShort(id controller, id sender) {
         current = parent != nil && parent != current ? parent
             : ([current isKindOfClass:UIResponder.class] ? ((UIResponder *)current).nextResponder : nil);
     }
-    UIView *view = [controller isKindOfClass:UIViewController.class] ? ((UIViewController *)controller).view : nil;
+    UIView *view = [controller isKindOfClass:UIViewController.class] ? ((UIViewController *)controller).view
+        : ([controller isKindOfClass:UIView.class] ? (UIView *)controller : nil);
     for (UIView *candidate = view.superview; candidate != nil; candidate = candidate.superview) {
         if (![candidate isKindOfClass:UIScrollView.class]) continue;
         UIScrollView *pager = (UIScrollView *)candidate;
@@ -613,6 +800,47 @@ static BOOL YTKACEAdvanceShort(id controller, id sender) {
         if (next > pager.contentSize.height - page + 1.0) break;
         [pager setContentOffset:CGPointMake(pager.contentOffset.x, next) animated:YES];
         return YES;
+    }
+    return NO;
+}
+
+static BOOL YTKACEAdvanceShort(NSArray<UIViewController *> *controllers, __unused id player) {
+    for (UIViewController *controller in controllers) {
+        if (YTKACERequestNextReelFromController(controller)) {
+            return YES;
+        }
+    }
+    for (UIViewController *controller in controllers) {
+        if (controller.isViewLoaded) {
+            UIScrollView *pager = YTKACEShortsFindPager(controller.view, 0);
+            if (pager == nil && controller.view.superview != nil) {
+                pager = YTKACEShortsFindPager(controller.view.superview, 0);
+            }
+            if (pager != nil) {
+                CGFloat page = CGRectGetHeight(pager.bounds);
+                if (page > 100.0) {
+                    CGFloat next = round(pager.contentOffset.y / page) * page + page;
+                    if (next <= pager.contentSize.height - page + 1.0) {
+                        [pager setContentOffset:CGPointMake(pager.contentOffset.x, next) animated:YES];
+                        return YES;
+                    }
+                }
+            }
+        }
+    }
+    for (UIWindow *window in UIApplication.sharedApplication.windows) {
+        if (window.hidden || window.alpha < 0.1) continue;
+        UIScrollView *pager = YTKACEShortsFindPager(window, 0);
+        if (pager != nil) {
+            CGFloat page = CGRectGetHeight(pager.bounds);
+            if (page > 100.0) {
+                CGFloat next = round(pager.contentOffset.y / page) * page + page;
+                if (next <= pager.contentSize.height - page + 1.0) {
+                    [pager setContentOffset:CGPointMake(pager.contentOffset.x, next) animated:YES];
+                    return YES;
+                }
+            }
+        }
     }
     return NO;
 }
@@ -698,10 +926,12 @@ static void YTKACEUpdateShortsProgress(void) {
 static const void *YTKACEShortsPinchAssociation = &YTKACEShortsPinchAssociation;
 static const void *YTKACEShortsRetryAssociation = &YTKACEShortsRetryAssociation;
 static void YTKACEConfigureReelView(UIView *receiver, BOOL showDownload);
+static BOOL YTKACEAutoSkipLiveShort(id sender);
 static IMP OriginalReelElementLayout;
 
 static void YTKACEReelElementLayout(UIView *receiver, SEL selector) {
     if (OriginalReelElementLayout != NULL) ((void (*)(id, SEL))OriginalReelElementLayout)(receiver, selector);
+    YTKACEAutoSkipLiveShort(receiver);
     if (!YTKACEShortsNewFullscreenActive() || receiver.alpha <= 0.01 || receiver.window == nil) return;
     Class containerClass = NSClassFromString(@"YTReelContainerView");
     UIView *container = receiver.superview;
@@ -867,30 +1097,399 @@ static void YTKACEConfigureReelView(UIView *receiver, BOOL showDownload) {
 static void YTKACEReelLayout(UIView *receiver, SEL selector) {
     YTKACEInvokeShortsOriginal(receiver, selector);
     YTKACEConfigureReelView(receiver, NO);
+    YTKACEAutoSkipLiveShort(receiver);
 }
 
 static void YTKACEReelOverlayLayout(UIView *receiver, SEL selector) {
     YTKACEInvokeShortsOriginal(receiver, selector);
     YTKACEConfigureReelView(receiver, YES);
+    YTKACEAutoSkipLiveShort(receiver);
+}
+
+static BOOL YTKACETextLooksLikeLive(NSString *raw) {
+    if (![raw isKindOfClass:NSString.class] || raw.length == 0) return NO;
+    NSString *trimmed = [raw stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0) return NO;
+    NSString *upper = [trimmed uppercaseString];
+
+    static NSCharacterSet *leadingStripSet;
+    static dispatch_once_t stripOnce;
+    dispatch_once(&stripOnce, ^{
+        NSMutableCharacterSet *set = [NSMutableCharacterSet whitespaceAndNewlineCharacterSet];
+        [set formUnionWithCharacterSet:[NSCharacterSet punctuationCharacterSet]];
+        [set formUnionWithCharacterSet:[NSCharacterSet symbolCharacterSet]];
+        leadingStripSet = [set copy];
+    });
+
+    NSString *cleaned = [upper stringByTrimmingCharactersInSet:leadingStripSet];
+
+    if ([cleaned isEqualToString:@"LIVE"] ||
+        [cleaned isEqualToString:@"DAL VIVO"] ||
+        [cleaned isEqualToString:@"IN DIRETTA"] ||
+        [cleaned isEqualToString:@"DIRETTA"] ||
+        [cleaned isEqualToString:@"EN VIVO"] ||
+        [cleaned isEqualToString:@"EN DIRECT"] ||
+        [cleaned isEqualToString:@"AO VIVO"] ||
+        [cleaned isEqualToString:@"DIRECTO"] ||
+        [cleaned isEqualToString:@"CANLI"] ||
+        [cleaned isEqualToString:@"실시간"] ||
+        [cleaned isEqualToString:@"라이브"] ||
+        [cleaned isEqualToString:@"直播"] ||
+        [cleaned isEqualToString:@"ライブ"] ||
+        [cleaned isEqualToString:@"ПРЯМОЙ ЭФИР"] ||
+        [cleaned isEqualToString:@"В ЭФИРЕ"] ||
+        [cleaned isEqualToString:@"مباشر"] ||
+        [cleaned isEqualToString:@"LIVE STREAM"] ||
+        [cleaned isEqualToString:@"LIVE STREAMING"] ||
+        [cleaned isEqualToString:@"LIVE CHAT"] ||
+        [cleaned isEqualToString:@"LIVE NOW"]) {
+        return YES;
+    }
+
+    if (cleaned.length <= 35) {
+        if ([cleaned hasPrefix:@"LIVE "] || [cleaned hasPrefix:@"LIVE•"] ||
+            [cleaned hasPrefix:@"DAL VIVO "] || [cleaned hasPrefix:@"DAL VIVO•"] ||
+            [cleaned hasPrefix:@"IN DIRETTA "] || [cleaned hasPrefix:@"IN DIRETTA•"] ||
+            [cleaned hasPrefix:@"EN VIVO "] || [cleaned hasPrefix:@"EN DIRECT "] ||
+            [cleaned hasPrefix:@"AO VIVO "]) {
+            return YES;
+        }
+    }
+
+    NSString *lower = [trimmed lowercaseString];
+    if ([lower containsString:@"dal vivo"] ||
+        [lower containsString:@"in diretta"] ||
+        [lower containsString:@"live stream"] ||
+        [lower containsString:@"live chat"] ||
+        [lower containsString:@"live broadcast"] ||
+        [lower containsString:@"trasmissione dal vivo"] ||
+        [lower containsString:@"diretta streaming"] ||
+        [lower containsString:@"streaming dal vivo"] ||
+        [lower containsString:@"tocca per guardare live"] ||
+        [lower containsString:@"tocca per guardare il live"] ||
+        [lower containsString:@"tap to watch live"] ||
+        [lower containsString:@"guarda dal vivo"] ||
+        [lower containsString:@"guarda live"] ||
+        [lower containsString:@"guarda la diretta"] ||
+        [lower containsString:@"watch live"] ||
+        [lower containsString:@"ver en vivo"] ||
+        [lower containsString:@"regarder en direct"] ||
+        [lower containsString:@"assistir ao vivo"] ||
+        [lower containsString:@"بث مباشر"]) {
+        return YES;
+    }
+    return NO;
+}
+
+static BOOL YTKACEShortsViewHasLiveBadge(UIView *view, NSUInteger depth) {
+    if (view == nil || depth > 20) return NO;
+    if (view.hidden || (view.alpha < 0.05 && depth == 0)) return NO;
+
+    NSString *name = NSStringFromClass(view.class).lowercaseString;
+    if ([name containsString:@"reellive"] ||
+        [name containsString:@"liveoverlay"] ||
+        [name containsString:@"livebadge"] ||
+        [name containsString:@"liveindicator"] ||
+        [name containsString:@"livestatus"] ||
+        [name containsString:@"livewatch"] ||
+        [name containsString:@"livechat"] ||
+        [name containsString:@"liveitem"]) {
+        return YES;
+    }
+
+    NSString *ident = view.accessibilityIdentifier.lowercaseString ?: @"";
+    if ([ident containsString:@"reel_live"] ||
+        [ident containsString:@"live_badge"] ||
+        [ident containsString:@"live_indicator"] ||
+        [ident containsString:@"live_stream"] ||
+        [ident containsString:@"live_overlay"] ||
+        [ident containsString:@"live_status"] ||
+        [ident containsString:@"live_chat"] ||
+        [ident containsString:@"live_tag"] ||
+        [ident containsString:@"live_pill"]) {
+        return YES;
+    }
+
+    if (YTKACETextLooksLikeLive(view.accessibilityLabel)) return YES;
+
+    if ([view isKindOfClass:UILabel.class]) {
+        UILabel *lbl = (UILabel *)view;
+        if (YTKACETextLooksLikeLive(lbl.text)) return YES;
+        if (YTKACETextLooksLikeLive(lbl.attributedText.string)) return YES;
+    } else if ([view isKindOfClass:UIButton.class]) {
+        UIButton *btn = (UIButton *)view;
+        if (YTKACETextLooksLikeLive([btn titleForState:UIControlStateNormal])) return YES;
+        if (YTKACETextLooksLikeLive(btn.titleLabel.text)) return YES;
+    } else {
+        for (NSString *textProp in @[@"text", @"title", @"badgeText"]) {
+            SEL sel = NSSelectorFromString(textProp);
+            if ([view respondsToSelector:sel]) {
+                id val = ((id (*)(id, SEL))objc_msgSend)(view, sel);
+                if ([val isKindOfClass:NSString.class] && YTKACETextLooksLikeLive((NSString *)val)) return YES;
+                if ([val isKindOfClass:NSAttributedString.class] && YTKACETextLooksLikeLive(((NSAttributedString *)val).string)) return YES;
+            }
+        }
+    }
+
+    for (UIView *child in view.subviews) {
+        if (child.hidden) continue;
+        if (YTKACEShortsViewHasLiveBadge(child, depth + 1)) return YES;
+    }
+    return NO;
+}
+
+static BOOL YTKACEShortsIsLivePlayback(UIViewController *controller, id player) {
+    if (player != nil) {
+        for (NSString *selName in @[@"isLivePlayback", @"isLive", @"isLiveStream", @"isLiveContent"]) {
+            SEL sel = NSSelectorFromString(selName);
+            if ([player respondsToSelector:sel]) {
+                NSMethodSignature *sig = [player methodSignatureForSelector:sel];
+                if (sig != nil) {
+                    const char *type = [sig methodReturnType];
+                    if (type != NULL && (type[0] == 'B' || type[0] == 'c')) {
+                        if (((BOOL (*)(id, SEL))objc_msgSend)(player, sel)) return YES;
+                    }
+                }
+            }
+        }
+        for (NSString *sub in @[@"activeVideo", @"currentVideo", @"singleVideo", @"playbackData", @"playerResponse"]) {
+            id subObj = YTKACEShortsObject(player, sub);
+            if (subObj != nil && subObj != player) {
+                if (YTKACEShortsIsLivePlayback(nil, subObj)) return YES;
+            }
+        }
+    }
+
+    if (controller != nil) {
+        NSString *ctrlClass = NSStringFromClass(controller.class).lowercaseString;
+        if ([ctrlClass containsString:@"reellive"] ||
+            [ctrlClass containsString:@"livewatch"] ||
+            [ctrlClass containsString:@"liveplayer"] ||
+            [ctrlClass containsString:@"liveplayback"]) {
+            return YES;
+        }
+
+        static NSArray<NSString *> *itemKeys;
+        static dispatch_once_t itemOnce;
+        dispatch_once(&itemOnce, ^{
+            itemKeys = @[
+                @"activePlaybackSequenceItemController",
+                @"activeItemController",
+                @"currentItemController",
+                @"currentPlaybackItemController",
+                @"activeReelController",
+                @"activeReelItem",
+                @"currentReelItem",
+                @"activePlaybackItem",
+                @"currentPlaybackItem",
+                @"activeItem"
+            ];
+        });
+
+        id currentItem = nil;
+        for (NSString *key in itemKeys) {
+            currentItem = YTKACEShortsObject(controller, key);
+            if (currentItem != nil) break;
+        }
+        if (currentItem == nil) currentItem = controller;
+
+        if (currentItem != controller) {
+            NSString *itemClass = NSStringFromClass([currentItem class]).lowercaseString;
+            if ([itemClass containsString:@"reellive"] ||
+                [itemClass containsString:@"livewatch"] ||
+                [itemClass containsString:@"liveplayer"] ||
+                [itemClass containsString:@"liveplayback"]) {
+                return YES;
+            }
+        }
+
+        id itemPlayer = YTKACEShortsObject(currentItem, @"player") ?:
+                        YTKACEShortsObject(controller, @"player") ?:
+                        YTKACEShortsObject(controller, @"playerViewController") ?:
+                        YTKACEShortsObject(controller, @"reelPlayerViewController");
+        if (itemPlayer != nil && itemPlayer != player) {
+            if (YTKACEShortsIsLivePlayback(nil, itemPlayer)) return YES;
+        }
+
+        id model = YTKACEShortsObject(currentItem, @"contentModel") ?:
+                   YTKACEShortsObject(currentItem, @"reelModel") ?:
+                   YTKACEShortsObject(currentItem, @"model") ?:
+                   YTKACEShortsObject(currentItem, @"entry") ?:
+                   YTKACEShortsObject(controller, @"contentModel") ?:
+                   YTKACEShortsObject(controller, @"reelModel") ?:
+                   YTKACEShortsObject(controller, @"model") ?:
+                   YTKACEShortsObject(controller, @"entry");
+        if (model != nil) {
+            NSString *modelName = NSStringFromClass([model class]).lowercaseString;
+            if ([modelName containsString:@"live"]) return YES;
+            if (YTKACEShortsObject(model, @"nonVideoContentModel") != nil) return YES;
+            if (YTKACEShortsObject(model, @"reelLiveItemRenderer") != nil) return YES;
+            for (NSString *selName in @[@"isLive", @"isLivePlayback", @"isLiveStream", @"isLiveContent", @"hasReelLiveItemRenderer"]) {
+                SEL sel = NSSelectorFromString(selName);
+                if ([model respondsToSelector:sel]) {
+                    NSMethodSignature *sig = [model methodSignatureForSelector:sel];
+                    if (sig != nil) {
+                        const char *type = [sig methodReturnType];
+                        if (type != NULL && (type[0] == 'B' || type[0] == 'c')) {
+                            if (((BOOL (*)(id, SEL))objc_msgSend)(model, sel)) return YES;
+                        }
+                    }
+                }
+            }
+        }
+
+        id response = YTKACEShortsPlayerResponseFromObject(currentItem) ?:
+                      YTKACEShortsPlayerResponseFromObject(controller) ?:
+                      YTKACELatestShortsPlayerResponse;
+        if (response != nil) {
+            id videoDetails = YTKACEShortsObject(response, @"videoDetails");
+            if (videoDetails != nil) {
+                for (NSString *selName in @[@"isLive", @"isLiveContent", @"isLivePlayback"]) {
+                    SEL sel = NSSelectorFromString(selName);
+                    if ([videoDetails respondsToSelector:sel]) {
+                        NSMethodSignature *sig = [videoDetails methodSignatureForSelector:sel];
+                        if (sig != nil) {
+                            const char *type = [sig methodReturnType];
+                            if (type != NULL && (type[0] == 'B' || type[0] == 'c')) {
+                                if (((BOOL (*)(id, SEL))objc_msgSend)(videoDetails, sel)) return YES;
+                            }
+                        }
+                    }
+                }
+            }
+            if (YTKACEShortsObject(response, @"liveBroadcastDetails") != nil) return YES;
+        }
+
+        id pageVC = YTKACEShortsObject(controller, @"scrollablePageViewController");
+        if (pageVC != nil) {
+            id currentVC = YTKACEShortsObject(pageVC, @"currentViewController");
+            if (currentVC != nil && currentVC != controller) {
+                if (YTKACEShortsIsLivePlayback(currentVC, nil)) return YES;
+            }
+        }
+
+        if (controller.isViewLoaded && YTKACEShortsViewHasLiveBadge(controller.view, 0)) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
+
+static CFTimeInterval YTKACELastLiveAdvanceTime = 0.0;
+static BOOL YTKACEAutoSkipLiveShort(id sender) {
+    if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LiveHidden")) return NO;
+    if (sender == nil) return NO;
+
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now - YTKACELastLiveAdvanceTime < 0.35) return NO;
+
+    if ([sender isKindOfClass:UIView.class]) {
+        UIView *v = (UIView *)sender;
+        if (v.window == nil && v.superview == nil) return NO;
+    } else if ([sender isKindOfClass:UIViewController.class]) {
+        UIViewController *vc = (UIViewController *)sender;
+        if (vc.isViewLoaded && vc.view.window == nil && vc.view.superview == nil) return NO;
+    }
+
+    BOOL isLive = NO;
+    if ([sender isKindOfClass:UIView.class]) {
+        isLive = YTKACEShortsViewHasLiveBadge((UIView *)sender, 0);
+    }
+
+    NSArray<UIViewController *> *controllers = nil;
+    if (!isLive) {
+        controllers = YTKACECollectShortsControllers(sender);
+        for (UIViewController *vc in controllers) {
+            if (YTKACEShortsIsLivePlayback(vc, nil)) {
+                isLive = YES;
+                break;
+            }
+        }
+        UIViewController *topShorts = controllers.firstObject;
+        if (!isLive && topShorts != nil && topShorts.isViewLoaded) {
+            isLive = YTKACEShortsViewHasLiveBadge(topShorts.view, 0);
+        }
+
+        if (!isLive && topShorts != nil && topShorts.isViewLoaded && topShorts.view.window != nil) {
+            id model = YTKACEShortsObject(topShorts, @"contentModel") ?:
+                       YTKACEShortsObject(topShorts, @"reelModel");
+            id currentItem = YTKACEShortsObject(topShorts, @"activePlaybackSequenceItemController");
+            if (currentItem != nil) {
+                id itemModel = YTKACEShortsObject(currentItem, @"contentModel") ?:
+                               YTKACEShortsObject(currentItem, @"reelModel");
+                if (itemModel != nil) model = itemModel;
+            }
+            if (model == nil && YTKACEShortsObject(topShorts, @"player") == nil &&
+                YTKACEShortsObject(currentItem, @"player") == nil &&
+                (now - YTKACELastLiveAdvanceTime > 0.8)) {
+                isLive = YES;
+            }
+        }
+    } else {
+        controllers = YTKACECollectShortsControllers(sender);
+    }
+
+    if (isLive) {
+        YTKACELastLiveAdvanceTime = now;
+        for (UIViewController *vc in controllers) {
+            id p = YTKACEShortsObject(vc, @"player");
+            SEL pauseSel = NSSelectorFromString(@"pause");
+            if ([p respondsToSelector:pauseSel]) {
+                ((void (*)(id, SEL))objc_msgSend)(p, pauseSel);
+            }
+            SEL muteSel = NSSelectorFromString(@"setMuted:");
+            if ([p respondsToSelector:muteSel]) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(p, muteSel, YES);
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            YTKACEAdvanceShort(controllers, nil);
+        });
+
+        __weak id weakSender = sender;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            id strongSender = weakSender;
+            if (strongSender != nil) {
+                NSArray<UIViewController *> *currentCtrls = YTKACECollectShortsControllers(strongSender);
+                BOOL stillLive = NO;
+                for (UIViewController *vc in currentCtrls) {
+                    if (YTKACEShortsIsLivePlayback(vc, nil)) { stillLive = YES; break; }
+                }
+                if (!stillLive && [strongSender isKindOfClass:UIView.class]) {
+                    stillLive = YTKACEShortsViewHasLiveBadge((UIView *)strongSender, 0);
+                }
+                if (stillLive) {
+                    YTKACEAdvanceShort(currentCtrls, nil);
+                }
+            }
+        });
+        return YES;
+    }
+    return NO;
 }
 
 static void YTKACEShortsControllerLayout(UIViewController *receiver,
                                          SEL selector) {
     YTKACEInvokeShortsOriginal(receiver, selector);
     YTKACEConfigureReelView(receiver.view, YES);
+    YTKACEAutoSkipLiveShort(receiver);
     if (![objc_getAssociatedObject(receiver,
             YTKACEShortsInitialRefreshAssociation) boolValue]) {
         objc_setAssociatedObject(receiver,
             YTKACEShortsInitialRefreshAssociation, @YES,
             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         __weak UIViewController *weakReceiver = receiver;
-        for (NSNumber *delay in @[@0.08, @0.30]) {
+        for (NSNumber *delay in @[@0.10, @0.30, @0.60, @1.00]) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                 (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
                 dispatch_get_main_queue(), ^{
                     UIViewController *controller = weakReceiver;
                     if (controller.view.window != nil) {
                         YTKACEConfigureReelView(controller.view, YES);
+                        YTKACEAutoSkipLiveShort(controller);
                     }
                 });
         }
@@ -961,10 +1560,107 @@ static void YTKACEInstallShortsController(NSString *className) {
 }
 
 static const void *YTKACEShortsLoopAssociation = &YTKACEShortsLoopAssociation;
+static CFTimeInterval YTKACELastShortsAdvanceTime = 0.0;
+static NSString *YTKACELastAdvancedShortsToken = nil;
+static double YTKACEPrevShortsTime = 0.0;
+static NSString *YTKACEPrevShortsToken = nil;
+
+static IMP OriginalReelEnablePIPAutoAdvance;
+static IMP OriginalReelShouldAutoAdvance;
+static IMP OriginalReelShouldAutoAdvanceInPip;
+static IMP OriginalReelContainerAutoAdvanceIfNeeded;
+static IMP OriginalReelContainerHandleLoopBehavior;
+static IMP OriginalReelPlayerHandleLoopBehavior;
+
+static BOOL YTKACEReelEnablePIPAutoAdvance(id receiver, SEL selector) {
+    if (YTKACEFeatureEnabled(@"autoSkipShorts")) return YES;
+    return OriginalReelEnablePIPAutoAdvance != NULL
+        ? ((BOOL (*)(id, SEL))OriginalReelEnablePIPAutoAdvance)(receiver, selector)
+        : NO;
+}
+
+static BOOL YTKACEReelShouldAutoAdvance(id receiver, SEL selector) {
+    if (YTKACEShortsLimitReached()) return NO;
+    if (YTKACEFeatureEnabled(@"autoSkipShorts")) return YES;
+    return OriginalReelShouldAutoAdvance != NULL
+        ? ((BOOL (*)(id, SEL))OriginalReelShouldAutoAdvance)(receiver, selector)
+        : NO;
+}
+
+static BOOL YTKACEReelShouldAutoAdvanceInPip(id receiver, SEL selector) {
+    if (YTKACEShortsLimitReached()) return NO;
+    if (YTKACEFeatureEnabled(@"autoSkipShorts")) return YES;
+    return OriginalReelShouldAutoAdvanceInPip != NULL
+        ? ((BOOL (*)(id, SEL))OriginalReelShouldAutoAdvanceInPip)(receiver, selector)
+        : NO;
+}
+
+static BOOL YTKACEReelContainerAutoAdvanceIfNeeded(id receiver, SEL selector) {
+    if (YTKACEShortsLimitReached()) return NO;
+    if (OriginalReelContainerAutoAdvanceIfNeeded != NULL) {
+        if (((BOOL (*)(id, SEL))OriginalReelContainerAutoAdvanceIfNeeded)(receiver, selector)) {
+            YTKACELastShortsAdvanceTime = CACurrentMediaTime();
+            return YES;
+        }
+    }
+    if (!YTKACEFeatureEnabled(@"autoSkipShorts")) return NO;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now - YTKACELastShortsAdvanceTime >= 1.0) {
+        if (YTKACERequestNextReelFromController(receiver)) {
+            YTKACELastShortsAdvanceTime = now;
+        }
+    }
+    return YES;
+}
+
+static void YTKACEReelContainerHandleLoopBehavior(id receiver, SEL selector) {
+    if (YTKACEShortsLimitReached()) return;
+    if (!YTKACEFeatureEnabled(@"autoSkipShorts") &&
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LoopDisabled")) {
+        SEL pause = NSSelectorFromString(@"pause");
+        if ([receiver respondsToSelector:pause]) {
+            ((void (*)(id, SEL))objc_msgSend)(receiver, pause);
+        } else {
+            id player = YTKACEShortsObject(receiver, @"player");
+            if ([player respondsToSelector:pause]) {
+                ((void (*)(id, SEL))objc_msgSend)(player, pause);
+            }
+        }
+        return;
+    }
+    if (OriginalReelContainerHandleLoopBehavior != NULL) {
+        ((void (*)(id, SEL))OriginalReelContainerHandleLoopBehavior)(receiver, selector);
+    }
+}
+
+static void YTKACEReelPlayerHandleLoopBehavior(id receiver, SEL selector) {
+    if (YTKACEShortsLimitReached()) return;
+    if (YTKACEFeatureEnabled(@"autoSkipShorts")) {
+        CFTimeInterval now = CACurrentMediaTime();
+        if (now - YTKACELastShortsAdvanceTime >= 1.0) {
+            if (YTKACERequestNextReelFromController(receiver)) {
+                YTKACELastShortsAdvanceTime = now;
+            }
+        }
+        return;
+    }
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LoopDisabled")) {
+        id player = YTKACEShortsObject(receiver, @"player");
+        SEL pause = NSSelectorFromString(@"pause");
+        if ([player respondsToSelector:pause]) {
+            ((void (*)(id, SEL))objc_msgSend)(player, pause);
+        }
+        return;
+    }
+    if (OriginalReelPlayerHandleLoopBehavior != NULL) {
+        ((void (*)(id, SEL))OriginalReelPlayerHandleLoopBehavior)(receiver, selector);
+    }
+}
 
 static void YTKACEShortsTimeChanged(NSNotification *notification) {
     id player = notification.object;
-    id shorts = YTKACEFindShortsController(player);
+    NSArray<UIViewController *> *controllers = YTKACECollectShortsControllers(player);
+    UIViewController *shorts = controllers.firstObject;
     if (shorts == nil) {
         return;
     }
@@ -972,19 +1668,36 @@ static void YTKACEShortsTimeChanged(NSNotification *notification) {
     if (YTKACELatestShortsPlayerResponse == nil ||
         CACurrentMediaTime() - lastLookup > 1.0) {
         lastLookup = CACurrentMediaTime();
-        id response = YTKACEShortsPlayerResponseFromObject(player) ?:
-            YTKACEShortsPlayerResponseFromObject(shorts);
+        id response = YTKACEShortsPlayerResponseFromObject(player);
+        for (UIViewController *vc in controllers) {
+            if (response != nil) break;
+            response = YTKACEShortsPlayerResponseFromObject(vc);
+        }
         if (response != nil) {
             YTKACELatestShortsPlayerResponse = response;
         }
     }
     double time = [notification.userInfo[@"time"] doubleValue];
-    double duration = YTKACEShortsDouble(player, @[
-        @"currentVideoTotalMediaTime",
-        @"currentVideoTotalTime",
-        @"currentVideoDuration",
-        @"totalMediaTime"
-    ]);
+    double duration = [notification.userInfo[@"duration"] doubleValue];
+    if (duration <= 0.0) {
+        id activeVideo = YTKACEShortsObject(player, @"activeVideo");
+        duration = YTKACEShortsDouble(activeVideo, @[@"totalMediaTime", @"duration"]);
+    }
+    if (duration <= 0.0) {
+        duration = YTKACEShortsDouble(player, @[
+            @"currentVideoTotalMediaTime",
+            @"currentVideoTotalTime",
+            @"currentVideoDuration",
+            @"totalMediaTime"
+        ]);
+    }
+    if (duration <= 0.0) {
+        duration = YTKACEShortsDouble(shorts, @[
+            @"duration",
+            @"totalMediaTime",
+            @"currentVideoTotalMediaTime"
+        ]);
+    }
     YTKACELastShortsTime = time;
     YTKACELastShortsDuration = duration;
     YTKACEUpdateShortsProgress();
@@ -992,11 +1705,31 @@ static void YTKACEShortsTimeChanged(NSNotification *notification) {
     if (YTKACEShortsLimitReached()) {
         return;
     }
+
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LiveHidden")) {
+        if (YTKACEAutoSkipLiveShort(shorts)) {
+            return;
+        }
+    }
+
+    NSString *videoID = YTKACECurrentShortsVideoID(player, controllers);
+    NSString *token = videoID.length > 0
+        ? videoID
+        : [NSString stringWithFormat:@"%p-%.2f", shorts, duration];
+    BOOL sameVideo = YTKACEPrevShortsToken != nil && [token isEqualToString:YTKACEPrevShortsToken];
+    double prevTime = sameVideo ? YTKACEPrevShortsTime : 0.0;
+    YTKACEPrevShortsToken = token;
+    YTKACEPrevShortsTime = time;
+
+    BOOL loopWrapped = sameVideo && duration > 1.0 &&
+        prevTime >= MAX(1.0, duration - 1.5) &&
+        time < 0.85 && time < prevTime - 0.5;
+
     if (!YTKACEFeatureEnabled(@"autoSkipShorts") && YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LoopDisabled") &&
         duration > 1.0) {
-        if (time < duration * 0.5) {
+        if (time < duration * 0.5 && !loopWrapped) {
             objc_setAssociatedObject(shorts, YTKACEShortsLoopAssociation, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        } else if (time >= duration - 0.3 &&
+        } else if ((time >= duration - 0.35 || loopWrapped) &&
                    ![objc_getAssociatedObject(shorts, YTKACEShortsLoopAssociation) boolValue]) {
             objc_setAssociatedObject(shorts, YTKACEShortsLoopAssociation, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             SEL pause = NSSelectorFromString(@"pause");
@@ -1007,13 +1740,23 @@ static void YTKACEShortsTimeChanged(NSNotification *notification) {
     if (!YTKACEFeatureEnabled(@"autoSkipShorts") || duration <= 1.0) {
         return;
     }
-    if (time < duration * 0.5) {
+
+    CFTimeInterval now = CACurrentMediaTime();
+    if (time < duration * 0.5 && !loopWrapped && (now - YTKACELastShortsAdvanceTime > 0.8)) {
         objc_setAssociatedObject(shorts, YTKACEShortsSkipAssociation, nil,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if ([token isEqualToString:YTKACELastAdvancedShortsToken]) {
+            YTKACELastAdvancedShortsToken = nil;
+        }
     }
-    if (time >= duration - 0.35 &&
-        ![objc_getAssociatedObject(shorts, YTKACEShortsSkipAssociation) boolValue]) {
-        if (YTKACEAdvanceShort(shorts, player)) {
+
+    BOOL reachedEnd = (time >= duration - 0.30 && time > 0.4) || loopWrapped;
+    BOOL alreadySkipped = [objc_getAssociatedObject(shorts, YTKACEShortsSkipAssociation) boolValue] &&
+        [token isEqualToString:YTKACELastAdvancedShortsToken];
+    if (reachedEnd && !alreadySkipped && (now - YTKACELastShortsAdvanceTime >= 1.0)) {
+        if (YTKACEAdvanceShort(controllers, player)) {
+            YTKACELastShortsAdvanceTime = now;
+            YTKACELastAdvancedShortsToken = token;
             objc_setAssociatedObject(shorts, YTKACEShortsSkipAssociation, @YES,
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
@@ -1033,12 +1776,40 @@ void YTKACEInstallShortsHooks(void) {
                 YTKACEShortsTimeChanged(notification);
             }];
     }
+    YTKACEInstallInstanceHook(@"YTReelExperimentConfig",
+                              @"enableReelsPIPAutoAdvance",
+                              (IMP)YTKACEReelEnablePIPAutoAdvance,
+                              &OriginalReelEnablePIPAutoAdvance);
+    YTKACEInstallInstanceHook(@"YTReelAutoAdvanceController",
+                              @"shouldAutoAdvance",
+                              (IMP)YTKACEReelShouldAutoAdvance,
+                              &OriginalReelShouldAutoAdvance);
+    YTKACEInstallInstanceHook(@"YTReelAutoAdvanceController",
+                              @"shouldAutoAdvanceInPip",
+                              (IMP)YTKACEReelShouldAutoAdvanceInPip,
+                              &OriginalReelShouldAutoAdvanceInPip);
+    YTKACEInstallInstanceHook(@"YTReelContainerViewController",
+                              @"autoAdvanceIfNeeded",
+                              (IMP)YTKACEReelContainerAutoAdvanceIfNeeded,
+                              &OriginalReelContainerAutoAdvanceIfNeeded);
+    YTKACEInstallInstanceHook(@"YTReelContainerViewController",
+                              @"handleLoopBehavior",
+                              (IMP)YTKACEReelContainerHandleLoopBehavior,
+                              &OriginalReelContainerHandleLoopBehavior);
+    YTKACEInstallInstanceHook(@"YTReelPlayerViewController",
+                              @"handleLoopBehavior",
+                              (IMP)YTKACEReelPlayerHandleLoopBehavior,
+                              &OriginalReelPlayerHandleLoopBehavior);
     for (NSString *className in @[
         @"YTReelContentView",
         @"YTReelPlayerView",
         @"YTShortsPlayerView",
         @"YTShortsPlayerViewControllerView",
-        @"YTShortsPlayerViewSwift"
+        @"YTShortsPlayerViewSwift",
+        @"YTReelLivePlayerOverlayView",
+        @"YTReelLivePlaybackOverlayView",
+        @"YTReelLiveItemCell",
+        @"YTReelLiveItemView"
     ]) {
         YTKACEInstallShortsLayout(className, (IMP)YTKACEReelLayout);
     }
@@ -1052,7 +1823,10 @@ void YTKACEInstallShortsHooks(void) {
         @"YTReelContainerViewController",
         @"YTReelPlaybackViewController",
         @"YTReelPlayerViewController",
-        @"YTShortsPlayerViewController"
+        @"YTShortsPlayerViewController",
+        @"YTReelLivePlaybackViewController",
+        @"YTReelLivePlayerViewController",
+        @"YTReelLiveWatchRootViewController"
     ]) {
         YTKACEInstallShortsController(className);
     }

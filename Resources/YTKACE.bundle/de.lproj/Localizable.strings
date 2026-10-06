@@ -991,3 +991,6 @@ Lizenziert unter CC BY-NC-SA 4.0.";
 "Debug: Off" = "Debug: Aus";
 "Debug logs on" = "Debug-Logs an";
 "Debug logs off" = "Debug-Logs aus";
+"Remove Live Streams" = "Livestreams entfernen";
+"Hide live streams from the Shorts feed." = "Livestreams aus dem Shorts-Feed ausblenden.";
+

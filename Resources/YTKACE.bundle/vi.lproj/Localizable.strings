@@ -991,3 +991,6 @@ Cấp phép theo CC BY-NC-SA 4.0.";
 "Debug: Off" = "Gỡ lỗi: Tắt";
 "Debug logs on" = "Đã bật nhật ký gỡ lỗi";
 "Debug logs off" = "Đã tắt nhật ký gỡ lỗi";
+"Remove Live Streams" = "Xóa phát trực tiếp";
+"Hide live streams from the Shorts feed." = "Ẩn các luồng phát trực tiếp khỏi nguồn cấp dữ liệu Shorts.";
+
