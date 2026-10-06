@@ -17,6 +17,7 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <AudioToolbox/AudioToolbox.h>
 #import <math.h>
 
 typedef UIViewController * _Nonnull (^YTKACEControllerBuilder)(void);
@@ -557,6 +558,10 @@ NSString *YTKACEPickerSummary(NSString *key,
                 sectionTitles:(NSArray<NSString *> *)sectionTitles;
 - (void)replaceSections:(NSArray<NSArray<NSDictionary *> *> *)sections
           sectionTitles:(NSArray<NSString *> *)sectionTitles;
+- (void)beginRestore;
+- (void)beginImportForCategory:(NSString *)category;
+- (void)chooseImportCategory;
+- (void)beginSponsorConfigImport;
 @end
 
 @implementation YTKACEOptionsController {
@@ -585,6 +590,14 @@ NSString *YTKACEPickerSummary(NSString *key,
     return self;
 }
 
+- (void)ytkace_dismissModal {
+    if (self.navigationController.presentingViewController != nil) {
+        [self.navigationController dismissViewControllerAnimated:YES completion:nil];
+    } else {
+        [self dismissViewControllerAnimated:YES completion:nil];
+    }
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.tableView.cellLayoutMarginsFollowReadableWidth = NO;
@@ -592,6 +605,15 @@ NSString *YTKACEPickerSummary(NSString *key,
     self.tableView.rowHeight = 50.0;
     if (@available(iOS 15.0, *)) {
         self.tableView.sectionHeaderTopPadding = 0.0;
+    }
+    UINavigationController *modalNav = self.navigationController;
+    if (!YTKACEOwnsNavigationController(modalNav) && modalNav != nil) {
+        if (self.navigationItem.rightBarButtonItem == nil) {
+            self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
+                initWithBarButtonSystemItem:UIBarButtonSystemItemDone
+                                     target:self
+                                     action:@selector(ytkace_dismissModal)];
+        }
     }
 }
 
@@ -601,8 +623,39 @@ NSString *YTKACEPickerSummary(NSString *key,
         [self.navigationController setNavigationBarHidden:NO animated:NO];
     }
     YTKACEApplyAppearance(self);
-    self.tableView.backgroundColor = YTKACESettingsBackground();
+    UINavigationController *modalNav = self.navigationController;
+    if (!YTKACEOwnsNavigationController(modalNav) && modalNav != nil) {
+        if (self.navigationItem.rightBarButtonItem == nil) {
+            self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
+                initWithBarButtonSystemItem:UIBarButtonSystemItemDone
+                                     target:self
+                                     action:@selector(ytkace_dismissModal)];
+        }
+        if (YTKACELiquidGlassAvailable()) {
+            YTKACEApplyMenuGlassBackground(modalNav.view, 24.0);
+            modalNav.navigationBar.backgroundColor = UIColor.clearColor;
+            modalNav.navigationBar.translucent = YES;
+            [modalNav.navigationBar setBackgroundImage:[UIImage new] forBarMetrics:UIBarMetricsDefault];
+            modalNav.navigationBar.shadowImage = [UIImage new];
+            self.tableView.backgroundColor = UIColor.clearColor;
+        } else {
+            self.tableView.backgroundColor = YTKACESettingsBackground();
+        }
+    } else {
+        self.tableView.backgroundColor = YTKACESettingsBackground();
+    }
     [self.tableView reloadData];
+
+    if ([self.title isEqualToString:YTKACELocalized(@"SponsorBlock")]) {
+        YTKACESponsorFetchUserInfo(^(BOOL success, double othersTimeSaved, NSInteger othersSkips, NSInteger submissions) {
+            (void)othersTimeSaved;
+            (void)othersSkips;
+            (void)submissions;
+            if (success) {
+                [self.tableView reloadData];
+            }
+        });
+    }
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -645,6 +698,9 @@ NSString *YTKACEPickerSummary(NSString *key,
     if ([type isEqualToString:@"segmented"] && [item[@"stacked"] boolValue]) {
         return 74.0;
     }
+    if ([item[@"en"] isEqualToString:@"Time Saved for Others"]) {
+        return 76.0;
+    }
     return [item[@"subtitle"] length] == 0 ? 40.0 : 56.0;
 }
 
@@ -685,14 +741,53 @@ willDisplayHeaderView:(UIView *)view
     [[cell.contentView viewWithTag:4271] removeFromSuperview];
 
     cell.textLabel.text = item[@"title"];
-    cell.detailTextLabel.text = item[@"subtitle"];
+
+    NSString *enTitle = item[@"en"];
+    NSString *subtitle = item[@"subtitle"];
+    if ([enTitle isEqualToString:@"Time Saved for Others"]) {
+        subtitle = [NSString stringWithFormat:@"%@ (%@)",
+                    YTKACESponsorFormattedOthersTimeSaved(),
+                    YTKACELocalized(@"Tap to refresh")];
+    } else if ([enTitle isEqualToString:@"Time Saved"]) {
+        subtitle = [NSString stringWithFormat:@"%@ (%@)",
+                    YTKACESponsorFormattedTimeSaved(),
+                    YTKACELocalized(@"Tap to reset")];
+    } else if ([enTitle isEqualToString:@"Whitelisted Channels"]) {
+        subtitle = [NSString stringWithFormat:@"%lu %@ (%@)",
+                    (unsigned long)YTKACESponsorWhitelistedChannels().count,
+                    YTKACELocalized(@"channels"),
+                    YTKACELocalized(@"Tap to manage")];
+    } else if ([enTitle isEqualToString:@"User ID"]) {
+        NSString *userID = YTKACESponsorUserID();
+        NSString *displayID = userID.length > 18
+            ? [NSString stringWithFormat:@"%@...%@", [userID substringToIndex:8], [userID substringFromIndex:userID.length - 6]]
+            : userID;
+        subtitle = [NSString stringWithFormat:@"%@: %@ (%@)",
+                    YTKACELocalized(@"Current"),
+                    displayID,
+                    YTKACELocalized(@"Tap to copy")];
+    }
+
+    cell.detailTextLabel.text = subtitle;
     cell.textLabel.font = [UIFont systemFontOfSize:17.0];
     cell.detailTextLabel.font = [UIFont systemFontOfSize:12.0];
     cell.textLabel.numberOfLines = 1;
-    cell.detailTextLabel.numberOfLines = 2;
+    if ([enTitle isEqualToString:@"Time Saved for Others"]) {
+        cell.detailTextLabel.numberOfLines = 0;
+    } else {
+        cell.detailTextLabel.numberOfLines = 2;
+    }
     cell.textLabel.textColor = UIColor.labelColor;
     cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
-    cell.backgroundColor = YTKACESettingsCellBackground();
+    if (!YTKACEOwnsNavigationController(self.navigationController) && YTKACELiquidGlassAvailable()) {
+        cell.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+                ? [UIColor colorWithWhite:1.0 alpha:0.06]
+                : [UIColor colorWithWhite:1.0 alpha:0.35];
+        }];
+    } else {
+        cell.backgroundColor = YTKACESettingsCellBackground();
+    }
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     cell.accessoryType = UITableViewCellAccessoryNone;
     cell.accessoryView = nil;
@@ -1021,6 +1116,40 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     for (NSURL *URL in urls) {
         if ([URL startAccessingSecurityScopedResource]) [scoped addObject:URL];
     }
+    if (_pickerMode == 4) {
+        _pickerMode = 0;
+        NSURL *fileURL = urls.firstObject;
+        NSString *content = nil;
+        if (fileURL != nil) {
+            content = [NSString stringWithContentsOfURL:fileURL encoding:NSUTF8StringEncoding error:nil];
+            if (content == nil) {
+                content = [NSString stringWithContentsOfURL:fileURL encoding:NSISOLatin1StringEncoding error:nil];
+            }
+        }
+        for (NSURL *URL in scoped) [URL stopAccessingSecurityScopedResource];
+
+        NSString *summary = nil;
+        BOOL ok = YTKACESponsorImportConfig(content, &summary);
+        if (ok) {
+            AudioServicesPlaySystemSound(1519);
+            [self showResult:YTKACELocalized(@"Config Imported")
+                     message:summary ?: YTKACELocalized(@"SponsorBlock configuration imported successfully!")];
+            [self.tableView reloadData];
+            YTKACESponsorFetchUserInfo(^(BOOL success, double othersTimeSaved, NSInteger othersSkips, NSInteger submissions) {
+                (void)othersTimeSaved;
+                (void)othersSkips;
+                (void)submissions;
+                if (success) {
+                    [self.tableView reloadData];
+                }
+            });
+        } else {
+            AudioServicesPlaySystemSound(1520);
+            [self showResult:YTKACELocalized(@"Import Failed")
+                     message:YTKACELocalized(@"Invalid User ID or backup format")];
+        }
+        return;
+    }
     if (_pickerMode == 1) {
         _restoreRunning = YES;
         [self setBackupProgressVisible:YES message:YTKACELocalized(@"Restoring Backup...")];
@@ -1235,6 +1364,30 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
         });
 }
 
+- (void)beginSponsorConfigImport {
+    _pickerMode = 4;
+    NSMutableArray<UTType *> *types = [NSMutableArray array];
+    UTType *json = [UTType typeWithFilenameExtension:@"json"] ?: UTTypeJSON;
+    if (json != nil) [types addObject:json];
+    if (UTTypePlainText != nil) [types addObject:UTTypePlainText];
+    UTType *plist = [UTType typeWithFilenameExtension:@"plist"];
+    if (plist != nil) [types addObject:plist];
+    if (types.count == 0) [types addObject:UTTypeData];
+
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
+        initForOpeningContentTypes:types asCopy:YES];
+    picker.delegate = self;
+    picker.allowsMultipleSelection = NO;
+    if (picker.popoverPresentationController != nil) {
+        picker.popoverPresentationController.sourceView = self.view;
+        picker.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds),
+                                                                     CGRectGetMidY(self.view.bounds),
+                                                                     1.0, 1.0);
+        picker.popoverPresentationController.permittedArrowDirections = 0;
+    }
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
 - (void)showResult:(NSString *)title message:(NSString *)message {
     NSString *notice = message.length != 0
         ? [NSString stringWithFormat:@"%@\n%@", title, message] : title;
@@ -1377,10 +1530,161 @@ UIViewController *YTKACEMakeCellularQualityController(void) {
 }
 
 static NSDictionary *YTKACESponsorBlockDefinition(void) {
+    YTKACEAction resetStats = ^(UIViewController *controller) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:YTKACELocalized(@"Reset Statistics?")
+                                                                       message:YTKACELocalized(@"Are you sure you want to reset your local time saved and skips counter?")
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Reset") style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *act) {
+            YTKACESetPreferenceObject(YTKACESponsorTimeSavedKey, @(0.0));
+            YTKACESetPreferenceObject(YTKACESponsorSkipCountKey, @(0));
+            AudioServicesPlaySystemSound(1519);
+            YTKACEShowNotice(YTKACELocalized(@"Statistics reset"));
+            if ([controller isKindOfClass:UITableViewController.class]) {
+                [((UITableViewController *)controller).tableView reloadData];
+            }
+        }]];
+        [controller presentViewController:alert animated:YES completion:nil];
+    };
+
+    YTKACEAction manageWhitelist = ^(UIViewController *controller) {
+        NSArray<NSString *> *channels = YTKACESponsorWhitelistedChannels();
+        if (channels.count == 0) {
+            YTKACEShowNotice(YTKACELocalized(@"No channels whitelisted yet. Whitelist channels from the player overlay."));
+            return;
+        }
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:YTKACELocalized(@"Whitelisted Channels")
+                                                                       message:YTKACELocalized(@"Tap a channel to remove it from the whitelist:")
+                                                                preferredStyle:UIAlertControllerStyleActionSheet];
+        for (NSString *ch in channels) {
+            [alert addAction:[UIAlertAction actionWithTitle:ch style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *act) {
+                YTKACESponsorSetChannelWhitelisted(ch, NO);
+                AudioServicesPlaySystemSound(1519);
+                YTKACEShowNotice([NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Removed from whitelist"), ch]);
+                if ([controller isKindOfClass:UITableViewController.class]) {
+                    [((UITableViewController *)controller).tableView reloadData];
+                }
+            }]];
+        }
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Clear All") style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *act) {
+            YTKACESponsorClearWhitelistedChannels();
+            AudioServicesPlaySystemSound(1519);
+            YTKACEShowNotice(YTKACELocalized(@"Whitelist cleared"));
+            if ([controller isKindOfClass:UITableViewController.class]) {
+                [((UITableViewController *)controller).tableView reloadData];
+            }
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+        [controller presentViewController:alert animated:YES completion:nil];
+    };
+
+    YTKACEAction refreshOthersStats = ^(UIViewController *controller) {
+        UIAlertController *actionSheet = [UIAlertController
+            alertControllerWithTitle:YTKACELocalized(@"Community Stats")
+                             message:YTKACELocalized(@"Choose an action for SponsorBlock community statistics:")
+                      preferredStyle:UIAlertControllerStyleActionSheet];
+
+        [actionSheet addAction:[UIAlertAction
+            actionWithTitle:YTKACELocalized(@"Refresh from Server")
+                      style:UIAlertActionStyleDefault
+                    handler:^(__unused UIAlertAction *action) {
+            YTKACEShowNotice(YTKACELocalized(@"Updating community stats..."));
+            YTKACESponsorFetchUserInfo(^(BOOL success, double othersTimeSaved, NSInteger othersSkips, NSInteger submissions) {
+                (void)othersTimeSaved;
+                (void)othersSkips;
+                (void)submissions;
+                if (success) {
+                    AudioServicesPlaySystemSound(1519);
+                    NSString *msg = [NSString stringWithFormat:@"%@: %@",
+                                     YTKACELocalized(@"Time Saved for Others"),
+                                     YTKACESponsorFormattedOthersTimeSaved()];
+                    YTKACEShowNotice(msg);
+                    if ([controller isKindOfClass:UITableViewController.class]) {
+                        [((UITableViewController *)controller).tableView reloadData];
+                    }
+                } else {
+                    AudioServicesPlaySystemSound(1520);
+                    YTKACEShowNotice(YTKACELocalized(@"Failed to fetch stats from server"));
+                }
+            });
+        }]];
+
+        [actionSheet addAction:[UIAlertAction
+            actionWithTitle:YTKACELocalized(@"Set Stats Manually...")
+                      style:UIAlertActionStyleDefault
+                    handler:^(__unused UIAlertAction *action) {
+            UIAlertController *alert = [UIAlertController
+                alertControllerWithTitle:YTKACELocalized(@"Set Stats Manually...")
+                                 message:YTKACELocalized(@"Enter your community statistics:")
+                          preferredStyle:UIAlertControllerStyleAlert];
+
+            [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+                tf.placeholder = YTKACELocalized(@"Segments Saved for Others");
+                tf.keyboardType = UIKeyboardTypeNumberPad;
+                NSInteger cur = YTKACESponsorOthersSkipsCount();
+                tf.text = [NSString stringWithFormat:@"%ld", (long)cur];
+            }];
+            [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+                tf.placeholder = YTKACELocalized(@"Minutes Saved for Others");
+                tf.keyboardType = UIKeyboardTypeDecimalPad;
+                double curMin = YTKACESponsorOthersTimeSaved() / 60.0;
+                tf.text = [NSString stringWithFormat:@"%.1f", curMin];
+            }];
+            [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+                tf.placeholder = YTKACELocalized(@"Submissions Count");
+                tf.keyboardType = UIKeyboardTypeNumberPad;
+                NSInteger curSubs = YTKACESponsorSubmissionsCount();
+                tf.text = [NSString stringWithFormat:@"%ld", (long)curSubs];
+            }];
+
+            [alert addAction:[UIAlertAction
+                actionWithTitle:YTKACELocalized(@"Save")
+                          style:UIAlertActionStyleDefault
+                        handler:^(__unused UIAlertAction *act) {
+                NSString *skipsStr = alert.textFields[0].text;
+                NSString *minStr = alert.textFields[1].text;
+                NSString *subsStr = alert.textFields[2].text;
+
+                NSInteger skips = [skipsStr integerValue];
+                double minutes = [minStr doubleValue];
+                NSInteger subs = [subsStr integerValue];
+
+                YTKACESponsorSetOthersStats(minutes, skips, subs);
+                AudioServicesPlaySystemSound(1519);
+                YTKACEShowNotice(YTKACESponsorFormattedOthersTimeSaved());
+                if ([controller isKindOfClass:UITableViewController.class]) {
+                    [((UITableViewController *)controller).tableView reloadData];
+                }
+            }]];
+
+            [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
+                                                      style:UIAlertActionStyleCancel
+                                                    handler:nil]];
+
+            [controller presentViewController:alert animated:YES completion:nil];
+        }]];
+
+        [actionSheet addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
+                                                        style:UIAlertActionStyleCancel
+                                                      handler:nil]];
+
+        if (actionSheet.popoverPresentationController != nil) {
+            actionSheet.popoverPresentationController.sourceView = controller.view;
+            actionSheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(controller.view.bounds), CGRectGetMidY(controller.view.bounds), 1.0, 1.0);
+        }
+        [controller presentViewController:actionSheet animated:YES completion:nil];
+    };
+
     NSMutableArray *sections = [NSMutableArray arrayWithObject:@[
         YTKACEToggleDetail(@"SponsorBlock",
                            @"Skip or mark video segments. Set each category below.",
                            YTKACESponsorBlockKey),
+        YTKACEActionDetail(@"Whitelisted Channels",
+                           [NSString stringWithFormat:@"%lu %@ (%@)",
+                            (unsigned long)YTKACESponsorWhitelistedChannels().count,
+                            YTKACELocalized(@"channels"),
+                            YTKACELocalized(@"Tap to manage")],
+                           manageWhitelist),
         YTKACEPickerDetail(@"Skip Notice", @"Shown after a segment is skipped.",
                      @"YTKACE.Preference.SponsorBlock.NotificationMode",
                      @[@"With Unskip", @"Text Only", @"Off"],
@@ -1390,9 +1694,199 @@ static NSDictionary *YTKACESponsorBlockDefinition(void) {
         YTKACESlider(@"Notice Duration", @"YTKACE.Preference.SponsorBlock.SkipAlertSeconds",
                      1.0, 10.0, 1.0, 4.0),
         YTKACESlider(@"Unskip Duration", @"YTKACE.Preference.SponsorBlock.UnskipAlertSeconds",
-                     1.0, 10.0, 1.0, 4.0)
+                     1.0, 10.0, 1.0, 4.0),
+        YTKACEToggleDetail(@"Show New Video Duration",
+                           @"Display video duration with skipped segments deducted in the player.",
+                           YTKACESponsorShowTimeWithSkipsKey),
+        YTKACEToggleDetail(@"Full Video Badges",
+                           @"Show a badge on video thumbnails when the entire video is sponsored or self-promotion.",
+                           YTKACESponsorFullVideoLabelsKey)
     ]];
     NSMutableArray<NSString *> *titles = [NSMutableArray arrayWithObject:YTKACELocalized(@"MAIN")];
+
+    YTKACEAction copyUserID = ^(UIViewController *controller) {
+        UIAlertController *confirm = [UIAlertController
+            alertControllerWithTitle:YTKACELocalized(@"Copy Private User ID?")
+                             message:YTKACELocalized(@"Your User ID is private and controls your submissions. Do you want to copy it to the clipboard?")
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [confirm addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
+                                                    style:UIAlertActionStyleCancel
+                                                  handler:nil]];
+        [confirm addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Copy")
+                                                    style:UIAlertActionStyleDefault
+                                                  handler:^(__unused UIAlertAction *action) {
+            [UIPasteboard.generalPasteboard setString:YTKACESponsorUserID()];
+            AudioServicesPlaySystemSound(1519);
+            YTKACEShowNotice(YTKACELocalized(@"User ID copied to clipboard"));
+        }]];
+        [controller presentViewController:confirm animated:YES completion:nil];
+    };
+
+    YTKACEAction editUserID = ^(UIViewController *controller) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:YTKACELocalized(@"SponsorBlock Config / User ID")
+                                                                       message:YTKACELocalized(@"Paste your PC SponsorBlock backup JSON, raw User ID (UUID), or iSponsorBlock plist to preserve your submissions.")
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+            textField.placeholder = YTKACELocalized(@"User ID or PC JSON backup");
+            textField.text = YTKACESponsorUserID();
+            textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+            textField.autocorrectionType = UITextAutocorrectionTypeNo;
+            textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+        }];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
+                                                 style:UIAlertActionStyleCancel
+                                               handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Choose File (.json)...")
+                                                 style:UIAlertActionStyleDefault
+                                               handler:^(__unused UIAlertAction *action) {
+            if ([controller isKindOfClass:[YTKACEOptionsController class]]) {
+                [(YTKACEOptionsController *)controller beginSponsorConfigImport];
+            }
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Paste from Clipboard")
+                                                 style:UIAlertActionStyleDefault
+                                               handler:^(__unused UIAlertAction *action) {
+            NSString *pasteString = UIPasteboard.generalPasteboard.string;
+            NSString *summary = nil;
+            BOOL ok = YTKACESponsorImportConfig(pasteString, &summary);
+            if (ok) {
+                AudioServicesPlaySystemSound(1519);
+                YTKACEShowNotice(summary ?: YTKACELocalized(@"Config imported successfully!"));
+                if ([controller isKindOfClass:UITableViewController.class]) {
+                    [((UITableViewController *)controller).tableView reloadData];
+                }
+                YTKACESponsorFetchUserInfo(^(BOOL success, double othersTimeSaved, NSInteger othersSkips, NSInteger submissions) {
+                    (void)othersTimeSaved;
+                    (void)othersSkips;
+                    (void)submissions;
+                    if (success && [controller isKindOfClass:UITableViewController.class]) {
+                        [((UITableViewController *)controller).tableView reloadData];
+                    }
+                });
+            } else {
+                AudioServicesPlaySystemSound(1520);
+                YTKACEShowNotice(YTKACELocalized(@"Invalid User ID or backup format"));
+            }
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Save")
+                                                 style:UIAlertActionStyleDefault
+                                               handler:^(__unused UIAlertAction *action) {
+            UITextField *field = alert.textFields.firstObject;
+            NSString *summary = nil;
+            BOOL ok = YTKACESponsorImportConfig(field.text, &summary);
+            if (ok) {
+                AudioServicesPlaySystemSound(1519);
+                YTKACEShowNotice(summary ?: YTKACELocalized(@"User ID saved"));
+                if ([controller isKindOfClass:UITableViewController.class]) {
+                    [((UITableViewController *)controller).tableView reloadData];
+                }
+                YTKACESponsorFetchUserInfo(^(BOOL success, double othersTimeSaved, NSInteger othersSkips, NSInteger submissions) {
+                    (void)othersTimeSaved;
+                    (void)othersSkips;
+                    (void)submissions;
+                    if (success && [controller isKindOfClass:UITableViewController.class]) {
+                        [((UITableViewController *)controller).tableView reloadData];
+                    }
+                });
+            } else {
+                AudioServicesPlaySystemSound(1520);
+                YTKACEShowNotice(YTKACELocalized(@"Invalid User ID or backup format"));
+            }
+        }]];
+        [controller presentViewController:alert animated:YES completion:nil];
+    };
+
+    YTKACEAction importConfigFile = ^(UIViewController *controller) {
+        if ([controller isKindOfClass:[YTKACEOptionsController class]]) {
+            [(YTKACEOptionsController *)controller beginSponsorConfigImport];
+        }
+    };
+
+    YTKACEAction exportPC = ^(__unused UIViewController *controller) {
+        NSString *json = YTKACESponsorExportJSON();
+        [UIPasteboard.generalPasteboard setString:json];
+        AudioServicesPlaySystemSound(1519);
+        YTKACEShowNotice(YTKACELocalized(@"PC Backup JSON copied to clipboard"));
+    };
+
+    YTKACEAction resetUserID = ^(UIViewController *controller) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:YTKACELocalized(@"Generate New User ID?")
+                                                                       message:YTKACELocalized(@"This will replace your current User ID with a fresh anonymous one. Your submission history with the old ID cannot be transferred.")
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
+                                                 style:UIAlertActionStyleCancel
+                                               handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Generate")
+                                                 style:UIAlertActionStyleDestructive
+                                               handler:^(__unused UIAlertAction *action) {
+            YTKACEResetSponsorUserID();
+            AudioServicesPlaySystemSound(1519);
+            YTKACEShowNotice(YTKACELocalized(@"New User ID generated"));
+            if ([controller isKindOfClass:UITableViewController.class]) {
+                [((UITableViewController *)controller).tableView reloadData];
+            }
+            YTKACESponsorFetchUserInfo(^(__unused BOOL success, __unused double othersTimeSaved, __unused NSInteger othersSkips, __unused NSInteger submissions) {
+                if ([controller isKindOfClass:UITableViewController.class]) {
+                    [((UITableViewController *)controller).tableView reloadData];
+                }
+            });
+        }]];
+        [controller presentViewController:alert animated:YES completion:nil];
+    };
+
+    YTKACEAction viewStats = ^(__unused UIViewController *controller) {
+        NSString *pubID = YTKACESponsorPublicUserID();
+        NSString *urlStr = pubID.length > 0
+            ? [NSString stringWithFormat:@"https://sb.ltn.fi/userid/%@", pubID]
+            : @"https://sponsor.ajay.app/stats";
+        NSURL *url = [NSURL URLWithString:urlStr];
+        if (url != nil) {
+            [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+        }
+    };
+
+    YTKACEAction viewGuidelines = ^(__unused UIViewController *controller) {
+        NSURL *url = [NSURL URLWithString:@"https://wiki.sponsor.ajay.app/w/Guidelines"];
+        if (url != nil) {
+            [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+        }
+    };
+
+    [sections addObject:@[
+        YTKACEToggleDetail(@"Submit Button",
+                           @"Show a button in the player overlay to mark, edit and submit segments.",
+                           YTKACESponsorSubmitButtonKey),
+        YTKACEActionDetail(@"User ID",
+                           [NSString stringWithFormat:@"%@: •••••••••••••••• (%@)", YTKACELocalized(@"Current"), YTKACELocalized(@"Tap to copy")],
+                           copyUserID),
+        YTKACEActionDetail(@"Import Backup File (.json)",
+                           @"Import a PC SponsorBlock backup .json file directly from the Files app.",
+                           importConfigFile),
+        YTKACEActionDetail(@"Import / Change User ID",
+                           @"Import an existing SponsorBlock User ID (raw UUID, PC JSON, or iSponsorBlock backup).",
+                           editUserID),
+        YTKACEActionDetail(@"Export for PC (JSON)",
+                           @"Copy PC SponsorBlock extension-compatible backup JSON to clipboard.",
+                           exportPC),
+        YTKACEActionDetail(@"Generate New User ID",
+                           @"Create a fresh anonymous ID for submissions.",
+                           resetUserID),
+        YTKACEActionDetail(@"Time Saved",
+                           [NSString stringWithFormat:@"%@ (%@)", YTKACESponsorFormattedTimeSaved(), YTKACELocalized(@"Tap to reset")],
+                           resetStats),
+        YTKACEActionDetail(@"Time Saved for Others",
+                           [NSString stringWithFormat:@"%@ (%@)",
+                            YTKACESponsorFormattedOthersTimeSaved(),
+                            YTKACELocalized(@"Tap to refresh")],
+                           refreshOthersStats),
+        YTKACEActionDetail(@"View My Stats",
+                           @"Check your submissions and saved time on the SponsorBlock website.",
+                           viewStats),
+        YTKACEActionDetail(@"Community Guidelines",
+                           @"Learn about segment categories and submission rules.",
+                           viewGuidelines)
+    ]];
+    [titles addObject:YTKACELocalized(@"SUBMISSIONS")];
 
     [sections addObject:@[
         YTKACEToggleDetail(@"DeArrow Thumbnails",
@@ -1674,6 +2168,8 @@ static NSDictionary *YTKACEShortsOptionsDefinition(void) {
                                5.0, 200.0, 5.0, 20.0)
         ],
         @[
+            YTKACEToggleDetail(@"Remove Live Streams", @"Hide live streams from the Shorts feed.",
+                               @"YTKACE.Preference.Shorts.LiveHidden"),
             YTKACEToggleDetail(@"Remove Pause Suggestions", @"Hide the videos shown when you pause a Short.",
                                @"YTKACE.Preference.Shorts.PauseCardHidden"),
             YTKACEToggle(@"Remove Sticker Ads", @"YTKACE.Preference.Shorts.StickerAdsHidden", @"", @""),

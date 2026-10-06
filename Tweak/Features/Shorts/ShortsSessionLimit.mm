@@ -29,8 +29,10 @@ BOOL YTKACEShortsLimitReached(void) {
 static UIViewController *YTKACEReelRootController(UIViewController *controller,
                                                   NSUInteger depth) {
     if (controller == nil || depth > 6) return nil;
-    SEL active = NSSelectorFromString(@"activeReelPlaybackVideoID");
-    if ([controller respondsToSelector:active]) return controller;
+    if ([controller respondsToSelector:NSSelectorFromString(@"activeReelPlaybackVideoId")] ||
+        [controller respondsToSelector:NSSelectorFromString(@"activeReelPlaybackVideoID")]) {
+        return controller;
+    }
     for (UIViewController *child in controller.childViewControllers) {
         UIViewController *found = YTKACEReelRootController(child, depth + 1);
         if (found != nil) return found;
@@ -102,8 +104,12 @@ static void YTKACEShortsLimitTick(void) {
 
     UIViewController *reel = YTKACEActiveReelController();
     if (reel == nil) return;
-    SEL active = NSSelectorFromString(@"activeReelPlaybackVideoID");
-    id value = ((id (*)(id, SEL))objc_msgSend)(reel, active);
+    SEL active = [reel respondsToSelector:NSSelectorFromString(@"activeReelPlaybackVideoId")]
+        ? NSSelectorFromString(@"activeReelPlaybackVideoId")
+        : NSSelectorFromString(@"activeReelPlaybackVideoID");
+    id value = [reel respondsToSelector:active]
+        ? ((id (*)(id, SEL))objc_msgSend)(reel, active)
+        : nil;
     if (![value isKindOfClass:NSString.class] || [value length] == 0) return;
 
     if (YTKACEShortsBlocked) {

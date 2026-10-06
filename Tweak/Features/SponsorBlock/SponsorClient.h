@@ -13,6 +13,18 @@ typedef void (^YTKACESponsorCompletion)(
 - (void)segmentsForVideoID:(NSString *)videoID
                 categories:(NSArray<NSString *> *)categories
                 completion:(YTKACESponsorCompletion)completion;
+- (void)clearCache;
+- (void)clearCacheForVideoID:(NSString *)videoID;
+- (void)submitSegmentForVideoID:(NSString *)videoID
+                          start:(double)start
+                            end:(double)end
+                       category:(NSString *)category
+                     actionType:(nullable NSString *)actionType
+                  videoDuration:(double)duration
+                     completion:(nullable void (^)(BOOL success, NSString * _Nullable message))completion;
+- (void)voteForSegmentUUID:(NSString *)uuid
+                      type:(NSInteger)type
+                completion:(nullable void (^)(BOOL success, NSString * _Nullable message))completion;
 @end
 
 NS_ASSUME_NONNULL_END

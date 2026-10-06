@@ -981,3 +981,5 @@ Lizenziert unter CC BY-NC-SA 4.0.";
 "%lu failed" = "%lu fehlgeschlagen";
 "Downloading" = "Wird geladen";
 "All" = "Alle";
+"Remove Live Streams" = "Livestreams entfernen";
+"Hide live streams from the Shorts feed." = "Livestreams aus dem Shorts-Feed ausblenden.";

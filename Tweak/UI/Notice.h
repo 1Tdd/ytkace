@@ -6,6 +6,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT void YTKACEShowNotice(NSString *message);
 FOUNDATION_EXPORT BOOL YTKACEApplyGlassBackground(UIView *view, BOOL dark);
+FOUNDATION_EXPORT BOOL YTKACEApplyMenuGlassBackground(UIView *view, CGFloat cornerRadius);
 FOUNDATION_EXPORT BOOL YTKACEShowYouTubeDialog(NSString *title,
                                                 NSString *message);
 FOUNDATION_EXPORT BOOL YTKACEShowYouTubeConfirmation(

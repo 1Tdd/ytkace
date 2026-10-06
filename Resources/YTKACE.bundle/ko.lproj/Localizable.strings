@@ -981,3 +981,5 @@ CC BY-NC-SA 4.0 라이선스가 적용됩니다.";
 "%lu failed" = "%lu개 실패";
 "Downloading" = "다운로드 중";
 "All" = "전체";
+"Remove Live Streams" = "실시간 스트리밍 제거";
+"Hide live streams from the Shorts feed." = "Shorts 피드에서 실시간 스트리밍을 숨깁니다.";

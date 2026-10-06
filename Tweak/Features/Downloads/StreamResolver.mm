@@ -1,5 +1,6 @@
 #import "StreamResolver.h"
 #import "DownloadLog.h"
+#import "SABRDownloader.h"
 #import "../../Runtime/Localization.h"
 
 #import <UIKit/UIKit.h>
@@ -10,7 +11,37 @@
 #import <string.h>
 
 @implementation YTKACEStreamOption
+
+- (BOOL)isEqual:(id)object {
+    if (self == object) return YES;
+    if (![object isKindOfClass:[YTKACEStreamOption class]]) return NO;
+    YTKACEStreamOption *other = (YTKACEStreamOption *)object;
+    if (self.itag > 0 && other.itag > 0 && self.itag == other.itag) return YES;
+    return self.height == other.height &&
+           self.audioOnly == other.audioOnly &&
+           (self.qualityLabel == other.qualityLabel || [self.qualityLabel isEqualToString:other.qualityLabel]) &&
+           (self.languageLabel == other.languageLabel || [self.languageLabel isEqualToString:other.languageLabel]);
+}
+
+- (NSUInteger)hash {
+    return (NSUInteger)self.itag ^ (NSUInteger)self.height ^ (NSUInteger)self.audioOnly;
+}
+
 @end
+
+static NSInteger YTKACEHeightForItag(NSInteger itag) {
+    switch (itag) {
+        case 160: case 278: case 394: return 144;
+        case 133: case 242: case 395: return 240;
+        case 18: case 134: case 243: case 396: return 360;
+        case 135: case 244: case 397: return 480;
+        case 22: case 136: case 247: case 298: case 302: case 398: return 720;
+        case 137: case 248: case 299: case 303: case 399: return 1080;
+        case 271: case 308: case 400: return 1440;
+        case 313: case 315: case 401: return 2160;
+        default: return 0;
+    }
+}
 
 static id YTKACEStreamObject(id receiver, NSArray<NSString *> *selectors) {
     for (NSString *name in selectors) {
@@ -37,7 +68,15 @@ static NSInteger YTKACEStreamInteger(id receiver, NSArray<NSString *> *selectors
 
 static NSArray *YTKACEArrayValue(id receiver, NSArray<NSString *> *selectors) {
     id value = YTKACEStreamObject(receiver, selectors);
-    return [value isKindOfClass:NSArray.class] ? value : @[];
+    if ([value isKindOfClass:NSArray.class]) return (NSArray *)value;
+    if ([value respondsToSelector:@selector(count)] && [value conformsToProtocol:@protocol(NSFastEnumeration)]) {
+        NSMutableArray *arr = [NSMutableArray array];
+        for (id item in (id<NSFastEnumeration>)value) {
+            [arr addObject:item];
+        }
+        return arr;
+    }
+    return @[];
 }
 
 static NSURL *YTKACEURLValue(id value) {
@@ -128,10 +167,13 @@ static BOOL YTKACEHighResolutionSupported(YTKACEStreamOption *option) {
 }
 
 static NSString *YTKACEVideoRejectReason(YTKACEStreamOption *option) {
-    if (![option.mimeType hasPrefix:@"video/"]) return @"not video";
+    if (option.isAudioOnly) return @"audio only";
+    if (![option.mimeType hasPrefix:@"video/"] && ![option.mimeType containsString:@"video"]) return @"not video";
     if (option.itag <= 0) return @"no itag";
     if (![option.mimeType containsString:@"video/mp4"] &&
-        ![option.mimeType containsString:@"video/webm"]) {
+        ![option.mimeType containsString:@"video/webm"] &&
+        ![option.mimeType containsString:@"mp4"] &&
+        ![option.mimeType containsString:@"webm"]) {
         return @"container unsupported";
     }
     if (option.height <= 0) return @"no height";
@@ -179,6 +221,22 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
     option.height = YTKACEStreamInteger(format, @[@"height"]);
     option.audioOnly = [mime hasPrefix:@"audio/"] ||
         (adaptive && ![mime hasPrefix:@"video/"]);
+    if (option.itag == 139 || option.itag == 140 || option.itag == 141 ||
+        option.itag == 249 || option.itag == 250 || option.itag == 251) {
+        option.audioOnly = YES;
+    }
+    if (!option.audioOnly && option.height <= 0) {
+        option.height = YTKACEQualityHeight(option.qualityLabel);
+        if (option.height <= 0 && option.width > 0) {
+            option.height = MIN(option.width, 1080);
+        }
+        if (option.height <= 0) {
+            option.height = YTKACEHeightForItag(option.itag);
+        }
+    }
+    if (!option.audioOnly && option.qualityLabel.length == 0 && option.height > 0) {
+        option.qualityLabel = [NSString stringWithFormat:@"%ldp", (long)option.height];
+    }
     option.adaptive = adaptive;
     option.rawFormat = format;
     id audioTrack = YTKACEStreamObject(format, @[@"audioTrack"]);
@@ -222,6 +280,16 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
 @implementation YTKACEStreamResolver
 
 + (NSArray<YTKACEStreamOption *> *)optionsFromPlayerResponse:(id)playerResponse {
+    NSString *videoID = [self videoIDFromPlayerResponse:playerResponse];
+    if (videoID.length != 0) {
+        id cached = YTKACECachedPlayerResponse(videoID);
+        if (cached != nil) {
+            id cachedStreaming = YTKACEStreamingData(cached);
+            if (cachedStreaming != nil) {
+                playerResponse = cached;
+            }
+        }
+    }
     id streamingData = YTKACEStreamingData(playerResponse);
     if (streamingData == nil) {
         return @[];
@@ -256,8 +324,18 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
         VTIsHardwareDecodeSupported('vp09'),
         VTIsHardwareDecodeSupported('av01'));
     for (YTKACEStreamOption *option in options) {
+        if (option.isAudioOnly) continue;
         if (option.height <= 0) {
             option.height = YTKACEQualityHeight(option.qualityLabel);
+        }
+        if (option.height <= 0 && option.width > 0) {
+            option.height = MIN(option.width, 1080);
+        }
+        if (option.height <= 0) {
+            option.height = YTKACEHeightForItag(option.itag);
+        }
+        if (option.qualityLabel.length == 0 && option.height > 0) {
+            option.qualityLabel = [NSString stringWithFormat:@"%ldp", (long)option.height];
         }
         NSString *reason = YTKACEVideoRejectReason(option);
         if (reason != nil) {
@@ -279,6 +357,23 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
             byQuality[key] = option;
         }
     }
+    // Fallback: if all were rejected, relax constraints to ensure valid video streams are available
+    if (byQuality.count == 0) {
+        for (YTKACEStreamOption *option in options) {
+            if (option.isAudioOnly) continue;
+            if (![option.mimeType hasPrefix:@"video/"] && ![option.mimeType containsString:@"video"]) continue;
+            NSInteger h = option.height > 0 ? option.height : YTKACEQualityHeight(option.qualityLabel);
+            if (h <= 0 && option.width > 0) h = MIN(option.width, 1080);
+            if (h <= 0) h = YTKACEHeightForItag(option.itag);
+            if (h <= 0) h = 720;
+            option.height = h;
+            NSString *key = option.qualityLabel.length != 0
+                ? option.qualityLabel : [NSString stringWithFormat:@"%ldp", (long)h];
+            if (byQuality[key] == nil || option.bitrate > byQuality[key].bitrate) {
+                byQuality[key] = option;
+            }
+        }
+    }
     YTKACEDownloadLog(@"quality", @"offering %@",
         [[byQuality.allKeys sortedArrayUsingSelector:@selector(compare:)]
             componentsJoinedByString:@", "]);
@@ -296,13 +391,19 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
     NSMutableDictionary<NSString *, YTKACEStreamOption *> *byLanguage =
         [NSMutableDictionary dictionary];
     for (YTKACEStreamOption *option in options) {
-        if (![option.mimeType hasPrefix:@"audio/mp4"]) {
+        if (!option.isAudioOnly && ![option.mimeType hasPrefix:@"audio/"] &&
+            option.itag != 139 && option.itag != 140 && option.itag != 141 &&
+            option.itag != 249 && option.itag != 250 && option.itag != 251) {
             continue;
         }
         NSString *key = option.languageLabel.length != 0
             ? option.languageLabel : YTKACELocalized(@"Original audio");
         YTKACEStreamOption *current = byLanguage[key];
-        if (current == nil || option.isDefaultAudio || option.bitrate > current.bitrate) {
+        BOOL isMp4 = [option.mimeType containsString:@"mp4"] || [option.mimeType containsString:@"mp4a"];
+        BOOL currentIsMp4 = [current.mimeType containsString:@"mp4"] || [current.mimeType containsString:@"mp4a"];
+        if (current == nil ||
+            (!currentIsMp4 && isMp4) ||
+            (currentIsMp4 == isMp4 && (option.isDefaultAudio || option.bitrate > current.bitrate))) {
             byLanguage[key] = option;
         }
     }

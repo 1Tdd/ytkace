@@ -963,3 +963,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE usa datos de SponsorBlock.\nCon licen
 "%lu failed" = "%lu con error";
 "Downloading" = "Descargando";
 "All" = "Todo";
+"Remove Live Streams" = "Eliminar transmisiones en vivo";
+"Hide live streams from the Shorts feed." = "Oculta las transmisiones en vivo del feed de Shorts.";

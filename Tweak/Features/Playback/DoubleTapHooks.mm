@@ -153,6 +153,7 @@ static BOOL YTKACETapHitsOverlayControl(UIView *view, CGPoint point,
         return;
     }
     double time = ratio * duration;
+    YTKACESponsorUserDidManualSeek();
     BOOL committed = YTKACECommitTapSeek(view, time);
     if (!committed && [view respondsToSelector:nativeSeek]) {
         ((void (*)(id, SEL, double))objc_msgSend)(view, nativeSeek, time);

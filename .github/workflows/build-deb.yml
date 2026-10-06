@@ -50,9 +50,15 @@ jobs:
       - name: Build
         run: |
           make clean
-          make package FINALPACKAGE=1 \
+          if ! make package FINALPACKAGE=1 \
             THEOS_PACKAGE_SCHEME="${{ matrix.scheme }}" \
-            DISABLE_ROOTLESS_COMPAT_WARNING=1
+            DISABLE_ROOTLESS_COMPAT_WARNING=1 2>&1 | tee /tmp/build.log; then
+            echo "### Build Error (${{ matrix.scheme }})" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 120 /tmp/build.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
 
       - name: Name package
         id: name
@@ -66,6 +72,6 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: YTKACE-deb-${{ matrix.suffix }}
           path: ${{ steps.name.outputs.deb }}
+          archive: false
           if-no-files-found: error

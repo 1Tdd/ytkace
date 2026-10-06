@@ -1,5 +1,7 @@
 #import "FFmpegMuxer.h"
 #import <copyfile.h>
+#include <vector>
+#include <algorithm>
 
 #define AVMediaType YTKACEFFmpegMediaType
 extern "C" {
@@ -73,8 +75,137 @@ static int YTKACEWritePacket(AVFormatContext *output, AVPacket *packet,
     return result;
 }
 
+struct YTKACECutInterval {
+    int64_t startUs;
+    int64_t endUs;
+};
+
+static std::vector<YTKACECutInterval> YTKACEParseCutIntervals(NSArray<NSDictionary *> *removedSegments) {
+    std::vector<YTKACECutInterval> intervals;
+    if (removedSegments.count == 0) return intervals;
+    for (NSDictionary *dict in removedSegments) {
+        if (![dict isKindOfClass:NSDictionary.class]) continue;
+        double s = 0.0;
+        double e = 0.0;
+        if (dict[@"start"] && dict[@"end"]) {
+            s = [dict[@"start"] doubleValue];
+            e = [dict[@"end"] doubleValue];
+        } else if ([dict[@"segment"] isKindOfClass:NSArray.class] && [dict[@"segment"] count] >= 2) {
+            s = [dict[@"segment"][0] doubleValue];
+            e = [dict[@"segment"][1] doubleValue];
+        }
+        if (e > s && isfinite(s) && isfinite(e)) {
+            intervals.push_back({
+                (int64_t)(s * AV_TIME_BASE),
+                (int64_t)(e * AV_TIME_BASE)
+            });
+        }
+    }
+    if (intervals.empty()) return intervals;
+    std::sort(intervals.begin(), intervals.end(),
+        [](const YTKACECutInterval &a, const YTKACECutInterval &b) {
+            return a.startUs < b.startUs;
+        });
+    std::vector<YTKACECutInterval> merged;
+    for (const auto &iv : intervals) {
+        if (merged.empty()) {
+            merged.push_back(iv);
+        } else {
+            if (iv.startUs <= merged.back().endUs) {
+                merged.back().endUs = std::max(merged.back().endUs, iv.endUs);
+            } else {
+                merged.push_back(iv);
+            }
+        }
+    }
+    return merged;
+}
+
+static int YTKACEGetStreamIndexEntriesCount(const AVStream *st) {
+#if LIBAVFORMAT_VERSION_MAJOR >= 59
+    return avformat_index_get_entries_count(st);
+#else
+    return st ? st->nb_index_entries : 0;
+#endif
+}
+
+static int64_t YTKACEGetStreamIndexEntryTimestamp(const AVStream *st, int idx) {
+#if LIBAVFORMAT_VERSION_MAJOR >= 59
+    const AVIndexEntry *e = avformat_index_get_entry(const_cast<AVStream *>(st), idx);
+    return e ? e->timestamp : -1;
+#else
+    if (st && idx >= 0 && idx < st->nb_index_entries) {
+        return st->index_entries[idx].timestamp;
+    }
+    return -1;
+#endif
+}
+
+static void YTKACESnapCutIntervalsToKeyframes(std::vector<YTKACECutInterval> &cuts, AVStream *vStream) {
+    if (cuts.empty() || vStream == NULL) return;
+    int count = YTKACEGetStreamIndexEntriesCount(vStream);
+    if (count <= 0) return;
+    for (size_t i = 0; i < cuts.size(); i++) {
+        int64_t endUs = cuts[i].endUs;
+        int64_t targetTs = av_rescale_q(endUs, AV_TIME_BASE_Q, vStream->time_base);
+
+        int idxPrev = av_index_search_timestamp(vStream, targetTs, AVSEEK_FLAG_BACKWARD);
+        int idxNext = av_index_search_timestamp(vStream, targetTs, 0);
+
+        int64_t prevUs = -1;
+        int64_t nextUs = -1;
+
+        if (idxPrev >= 0 && idxPrev < count) {
+            int64_t ts = YTKACEGetStreamIndexEntryTimestamp(vStream, idxPrev);
+            if (ts >= 0) {
+                prevUs = av_rescale_q(ts, vStream->time_base, AV_TIME_BASE_Q);
+            }
+        }
+        if (idxNext >= 0 && idxNext < count) {
+            int64_t ts = YTKACEGetStreamIndexEntryTimestamp(vStream, idxNext);
+            if (ts >= 0) {
+                nextUs = av_rescale_q(ts, vStream->time_base, AV_TIME_BASE_Q);
+            }
+        }
+
+        int64_t chosenEndUs = endUs;
+        if (nextUs >= 0 && (nextUs - endUs) <= 250000) {
+            chosenEndUs = nextUs;
+        } else if (prevUs >= 0 && prevUs > cuts[i].startUs) {
+            chosenEndUs = prevUs;
+        } else if (nextUs >= 0 && nextUs > cuts[i].startUs) {
+            chosenEndUs = nextUs;
+        }
+
+        if (chosenEndUs > cuts[i].startUs) {
+            cuts[i].endUs = chosenEndUs;
+        }
+    }
+
+    for (size_t i = 0; i + 1 < cuts.size(); i++) {
+        if (cuts[i].endUs > cuts[i + 1].startUs) {
+            cuts[i].endUs = cuts[i + 1].startUs;
+        }
+    }
+}
+
+static bool YTKACEIsInsideCut(int64_t timeUs, const std::vector<YTKACECutInterval> &cuts, int64_t &droppedBeforeUs) {
+    droppedBeforeUs = 0;
+    for (const auto &cut : cuts) {
+        if (timeUs < cut.startUs) {
+            return false;
+        }
+        if (timeUs < cut.endUs) {
+            return true;
+        }
+        droppedBeforeUs += (cut.endUs - cut.startUs);
+    }
+    return false;
+}
+
 static NSError *YTKACERemux(NSURL *videoURL, NSURL *audioURL,
-                            NSURL *outputURL) {
+                            NSURL *outputURL,
+                            NSArray<NSDictionary *> *removedSegments) {
     AVFormatContext *video = NULL;
     AVFormatContext *audio = NULL;
     AVFormatContext *output = NULL;
@@ -126,6 +257,7 @@ static NSError *YTKACERemux(NSURL *videoURL, NSURL *audioURL,
         if (result < 0) goto cleanup;
     }
     av_dict_set(&options, "movflags", "+faststart", 0);
+    av_dict_set(&options, "use_editlist", "0", 0);
     result = avformat_write_header(output, &options);
     stage = @"Write header";
     if (result < 0) goto cleanup;
@@ -137,24 +269,86 @@ static NSError *YTKACERemux(NSURL *videoURL, NSURL *audioURL,
         stage = @"Create packets";
         goto cleanup;
     }
-    hasVideo = YTKACEReadPacket(video, videoIndex, videoPacket) >= 0;
-    hasAudio = YTKACEReadPacket(audio, audioIndex, audioPacket) >= 0;
-    while (hasVideo || hasAudio) {
-        BOOL writeVideo = hasVideo;
-        if (hasVideo && hasAudio) {
-            writeVideo = YTKACEPacketTime(videoPacket, videoInput) <=
-                YTKACEPacketTime(audioPacket, audioInput);
-        }
-        if (writeVideo) {
-            result = YTKACEWritePacket(output, videoPacket, videoInput, videoOutput);
-            stage = @"Write video";
-            if (result < 0) goto cleanup;
-            hasVideo = YTKACEReadPacket(video, videoIndex, videoPacket) >= 0;
-        } else {
-            result = YTKACEWritePacket(output, audioPacket, audioInput, audioOutput);
-            stage = @"Write audio";
-            if (result < 0) goto cleanup;
-            hasAudio = YTKACEReadPacket(audio, audioIndex, audioPacket) >= 0;
+
+    {
+        std::vector<YTKACECutInterval> cuts = YTKACEParseCutIntervals(removedSegments);
+        YTKACESnapCutIntervalsToKeyframes(cuts, videoInput);
+
+        int64_t lastVideoDts = AV_NOPTS_VALUE;
+        int64_t lastAudioDts = AV_NOPTS_VALUE;
+        bool videoNeedsKeyframe = false;
+
+        hasVideo = YTKACEReadPacket(video, videoIndex, videoPacket) >= 0;
+        hasAudio = YTKACEReadPacket(audio, audioIndex, audioPacket) >= 0;
+        while (hasVideo || hasAudio) {
+            BOOL writeVideo = hasVideo;
+            if (hasVideo && hasAudio) {
+                writeVideo = YTKACEPacketTime(videoPacket, videoInput) <=
+                    YTKACEPacketTime(audioPacket, audioInput);
+            }
+            if (writeVideo) {
+                int64_t vTime = YTKACEPacketTime(videoPacket, videoInput);
+                int64_t droppedBeforeUs = 0;
+                if (YTKACEIsInsideCut(vTime, cuts, droppedBeforeUs)) {
+                    videoNeedsKeyframe = true;
+                    av_packet_unref(videoPacket);
+                    hasVideo = YTKACEReadPacket(video, videoIndex, videoPacket) >= 0;
+                    continue;
+                }
+
+                if (videoNeedsKeyframe) {
+                    if (!(videoPacket->flags & AV_PKT_FLAG_KEY)) {
+                        av_packet_unref(videoPacket);
+                        hasVideo = YTKACEReadPacket(video, videoIndex, videoPacket) >= 0;
+                        continue;
+                    }
+                    videoNeedsKeyframe = false;
+                }
+
+                if (droppedBeforeUs > 0) {
+                    int64_t offset = av_rescale_q(droppedBeforeUs, AV_TIME_BASE_Q, videoInput->time_base);
+                    if (videoPacket->pts != AV_NOPTS_VALUE) videoPacket->pts = MAX(0LL, videoPacket->pts - offset);
+                    if (videoPacket->dts != AV_NOPTS_VALUE) videoPacket->dts = MAX(0LL, videoPacket->dts - offset);
+                }
+                if (lastVideoDts != AV_NOPTS_VALUE && videoPacket->dts != AV_NOPTS_VALUE && videoPacket->dts <= lastVideoDts) {
+                    videoPacket->dts = lastVideoDts + 1;
+                }
+                if (videoPacket->pts != AV_NOPTS_VALUE && videoPacket->dts != AV_NOPTS_VALUE && videoPacket->pts < videoPacket->dts) {
+                    videoPacket->pts = videoPacket->dts;
+                }
+                if (videoPacket->dts != AV_NOPTS_VALUE) lastVideoDts = videoPacket->dts;
+
+                result = YTKACEWritePacket(output, videoPacket, videoInput, videoOutput);
+                stage = @"Write video";
+                if (result < 0) goto cleanup;
+                hasVideo = YTKACEReadPacket(video, videoIndex, videoPacket) >= 0;
+            } else {
+                int64_t aTime = YTKACEPacketTime(audioPacket, audioInput);
+                int64_t droppedBeforeUs = 0;
+                if (YTKACEIsInsideCut(aTime, cuts, droppedBeforeUs)) {
+                    av_packet_unref(audioPacket);
+                    hasAudio = YTKACEReadPacket(audio, audioIndex, audioPacket) >= 0;
+                    continue;
+                }
+
+                if (droppedBeforeUs > 0) {
+                    int64_t offset = av_rescale_q(droppedBeforeUs, AV_TIME_BASE_Q, audioInput->time_base);
+                    if (audioPacket->pts != AV_NOPTS_VALUE) audioPacket->pts = MAX(0LL, audioPacket->pts - offset);
+                    if (audioPacket->dts != AV_NOPTS_VALUE) audioPacket->dts = MAX(0LL, audioPacket->dts - offset);
+                }
+                if (lastAudioDts != AV_NOPTS_VALUE && audioPacket->dts != AV_NOPTS_VALUE && audioPacket->dts <= lastAudioDts) {
+                    audioPacket->dts = lastAudioDts + 1;
+                }
+                if (audioPacket->pts != AV_NOPTS_VALUE && audioPacket->dts != AV_NOPTS_VALUE && audioPacket->pts < audioPacket->dts) {
+                    audioPacket->pts = audioPacket->dts;
+                }
+                if (audioPacket->dts != AV_NOPTS_VALUE) lastAudioDts = audioPacket->dts;
+
+                result = YTKACEWritePacket(output, audioPacket, audioInput, audioOutput);
+                stage = @"Write audio";
+                if (result < 0) goto cleanup;
+                hasAudio = YTKACEReadPacket(audio, audioIndex, audioPacket) >= 0;
+            }
         }
     }
     result = av_write_trailer(output);
@@ -173,7 +367,8 @@ cleanup:
     return result < 0 ? YTKACEFFmpegError(result, stage) : nil;
 }
 
-static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL) {
+static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL,
+                                 NSArray<NSDictionary *> *removedSegments) {
     AVFormatContext *audio = NULL;
     AVFormatContext *output = NULL;
     AVPacket *packet = NULL;
@@ -209,6 +404,7 @@ static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL) {
         if (result < 0) goto cleanup;
     }
     av_dict_set(&options, "movflags", "+faststart", 0);
+    av_dict_set(&options, "use_editlist", "0", 0);
     result = avformat_write_header(output, &options);
     stage = @"Write header";
     if (result < 0) goto cleanup;
@@ -218,10 +414,36 @@ static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL) {
         stage = @"Create packet";
         goto cleanup;
     }
-    while ((result = YTKACEReadPacket(audio, audioIndex, packet)) >= 0) {
-        result = YTKACEWritePacket(output, packet, audioInput, audioOutput);
-        stage = @"Write audio";
-        if (result < 0) goto cleanup;
+
+    {
+        std::vector<YTKACECutInterval> cuts = YTKACEParseCutIntervals(removedSegments);
+        int64_t lastAudioDts = AV_NOPTS_VALUE;
+
+        while ((result = YTKACEReadPacket(audio, audioIndex, packet)) >= 0) {
+            int64_t aTime = YTKACEPacketTime(packet, audioInput);
+            int64_t droppedBeforeUs = 0;
+            if (YTKACEIsInsideCut(aTime, cuts, droppedBeforeUs)) {
+                av_packet_unref(packet);
+                continue;
+            }
+
+            if (droppedBeforeUs > 0) {
+                int64_t offset = av_rescale_q(droppedBeforeUs, AV_TIME_BASE_Q, audioInput->time_base);
+                if (packet->pts != AV_NOPTS_VALUE) packet->pts = MAX(0LL, packet->pts - offset);
+                if (packet->dts != AV_NOPTS_VALUE) packet->dts = MAX(0LL, packet->dts - offset);
+            }
+            if (lastAudioDts != AV_NOPTS_VALUE && packet->dts != AV_NOPTS_VALUE && packet->dts <= lastAudioDts) {
+                packet->dts = lastAudioDts + 1;
+            }
+            if (packet->pts != AV_NOPTS_VALUE && packet->dts != AV_NOPTS_VALUE && packet->pts < packet->dts) {
+                packet->pts = packet->dts;
+            }
+            if (packet->dts != AV_NOPTS_VALUE) lastAudioDts = packet->dts;
+
+            result = YTKACEWritePacket(output, packet, audioInput, audioOutput);
+            stage = @"Write audio";
+            if (result < 0) goto cleanup;
+        }
     }
     if (result == AVERROR_EOF) result = 0;
     if (result < 0) goto cleanup;
@@ -380,8 +602,15 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
             }
         }
 
-        const int64_t duration = audioInput->duration > 0
-            ? audioInput->duration / AV_TIME_BASE : 0;
+        int64_t duration = 0;
+        if (audioInput->duration > 0 && audioInput->duration != AV_NOPTS_VALUE) {
+            duration = audioInput->duration / AV_TIME_BASE;
+        } else if (audioIndex >= 0 && audioInput->streams[audioIndex]->duration > 0 &&
+                   audioInput->streams[audioIndex]->duration != AV_NOPTS_VALUE) {
+            duration = av_rescale_q(audioInput->streams[audioIndex]->duration,
+                                    audioInput->streams[audioIndex]->time_base,
+                                    (AVRational){1, 1});
+        }
         const int64_t frames = MAX((int64_t)1, duration);
         for (int64_t index = 0; index < frames; index++) {
             videoFrame->pts = index;
@@ -508,10 +737,17 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
 + (void)remuxAudioURL:(NSURL *)audioURL
             outputURL:(NSURL *)outputURL
            completion:(YTKACEFFmpegCompletion)completion {
+    [self remuxAudioURL:audioURL outputURL:outputURL removedSegments:nil completion:completion];
+}
+
++ (void)remuxAudioURL:(NSURL *)audioURL
+            outputURL:(NSURL *)outputURL
+      removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
+           completion:(YTKACEFFmpegCompletion)completion {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         [NSFileManager.defaultManager removeItemAtURL:outputURL error:nil];
         av_log_set_level(AV_LOG_ERROR);
-        NSError *error = YTKACERemuxAudio(audioURL, outputURL);
+        NSError *error = YTKACERemuxAudio(audioURL, outputURL, removedSegments);
         dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
     });
 }
@@ -520,10 +756,18 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
              audioURL:(NSURL *)audioURL
             outputURL:(NSURL *)outputURL
            completion:(YTKACEFFmpegCompletion)completion {
+    [self remuxVideoURL:videoURL audioURL:audioURL outputURL:outputURL removedSegments:nil completion:completion];
+}
+
++ (void)remuxVideoURL:(NSURL *)videoURL
+             audioURL:(NSURL *)audioURL
+            outputURL:(NSURL *)outputURL
+      removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
+           completion:(YTKACEFFmpegCompletion)completion {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         [NSFileManager.defaultManager removeItemAtURL:outputURL error:nil];
         av_log_set_level(AV_LOG_ERROR);
-        NSError *error = YTKACERemux(videoURL, audioURL, outputURL);
+        NSError *error = YTKACERemux(videoURL, audioURL, outputURL, removedSegments);
         dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
     });
 }
@@ -534,7 +778,7 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         [NSFileManager.defaultManager removeItemAtURL:outputURL error:nil];
         av_log_set_level(AV_LOG_ERROR);
-        NSError *error = YTKACERemux(mediaURL, mediaURL, outputURL);
+        NSError *error = YTKACERemux(mediaURL, mediaURL, outputURL, nil);
         dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
     });
 }
@@ -733,10 +977,26 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
                     break;
                 }
             }
-            status = avformat_write_header(output, NULL);
+            AVDictionary *options = NULL;
+            av_dict_set(&options, "movflags", "+faststart", 0);
+            av_dict_set(&options, "use_editlist", "0", 0);
+            status = avformat_write_header(output, &options);
+            av_dict_free(&options);
             if (status < 0) {
                 failure = YTKACEFFmpegError(status, @"subtitle header");
                 break;
+            }
+
+            double maxMediaDurationSec = 0.0;
+            if (input->duration > 0 && input->duration != AV_NOPTS_VALUE) {
+                maxMediaDurationSec = (double)input->duration / (double)AV_TIME_BASE;
+            }
+            for (unsigned int i = 0; i < input->nb_streams; i++) {
+                AVStream *st = input->streams[i];
+                if (st->duration > 0 && st->duration != AV_NOPTS_VALUE) {
+                    double dur = (double)st->duration * av_q2d(st->time_base);
+                    if (dur > maxMediaDurationSec) maxMediaDurationSec = dur;
+                }
             }
 
             packet = av_packet_alloc();
@@ -770,8 +1030,12 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
                 }
                 NSData *utf8 = [value dataUsingEncoding:NSUTF8StringEncoding];
                 if (utf8.length == 0 || utf8.length > 0xFFFF) continue;
-                const double start = [cue[@"start"] doubleValue];
-                const double end = [cue[@"end"] doubleValue];
+                double start = [cue[@"start"] doubleValue];
+                double end = [cue[@"end"] doubleValue];
+                if (maxMediaDurationSec > 0.0) {
+                    if (start >= maxMediaDurationSec) continue;
+                    if (end > maxMediaDurationSec) end = maxMediaDurationSec;
+                }
                 if (end <= start) continue;
                 if (av_new_packet(packet, (int)utf8.length + 2) < 0) continue;
                 packet->data[0] = (uint8_t)((utf8.length >> 8) & 0xFF);

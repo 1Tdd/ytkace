@@ -936,3 +936,5 @@
 "%lu failed" = "%lu com falha";
 "Downloading" = "Baixando";
 "All" = "Tudo";
+"Remove Live Streams" = "Remover transmissões ao vivo";
+"Hide live streams from the Shorts feed." = "Ocultar transmissões ao vivo do feed de Shorts.";

@@ -47,6 +47,46 @@ BOOL YTKACEApplyGlassBackground(UIView *view, BOOL dark) {
     return YES;
 }
 
+static const void *YTKACEMenuGlassAssociation = &YTKACEMenuGlassAssociation;
+
+BOOL YTKACEApplyMenuGlassBackground(UIView *view, CGFloat cornerRadius) {
+    if (view == nil || !YTKACELiquidGlassAvailable()) return NO;
+    UIVisualEffectView *glass = objc_getAssociatedObject(view, YTKACEMenuGlassAssociation);
+    if (glass == nil) {
+        Class effectClass = NSClassFromString(@"UIGlassEffect");
+        SEL styleSelector = NSSelectorFromString(@"effectWithStyle:");
+        UIVisualEffect *effect = nil;
+        if ([effectClass respondsToSelector:styleSelector]) {
+            effect = ((id (*)(id, SEL, NSInteger))objc_msgSend)(effectClass, styleSelector, 0);
+        }
+        if (effect == nil) {
+            effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialDark];
+        }
+        glass = [[UIVisualEffectView alloc] initWithEffect:effect];
+        glass.userInteractionEnabled = NO;
+        glass.translatesAutoresizingMaskIntoConstraints = NO;
+        glass.layer.cornerCurve = kCACornerCurveContinuous;
+        objc_setAssociatedObject(view, YTKACEMenuGlassAssociation, glass, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (glass.superview != view) {
+        [view insertSubview:glass atIndex:0];
+        [NSLayoutConstraint activateConstraints:@[
+            [glass.topAnchor constraintEqualToAnchor:view.topAnchor],
+            [glass.bottomAnchor constraintEqualToAnchor:view.bottomAnchor],
+            [glass.leadingAnchor constraintEqualToAnchor:view.leadingAnchor],
+            [glass.trailingAnchor constraintEqualToAnchor:view.trailingAnchor]
+        ]];
+    } else {
+        [view sendSubviewToBack:glass];
+    }
+    CGFloat radius = cornerRadius > 0.0 ? cornerRadius : view.layer.cornerRadius;
+    glass.layer.cornerRadius = radius;
+    glass.layer.cornerCurve = kCACornerCurveContinuous;
+    glass.clipsToBounds = (radius > 0.0);
+    view.backgroundColor = UIColor.clearColor;
+    return YES;
+}
+
 BOOL YTKACEShowYouTubeDialog(NSString *title, NSString *message) {
     Class alertClass = NSClassFromString(@"YTAlertView");
     SEL infoSelector = NSSelectorFromString(@"infoDialog");

@@ -981,3 +981,5 @@ Sous licence CC BY-NC-SA 4.0.";
 "%lu failed" = "%lu échoué(s)";
 "Downloading" = "Téléchargements";
 "All" = "Tout";
+"Remove Live Streams" = "Supprimer les diffusions en direct";
+"Hide live streams from the Shorts feed." = "Masquer les diffusions en direct du flux Shorts.";

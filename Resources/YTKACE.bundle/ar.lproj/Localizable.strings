@@ -981,3 +981,5 @@ Licensed under CC BY-NC-SA 4.0." = "يستخدم YTKACE بيانات SponsorBloc
 "%lu failed" = "‏%lu فشل";
 "Downloading" = "جارٍ التنزيل";
 "All" = "الكل";
+"Remove Live Streams" = "إزالة البث المباشر";
+"Hide live streams from the Shorts feed." = "إخفاء البث المباشر من موجز Shorts.";

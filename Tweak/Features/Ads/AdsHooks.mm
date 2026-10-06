@@ -28,6 +28,9 @@ static IMP OriginalIsPlayingAdIntro;
 static IMP OriginalCreateAdsPlaybackCoordinator;
 static IMP OriginalReelContentModel;
 static IMP OriginalInfiniteReelContentModel;
+static IMP OriginalClassReelContentModel;
+static IMP OriginalReelContentModelInstance;
+static IMP OriginalInfiniteReelSetReels;
 static IMP OriginalReelShouldDisplay;
 static IMP OriginalCompanionAd;
 static IMP OriginalHasCompanionAdRenderer;
@@ -196,46 +199,6 @@ static id YTKACENoAdsPlaybackCoordinator(id receiver, SEL selector) {
     return YTKACEFeatureEnabled(YTKACENoAdsKey) ? nil : coordinator;
 }
 
-static id YTKACEFilterReelModel(IMP original,
-                                id receiver,
-                                SEL selector,
-                                id entry) {
-    if (original == NULL) {
-        return nil;
-    }
-    id model = ((id (*)(id, SEL, id))original)(receiver, selector, entry);
-    if (!YTKACEFeatureEnabled(YTKACENoAdsKey) || model == nil) {
-        return model;
-    }
-    SEL videoTypeSelector = NSSelectorFromString(@"videoType");
-    if (![model respondsToSelector:videoTypeSelector]) {
-        return model;
-    }
-    NSInteger videoType = ((NSInteger (*)(id, SEL))objc_msgSend)(
-        model,
-        videoTypeSelector
-    );
-    return videoType == 3 ? nil : model;
-}
-
-static id YTKACEReelContentModel(id receiver, SEL selector, id entry) {
-    return YTKACEFilterReelModel(
-        OriginalReelContentModel,
-        receiver,
-        selector,
-        entry
-    );
-}
-
-static id YTKACEInfiniteReelContentModel(id receiver, SEL selector, id entry) {
-    return YTKACEFilterReelModel(
-        OriginalInfiniteReelContentModel,
-        receiver,
-        selector,
-        entry
-    );
-}
-
 static id YTKACEObjectValue(id object, NSString *selectorName) {
     if (object == nil) return nil;
     SEL selector = NSSelectorFromString(selectorName);
@@ -305,16 +268,209 @@ static BOOL YTKACEReelObjectLooksLikeAd(id object, NSUInteger depth) {
     return NO;
 }
 
+static BOOL YTKACEReelObjectLooksLikeLive(id object, NSUInteger depth) {
+    if (object == nil || depth > 3) return NO;
+
+    NSString *className = NSStringFromClass([object class]).lowercaseString;
+    if ([className containsString:@"reellive"] ||
+        [className containsString:@"liveitem"] ||
+        [className containsString:@"livestream"]) {
+        return YES;
+    }
+
+    for (NSString *selectorName in @[
+        @"isLive", @"isLivePlayback", @"isLiveStream", @"isLiveContent",
+        @"hasLiveStreamRenderer", @"hasReelLiveItemRenderer",
+        @"reelLiveItemRenderer", @"liveStreamRenderer", @"liveItemRenderer",
+        @"liveBroadcastDetails"
+    ]) {
+        SEL sel = NSSelectorFromString(selectorName);
+        if ([object respondsToSelector:sel]) {
+            NSMethodSignature *sig = [object methodSignatureForSelector:sel];
+            if (sig != nil) {
+                const char *retType = [sig methodReturnType];
+                if (retType != NULL && (retType[0] == 'B' || retType[0] == 'c')) {
+                    if (((BOOL (*)(id, SEL))objc_msgSend)(object, sel)) return YES;
+                } else if (retType != NULL && retType[0] == '@') {
+                    if (((id (*)(id, SEL))objc_msgSend)(object, sel) != nil) return YES;
+                }
+            }
+        }
+    }
+
+    for (NSString *respSel in @[@"playerResponse", @"playerResponseOverride", @"contentPlayerResponse"]) {
+        id response = YTKACEObjectValue(object, respSel);
+        if (response != nil) {
+            id details = YTKACEObjectValue(response, @"videoDetails");
+            if (details != nil) {
+                for (NSString *s in @[@"isLive", @"isLiveContent", @"isLivePlayback"]) {
+                    if (YTKACEObjectBool(details, s)) return YES;
+                }
+            }
+            id playability = YTKACEObjectValue(response, @"playabilityStatus");
+            if (playability != nil && YTKACEObjectBool(playability, @"isLivePlayback")) {
+                return YES;
+            }
+            if (YTKACEObjectValue(response, @"liveBroadcastDetails") != nil) {
+                return YES;
+            }
+        }
+    }
+
+    id nonVideo = YTKACEObjectValue(object, @"nonVideoContentModel");
+    if (nonVideo != nil) {
+        id renderer = YTKACEObjectValue(nonVideo, @"renderer");
+        id customData = YTKACEObjectValue(renderer, @"customData");
+        NSString *customDesc = [customData description].lowercaseString ?: @"";
+        if ([customDesc containsString:@"live"]) return YES;
+        NSString *nonVideoDesc = [nonVideo description].lowercaseString ?: @"";
+        if ([nonVideoDesc containsString:@"live"]) return YES;
+    }
+
+    NSString *desc = [object description].lowercaseString ?: @"";
+    if ([desc containsString:@"reelliveitemrenderer"] ||
+        [desc containsString:@"reel_live_item"] ||
+        [desc containsString:@"ytireelliveitemrenderer"]) {
+        return YES;
+    }
+
+    for (NSString *childName in @[
+        @"reelModel", @"command", @"endpoint", @"watchModel", @"entry"
+    ]) {
+        id child = YTKACEObjectValue(object, childName);
+        if (child != nil && child != object && YTKACEReelObjectLooksLikeLive(child, depth + 1)) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
+
+static BOOL YTKACEShouldDropReelObject(id object) {
+    if (object == nil) return NO;
+    if (YTKACEFeatureEnabled(YTKACENoAdsKey)) {
+        if (YTKACEReelObjectLooksLikeAd(object, 0)) return YES;
+    }
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LiveHidden")) {
+        if (YTKACEReelObjectLooksLikeLive(object, 0)) return YES;
+        if (YTKACEObjectValue(object, @"nonVideoContentModel") != nil) return YES;
+    }
+    return NO;
+}
+
+static id YTKACEFilterReelModel(IMP original,
+                                id receiver,
+                                SEL selector,
+                                id entry) {
+    if (original == NULL) {
+        return nil;
+    }
+    if (YTKACEShouldDropReelObject(entry)) {
+        return nil;
+    }
+    id model = ((id (*)(id, SEL, id))original)(receiver, selector, entry);
+    if (model == nil) {
+        return nil;
+    }
+    if (YTKACEShouldDropReelObject(model)) {
+        return nil;
+    }
+    return model;
+}
+
+static id YTKACEReelContentModel(id receiver, SEL selector, id entry) {
+    return YTKACEFilterReelModel(
+        OriginalReelContentModel,
+        receiver,
+        selector,
+        entry
+    );
+}
+
+static id YTKACEInfiniteReelContentModel(id receiver, SEL selector, id entry) {
+    return YTKACEFilterReelModel(
+        OriginalInfiniteReelContentModel,
+        receiver,
+        selector,
+        entry
+    );
+}
+
+static id YTKACEClassReelContentModel(id receiver, SEL selector, id entry) {
+    return YTKACEFilterReelModel(
+        OriginalClassReelContentModel,
+        receiver,
+        selector,
+        entry
+    );
+}
+
+static id YTKACEReelContentModelInstance(id receiver, SEL selector, id entry) {
+    return YTKACEFilterReelModel(
+        OriginalReelContentModelInstance,
+        receiver,
+        selector,
+        entry
+    );
+}
+
+static void YTKACEInfiniteReelSetReels(id receiver, SEL selector, id reels) {
+    if (reels != nil) {
+        if ([reels isKindOfClass:NSMutableOrderedSet.class]) {
+            NSMutableOrderedSet *set = (NSMutableOrderedSet *)reels;
+            NSMutableIndexSet *indices = [NSMutableIndexSet indexSet];
+            for (NSUInteger i = 0; i < set.count; i++) {
+                if (YTKACEShouldDropReelObject(set[i])) {
+                    [indices addIndex:i];
+                }
+            }
+            [set removeObjectsAtIndexes:indices];
+        } else if ([reels isKindOfClass:NSOrderedSet.class]) {
+            NSMutableOrderedSet *set = [reels mutableCopy];
+            NSMutableIndexSet *indices = [NSMutableIndexSet indexSet];
+            for (NSUInteger i = 0; i < set.count; i++) {
+                if (YTKACEShouldDropReelObject(set[i])) {
+                    [indices addIndex:i];
+                }
+            }
+            [set removeObjectsAtIndexes:indices];
+            reels = set;
+        } else if ([reels isKindOfClass:NSMutableArray.class]) {
+            NSMutableArray *arr = (NSMutableArray *)reels;
+            NSMutableIndexSet *indices = [NSMutableIndexSet indexSet];
+            for (NSUInteger i = 0; i < arr.count; i++) {
+                if (YTKACEShouldDropReelObject(arr[i])) {
+                    [indices addIndex:i];
+                }
+            }
+            [arr removeObjectsAtIndexes:indices];
+        } else if ([reels isKindOfClass:NSArray.class]) {
+            NSMutableArray *arr = [reels mutableCopy];
+            NSMutableIndexSet *indices = [NSMutableIndexSet indexSet];
+            for (NSUInteger i = 0; i < arr.count; i++) {
+                if (YTKACEShouldDropReelObject(arr[i])) {
+                    [indices addIndex:i];
+                }
+            }
+            [arr removeObjectsAtIndexes:indices];
+            reels = arr;
+        }
+    }
+    if (OriginalInfiniteReelSetReels != NULL) {
+        ((void (*)(id, SEL, id))OriginalInfiniteReelSetReels)(receiver, selector, reels);
+    }
+}
+
 static BOOL YTKACEReelShouldDisplay(id receiver, SEL selector) {
     BOOL shouldDisplay = OriginalReelShouldDisplay == NULL ||
         ((BOOL (*)(id, SEL))OriginalReelShouldDisplay)(receiver, selector);
-    if (!shouldDisplay || !YTKACEFeatureEnabled(YTKACENoAdsKey)) {
-        return shouldDisplay;
-    }
-    if (YTKACEObjectValue(receiver, @"nonVideoContentModel") != nil) {
+    if (!shouldDisplay) {
         return NO;
     }
-    return !YTKACEReelObjectLooksLikeAd(receiver, 0);
+    if (YTKACEShouldDropReelObject(receiver)) {
+        return NO;
+    }
+    return shouldDisplay;
 }
 
 static BOOL YTKACEIsAdLayoutIdentifier(NSString *identifier) {
@@ -328,8 +484,9 @@ static BOOL YTKACEIsAdLayoutIdentifier(NSString *identifier) {
 
 static BOOL YTKACEObjectLooksLikeAd(id object) {
     if (object == nil) return NO;
-    if ([objc_getAssociatedObject(object, YTKACEAdMatchAssociation) boolValue]) {
-        return YES;
+    NSNumber *cached = objc_getAssociatedObject(object, YTKACEAdMatchAssociation);
+    if (cached != nil) {
+        return [cached boolValue];
     }
     BOOL matched = NO;
     NSString *className = NSStringFromClass([object class]).lowercaseString;
@@ -344,45 +501,62 @@ static BOOL YTKACEObjectLooksLikeAd(id object) {
         [className containsString:@"displayad"]) {
         matched = YES;
     }
-    for (NSString *selectorName in @[@"isAdRenderer", @"isAd",
-                                      @"hasAdLoggingData",
-                                      @"hasAdBadgeRenderer",
-                                      @"hasNativeAdBadgeRenderer",
-                                      @"hasSimpleAdBadgeRenderer",
-                                      @"hasAdSlotRenderer",
-                                      @"hasCompanionAdRenderer",
-                                      @"hasCompactCompanionAdRenderer",
-                                      @"hasMultiItemCompanionAdRenderer",
-                                      @"hasAppPromoCompanionAdRenderer",
-                                      @"hasShoppingCompanionAdRenderer",
-                                      @"hasSuggestedVideosCompanionAdRenderer",
-                                      @"hasCompactPromotedBannerRenderer",
-                                      @"hasCompactPromotedItemRenderer",
-                                      @"hasCompactPromotedVideoRenderer",
-                                      @"hasGridPromotedBannerRenderer",
-                                      @"hasGridPromotedVideoRenderer",
-                                      @"hasPromoted15ClickPtTextCtdWatchRenderer",
-                                      @"hasPromoted15ClickPtTextWatchRenderer",
-                                      @"hasPromoted15ClickTextCtdWatchRenderer",
-                                      @"hasPromoted15ClickTextWatchRenderer",
-                                      @"hasPromotedAppInstallRenderer",
-                                      @"hasPromotedDiscoveryAppPromoCompactFormRenderer",
-                                      @"hasPromotedSparklesTextCtdHomeCompactFormRenderer",
-                                      @"hasPromotedSparklesTextCtdHomeRenderer",
-                                      @"hasPromotedSparklesTextCtdWatch15ClickRenderer",
-                                      @"hasPromotedSparklesTextCtdWatchGridFormRenderer",
-                                      @"hasPromotedSparklesTextCtdWatchWideFormRenderer",
-                                      @"hasPromotedSparklesTextHomeRenderer",
-                                      @"hasPromotedSparklesTextProductHomeRenderer",
-                                      @"hasPromotedSparklesTextProductWatchRenderer",
-                                      @"hasPromotedSparklesTextSearchRenderer",
-                                      @"hasPromotedSparklesTextWatch15ClickRenderer",
-                                      @"hasPromotedSparklesTextWatchGridFormRenderer",
-                                      @"hasPromotedSparklesTextWatchWideFormRenderer",
-                                      @"hasPromotedTextBannerRenderer",
-                                      @"hasPromotedVideoInlineMutedRenderer",
-                                      @"hasPromotedVideoRenderer",
-                                      @"hasShoppingAdInfoCardContentRenderer"]) {
+    static NSArray<NSString *> *adSelectors;
+    static NSArray<NSString *> *badgeSelectors;
+    static NSArray<NSString *> *identifierSelectors;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        adSelectors = @[
+            @"isAdRenderer", @"isAd",
+            @"hasAdLoggingData",
+            @"hasAdBadgeRenderer",
+            @"hasNativeAdBadgeRenderer",
+            @"hasSimpleAdBadgeRenderer",
+            @"hasAdSlotRenderer",
+            @"hasCompanionAdRenderer",
+            @"hasCompactCompanionAdRenderer",
+            @"hasMultiItemCompanionAdRenderer",
+            @"hasAppPromoCompanionAdRenderer",
+            @"hasShoppingCompanionAdRenderer",
+            @"hasSuggestedVideosCompanionAdRenderer",
+            @"hasCompactPromotedBannerRenderer",
+            @"hasCompactPromotedItemRenderer",
+            @"hasCompactPromotedVideoRenderer",
+            @"hasGridPromotedBannerRenderer",
+            @"hasGridPromotedVideoRenderer",
+            @"hasPromoted15ClickPtTextCtdWatchRenderer",
+            @"hasPromoted15ClickPtTextWatchRenderer",
+            @"hasPromoted15ClickTextCtdWatchRenderer",
+            @"hasPromoted15ClickTextWatchRenderer",
+            @"hasPromotedAppInstallRenderer",
+            @"hasPromotedDiscoveryAppPromoCompactFormRenderer",
+            @"hasPromotedSparklesTextCtdHomeCompactFormRenderer",
+            @"hasPromotedSparklesTextCtdHomeRenderer",
+            @"hasPromotedSparklesTextCtdWatch15ClickRenderer",
+            @"hasPromotedSparklesTextCtdWatchGridFormRenderer",
+            @"hasPromotedSparklesTextCtdWatchWideFormRenderer",
+            @"hasPromotedSparklesTextHomeRenderer",
+            @"hasPromotedSparklesTextProductHomeRenderer",
+            @"hasPromotedSparklesTextProductWatchRenderer",
+            @"hasPromotedSparklesTextSearchRenderer",
+            @"hasPromotedSparklesTextWatch15ClickRenderer",
+            @"hasPromotedSparklesTextWatchGridFormRenderer",
+            @"hasPromotedSparklesTextWatchWideFormRenderer",
+            @"hasPromotedTextBannerRenderer",
+            @"hasPromotedVideoInlineMutedRenderer",
+            @"hasPromotedVideoRenderer",
+            @"hasShoppingAdInfoCardContentRenderer"
+        ];
+        badgeSelectors = @[
+            @"adBadgeRenderer", @"nativeAdBadgeRenderer",
+            @"simpleAdBadgeRenderer"
+        ];
+        identifierSelectors = @[
+            @"identifier", @"layoutIdentifier", @"elementIdentifier",
+            @"accessibilityIdentifier", @"templateIdentifier"
+        ];
+    });
+    for (NSString *selectorName in adSelectors) {
         if (matched) break;
         SEL selector = NSSelectorFromString(selectorName);
         if ([object respondsToSelector:selector] &&
@@ -393,20 +567,14 @@ static BOOL YTKACEObjectLooksLikeAd(id object) {
     if (!matched && YTKACEObjectValue(object, @"adLoggingData") != nil) {
         matched = YES;
     }
-    for (NSString *selectorName in @[
-        @"adBadgeRenderer", @"nativeAdBadgeRenderer",
-        @"simpleAdBadgeRenderer"
-    ]) {
+    for (NSString *selectorName in badgeSelectors) {
         if (matched) break;
         id value = YTKACEObjectValue(object, selectorName);
         if (value != nil) {
             matched = YES;
         }
     }
-    for (NSString *selectorName in @[
-        @"identifier", @"layoutIdentifier", @"elementIdentifier",
-        @"accessibilityIdentifier", @"templateIdentifier"
-    ]) {
+    for (NSString *selectorName in identifierSelectors) {
         if (matched) break;
         id value = YTKACEObjectValue(object, selectorName);
         if ([value isKindOfClass:NSString.class] &&
@@ -420,10 +588,8 @@ static BOOL YTKACEObjectLooksLikeAd(id object) {
         matched = [options respondsToSelector:loggingSelector] &&
             ((BOOL (*)(id, SEL))objc_msgSend)(options, loggingSelector);
     }
-    if (matched) {
-        objc_setAssociatedObject(object, YTKACEAdMatchAssociation, @YES,
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
+    objc_setAssociatedObject(object, YTKACEAdMatchAssociation, @(matched),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return matched;
 }
 
@@ -901,6 +1067,18 @@ void YTKACEInstallAdsHooks(void) {
                               @"makeContentModelForEntry:",
                               (IMP)YTKACEInfiniteReelContentModel,
                               &OriginalInfiniteReelContentModel);
+    YTKACEInstallClassHook(@"YTReelContentModel",
+                           @"makeContentModelForEntry:",
+                           (IMP)YTKACEClassReelContentModel,
+                           &OriginalClassReelContentModel);
+    YTKACEInstallInstanceHook(@"YTReelContentModel",
+                              @"makeContentModelForEntry:",
+                              (IMP)YTKACEReelContentModelInstance,
+                              &OriginalReelContentModelInstance);
+    YTKACEInstallInstanceHook(@"YTReelInfinitePlaybackDataSource",
+                              @"setReels:",
+                              (IMP)YTKACEInfiniteReelSetReels,
+                              &OriginalInfiniteReelSetReels);
     YTKACEInstallInstanceHook(@"YTReelContentModel",
                               @"shouldDisplay",
                               (IMP)YTKACEReelShouldDisplay,

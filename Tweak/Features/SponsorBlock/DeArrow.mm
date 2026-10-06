@@ -1,4 +1,6 @@
 #import "DeArrow.h"
+#import "SponsorThumbnailBadge.h"
+#import "SponsorPreferences.h"
 #import "../../Runtime/Hooking.h"
 #import "../../Runtime/Preferences.h"
 
@@ -172,15 +174,28 @@ static void YTKACEEvictLocked(void) {
     }
 }
 
-static void YTKACEPersistStore(void) {
+static void YTKACESchedulePersistStore(void) {
+    static BOOL persistScheduled = NO;
     os_unfair_lock_lock(&YTKACELock);
-    YTKACEEvictLocked();
-    NSDictionary *snapshot = [YTKACEStore copy];
-    os_unfair_lock_unlock(&YTKACELock);
-    if (snapshot != nil) {
-        [NSUserDefaults.standardUserDefaults setObject:snapshot
-                                                forKey:YTKACEBrandingStoreKey];
+    if (persistScheduled) {
+        os_unfair_lock_unlock(&YTKACELock);
+        return;
     }
+    persistScheduled = YES;
+    os_unfair_lock_unlock(&YTKACELock);
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        os_unfair_lock_lock(&YTKACELock);
+        persistScheduled = NO;
+        YTKACEEvictLocked();
+        NSDictionary *snapshot = [YTKACEStore copy];
+        os_unfair_lock_unlock(&YTKACELock);
+        if (snapshot != nil) {
+            [NSUserDefaults.standardUserDefaults setObject:snapshot
+                                                    forKey:YTKACEBrandingStoreKey];
+        }
+    });
 }
 
 static NSDictionary *YTKACEFreshEntryLocked(NSString *videoID) {
@@ -213,7 +228,7 @@ static void YTKACEStoreBranding(NSString *videoID, NSNumber *timestamp,
     [YTKACEInFlight removeObject:videoID];
     if (YTKACEActiveRequests > 0) YTKACEActiveRequests--;
     os_unfair_lock_unlock(&YTKACELock);
-    YTKACEPersistStore();
+    YTKACESchedulePersistStore();
     YTKACEPumpQueue();
 }
 
@@ -515,13 +530,18 @@ static void YTKACENoteImage(id receiver, id URL) {
         objc_setAssociatedObject(root, YTKACECellVideoIDKey, videoID,
                                  OBJC_ASSOCIATION_COPY_NONATOMIC);
     }
-    YTKACEConsiderVideo(receiver, videoID);
-    if (root != nil) YTKACEApplyTitleToCell(root, videoID);
+    if (YTKACEAnyFeatureOn()) {
+        YTKACEConsiderVideo(receiver, videoID);
+        if (root != nil) YTKACEApplyTitleToCell(root, videoID);
+    }
+    YTKACESponsorNoteThumbnail(receiver, videoID);
 }
 
 static id YTKACEDownloadImage(id receiver, SEL selector, id URL, BOOL shouldRetry,
                               id callbackQueue, id progress, id completion) {
-    if (YTKACEAnyFeatureOn()) YTKACENoteImage(receiver, URL);
+    if (YTKACEAnyFeatureOn() || YTKACESponsorFullVideoLabelsEnabled()) {
+        YTKACENoteImage(receiver, URL);
+    }
     if (OriginalDownloadImage == NULL) return nil;
     return ((id (*)(id, SEL, id, BOOL, id, id, id))OriginalDownloadImage)(
         receiver, selector, URL, shouldRetry, callbackQueue, progress, completion);
@@ -529,7 +549,9 @@ static id YTKACEDownloadImage(id receiver, SEL selector, id URL, BOOL shouldRetr
 
 static void YTKACECachedImage(id receiver, SEL selector, id URL,
                               id callbackQueue, id completion) {
-    if (YTKACEAnyFeatureOn()) YTKACENoteImage(receiver, URL);
+    if (YTKACEAnyFeatureOn() || YTKACESponsorFullVideoLabelsEnabled()) {
+        YTKACENoteImage(receiver, URL);
+    }
     if (OriginalCachedImage == NULL) return;
     ((void (*)(id, SEL, id, id, id))OriginalCachedImage)(
         receiver, selector, URL, callbackQueue, completion);

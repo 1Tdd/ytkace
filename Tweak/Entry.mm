@@ -2,6 +2,7 @@
 #import "Features/Downloads/SABRDownloader.h"
 #import "Features/Downloads/DownloadLog.h"
 #import "Features/SponsorBlock/DeArrow.h"
+#import "Features/SponsorBlock/SponsorThumbnailBadge.h"
 #import "Runtime/Preferences.h"
 
 #import <UIKit/UIKit.h>
@@ -18,6 +19,7 @@ static void YTKACEInstallModules(void) {
     YTKACEInstallAdsHooks();
     YTKACEInstallPromoHooks();
     YTKACEInstallSponsorBlockHooks();
+    YTKACEInstallSponsorThumbnailBadgeHooks();
     YTKACEInstallDeArrow();
     YTKACEInstallOLEDHooks();
     YTKACEInstallStartupHooks();

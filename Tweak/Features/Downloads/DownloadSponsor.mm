@@ -4,6 +4,7 @@
 #import "../SponsorBlock/SponsorPreferences.h"
 
 #import <sys/xattr.h>
+#import <math.h>
 
 static const char *YTKACESponsorAttribute = "com.ytkace.sponsorblock";
 
@@ -80,6 +81,79 @@ void YTKACEAttachSponsorSegments(NSURL *fileURL, NSString *videoID, NSString *au
         }];
 }
 
+void YTKACEAttachAdjustedSponsorSegments(NSURL *fileURL, NSString *videoID,
+                                        NSString *author,
+                                        NSArray<NSDictionary *> *allSegments,
+                                        NSArray<NSDictionary *> *removedSegments) {
+    if (fileURL == nil || videoID.length == 0) return;
+    NSURL *target = fileURL.copy;
+    NSString *channel = author.copy;
+
+    if (allSegments.count == 0 || removedSegments.count == 0) {
+        const char *path = target.fileSystemRepresentation;
+        if (path == NULL) return;
+        NSMutableDictionary *record = [@{@"id": videoID, @"segments": @[], @"segmentsCut": @YES} mutableCopy];
+        if (channel.length != 0) record[@"author"] = channel;
+        NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
+        if (data.length != 0) setxattr(path, YTKACESponsorAttribute, data.bytes, data.length, 0, 0);
+        return;
+    }
+
+    NSArray *sortedCuts = [removedSegments sortedArrayUsingComparator:
+        ^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+            return [a[@"start"] compare:b[@"start"]];
+        }];
+
+    NSMutableArray *remaining = [NSMutableArray array];
+    for (NSDictionary *seg in allSegments) {
+        if (![seg isKindOfClass:NSDictionary.class]) continue;
+        double start = [seg[@"start"] doubleValue];
+        double end = [seg[@"end"] doubleValue];
+        if (end <= start) continue;
+
+        BOOL wasRemoved = NO;
+        for (NSDictionary *cut in sortedCuts) {
+            double cStart = [cut[@"start"] doubleValue];
+            double cEnd = [cut[@"end"] doubleValue];
+            if (fabs(cStart - start) < 0.25 && fabs(cEnd - end) < 0.25) {
+                wasRemoved = YES;
+                break;
+            }
+        }
+        if (wasRemoved) continue;
+
+        double droppedBefore = 0.0;
+        for (NSDictionary *cut in sortedCuts) {
+            double cStart = [cut[@"start"] doubleValue];
+            double cEnd = [cut[@"end"] doubleValue];
+            if (cEnd <= cStart) continue;
+            if (cEnd <= start) {
+                droppedBefore += (cEnd - cStart);
+            }
+        }
+
+        double newStart = MAX(0.0, start - droppedBefore);
+        double newEnd = MAX(newStart + 0.1, end - droppedBefore);
+        NSMutableDictionary *m = [seg mutableCopy];
+        m[@"start"] = @(newStart);
+        m[@"end"] = @(newEnd);
+        [remaining addObject:m];
+    }
+
+    const char *path = target.fileSystemRepresentation;
+    if (path == NULL) return;
+    NSMutableDictionary *record = [@{@"id": videoID, @"segments": remaining, @"segmentsCut": @YES} mutableCopy];
+    if (channel.length != 0) record[@"author"] = channel;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
+    if (data.length != 0) {
+        setxattr(path, YTKACESponsorAttribute, data.bytes, data.length, 0, 0);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter
+                postNotificationName:YTKACEDownloadInfoDidChangeNotification object:target];
+        });
+    }
+}
+
 NSString *YTKACEStoredChannelName(NSURL *fileURL) {
     if (fileURL == nil) return nil;
     id author = YTKACEReadSponsorRecord(fileURL)[@"author"];
@@ -94,6 +168,10 @@ NSArray<NSDictionary<NSString *, id> *> *YTKACEStoredSponsorSegments(NSURL *file
 void YTKACERefreshSponsorSegments(
     NSURL *fileURL, void (^completion)(NSArray<NSDictionary<NSString *, id> *> *segments)) {
     NSDictionary *record = fileURL == nil ? nil : YTKACEReadSponsorRecord(fileURL);
+    if ([record[@"segmentsCut"] boolValue]) {
+        // Segments have been physically cut from this file; do not overwrite with un-cut server segments
+        return;
+    }
     NSString *videoID = [record[@"id"] isKindOfClass:NSString.class] ? record[@"id"] : nil;
     NSString *author = [record[@"author"] isKindOfClass:NSString.class] ? record[@"author"] : nil;
     if (videoID.length == 0 || !YTKACESponsorBlockEnabled()) return;

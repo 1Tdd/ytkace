@@ -981,3 +981,5 @@ Cấp phép theo CC BY-NC-SA 4.0.";
 "%lu failed" = "%lu lỗi";
 "Downloading" = "Đang tải xuống";
 "All" = "Tất cả";
+"Remove Live Streams" = "Xóa phát trực tiếp";
+"Hide live streams from the Shorts feed." = "Ẩn các luồng phát trực tiếp khỏi nguồn cấp dữ liệu Shorts.";

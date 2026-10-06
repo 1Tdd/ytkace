@@ -9,11 +9,6 @@
 #import <stdatomic.h>
 
 static BOOL YTKACEShortsSuggestionPillHidden(void) {
-    id stored = [NSUserDefaults.standardUserDefaults objectForKey:@"YTKACE.Preference.Shorts.SuggestionPillHidden"];
-    if (stored == nil) {
-        BOOL legacy = [NSUserDefaults.standardUserDefaults boolForKey:@"YTKACE.Preference.Overlay.CommentPreviewsHidden"];
-        [NSUserDefaults.standardUserDefaults setBool:legacy forKey:@"YTKACE.Preference.Shorts.SuggestionPillHidden"];
-    }
     return YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.SuggestionPillHidden");
 }
 
@@ -100,20 +95,24 @@ static NSString *YTKACEActionPreference(id item) {
     NSString *token = [[[NSString stringWithFormat:@"%@ %@",
         NSStringFromClass([item class]), YTKACENormalizedDescription(item)] lowercaseString]
         stringByReplacingOccurrencesOfString:@"." withString:@"_"];
-    NSArray<NSArray<NSString *> *> *rules = @[
-        @[@"YTKACE.Preference.ActionBar.DislikeHidden", @"dislike"],
-        @[@"YTKACE.Preference.ActionBar.ShareHidden", @"share"],
-        @[@"YTKACE.Preference.ActionBar.DownloadHidden", @"offline", @"download"],
-        @[@"YTKACE.Preference.ActionBar.SaveHidden", @"save", @"add_to"],
-        @[@"YTKACE.Preference.ActionBar.ClipHidden", @"clip"],
-        @[@"YTKACE.Preference.ActionBar.RemixHidden", @"remix"],
-        @[@"YTKACE.Preference.ActionBar.ThanksHidden", @"thanks"],
-        @[@"YTKACE.Preference.ActionBar.HypeHidden", @"hype"],
-        @[@"YTKACE.Preference.ActionBar.ReportHidden", @"id_player_watch_flag_button", @"report"],
-        @[@"YTKACE.Preference.ActionBar.AskHidden", @"ask", @"gemini"],
-        @[@"YTKACE.Preference.ActionBar.OverflowHidden", @"overflow"],
-        @[@"YTKACE.Preference.ActionBar.LikeHidden", @"like"]
-    ];
+    static NSArray<NSArray<NSString *> *> *rules;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        rules = @[
+            @[@"YTKACE.Preference.ActionBar.DislikeHidden", @"dislike"],
+            @[@"YTKACE.Preference.ActionBar.ShareHidden", @"share"],
+            @[@"YTKACE.Preference.ActionBar.DownloadHidden", @"offline", @"download"],
+            @[@"YTKACE.Preference.ActionBar.SaveHidden", @"save", @"add_to"],
+            @[@"YTKACE.Preference.ActionBar.ClipHidden", @"clip"],
+            @[@"YTKACE.Preference.ActionBar.RemixHidden", @"remix"],
+            @[@"YTKACE.Preference.ActionBar.ThanksHidden", @"thanks"],
+            @[@"YTKACE.Preference.ActionBar.HypeHidden", @"hype"],
+            @[@"YTKACE.Preference.ActionBar.ReportHidden", @"id_player_watch_flag_button", @"report"],
+            @[@"YTKACE.Preference.ActionBar.AskHidden", @"ask", @"gemini"],
+            @[@"YTKACE.Preference.ActionBar.OverflowHidden", @"overflow"],
+            @[@"YTKACE.Preference.ActionBar.LikeHidden", @"like"]
+        ];
+    });
     for (NSArray<NSString *> *rule in rules) {
         for (NSUInteger index = 1; index < rule.count; index++) {
             if ([token containsString:rule[index]]) return rule.firstObject;
@@ -123,20 +122,25 @@ static NSString *YTKACEActionPreference(id item) {
 }
 
 static BOOL YTKACEAnyActionPreferenceEnabled(void) {
-    for (NSString *key in @[
-        @"YTKACE.Preference.ActionBar.LikeHidden",
-        @"YTKACE.Preference.ActionBar.DislikeHidden",
-        @"YTKACE.Preference.ActionBar.ShareHidden",
-        @"YTKACE.Preference.ActionBar.DownloadHidden",
-        @"YTKACE.Preference.ActionBar.SaveHidden",
-        @"YTKACE.Preference.ActionBar.ClipHidden",
-        @"YTKACE.Preference.ActionBar.RemixHidden",
-        @"YTKACE.Preference.ActionBar.ThanksHidden",
-        @"YTKACE.Preference.ActionBar.HypeHidden",
-        @"YTKACE.Preference.ActionBar.ReportHidden",
-        @"YTKACE.Preference.ActionBar.AskHidden",
-        @"YTKACE.Preference.ActionBar.OverflowHidden"
-    ]) {
+    static NSArray<NSString *> *keys;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        keys = @[
+            @"YTKACE.Preference.ActionBar.LikeHidden",
+            @"YTKACE.Preference.ActionBar.DislikeHidden",
+            @"YTKACE.Preference.ActionBar.ShareHidden",
+            @"YTKACE.Preference.ActionBar.DownloadHidden",
+            @"YTKACE.Preference.ActionBar.SaveHidden",
+            @"YTKACE.Preference.ActionBar.ClipHidden",
+            @"YTKACE.Preference.ActionBar.RemixHidden",
+            @"YTKACE.Preference.ActionBar.ThanksHidden",
+            @"YTKACE.Preference.ActionBar.HypeHidden",
+            @"YTKACE.Preference.ActionBar.ReportHidden",
+            @"YTKACE.Preference.ActionBar.AskHidden",
+            @"YTKACE.Preference.ActionBar.OverflowHidden"
+        ];
+    });
+    for (NSString *key in keys) {
         if (YTKACEFeatureEnabled(key)) return YES;
     }
     return NO;
@@ -161,19 +165,23 @@ static NSString *YTKACEActionPreferenceForView(UIView *view) {
         stringByReplacingOccurrencesOfString:@"." withString:@"_"];
     NSString *wide = [[NSString stringWithFormat:@"%@ %@", token,
         view.accessibilityLabel ?: @""] lowercaseString];
-    NSArray<NSArray<NSString *> *> *rules = @[
-        @[@"YTKACE.Preference.ActionBar.DislikeHidden", @"id_video_dislike_button", @"dislike"],
-        @[@"YTKACE.Preference.ActionBar.ShareHidden", @"id_video_share_button", @"share"],
-        @[@"YTKACE.Preference.ActionBar.DownloadHidden", @"offline", @"download"],
-        @[@"YTKACE.Preference.ActionBar.SaveHidden", @"save", @"add_to"],
-        @[@"YTKACE.Preference.ActionBar.ClipHidden", @"clip"],
-        @[@"YTKACE.Preference.ActionBar.RemixHidden", @"remix"],
-        @[@"YTKACE.Preference.ActionBar.ThanksHidden", @"thanks"],
-        @[@"YTKACE.Preference.ActionBar.HypeHidden", @"hype"],
-        @[@"YTKACE.Preference.ActionBar.ReportHidden", @"id_player_watch_flag_button", @"report"],
-        @[@"YTKACE.Preference.ActionBar.AskHidden", @"ask", @"gemini"],
-        @[@"YTKACE.Preference.ActionBar.LikeHidden", @"id_video_like_button", @"like"]
-    ];
+    static NSArray<NSArray<NSString *> *> *rules;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        rules = @[
+            @[@"YTKACE.Preference.ActionBar.DislikeHidden", @"id_video_dislike_button", @"dislike"],
+            @[@"YTKACE.Preference.ActionBar.ShareHidden", @"id_video_share_button", @"share"],
+            @[@"YTKACE.Preference.ActionBar.DownloadHidden", @"offline", @"download"],
+            @[@"YTKACE.Preference.ActionBar.SaveHidden", @"save", @"add_to"],
+            @[@"YTKACE.Preference.ActionBar.ClipHidden", @"clip"],
+            @[@"YTKACE.Preference.ActionBar.RemixHidden", @"remix"],
+            @[@"YTKACE.Preference.ActionBar.ThanksHidden", @"thanks"],
+            @[@"YTKACE.Preference.ActionBar.HypeHidden", @"hype"],
+            @[@"YTKACE.Preference.ActionBar.ReportHidden", @"id_player_watch_flag_button", @"report"],
+            @[@"YTKACE.Preference.ActionBar.AskHidden", @"ask", @"gemini"],
+            @[@"YTKACE.Preference.ActionBar.LikeHidden", @"id_video_like_button", @"like"]
+        ];
+    });
     BOOL dislikeToken = [token containsString:@"dislike"] ||
         [wide containsString:@"dislike"];
     for (NSArray<NSString *> *rule in rules) {
@@ -196,28 +204,6 @@ static NSString *YTKACEActionPreferenceForView(UIView *view) {
         }
         for (NSUInteger index = 1; index < rule.count; index++) {
             if ([wide containsString:rule[index]]) {
-                NSMutableArray<NSString *> *shape = [NSMutableArray array];
-                NSMutableArray<UIView *> *pending =
-                    [NSMutableArray arrayWithObject:view];
-                NSUInteger seen = 0;
-                while (pending.count != 0 && seen < 40) {
-                    UIView *node = pending.firstObject;
-                    [pending removeObjectAtIndex:0];
-                    seen++;
-                    NSMutableString *entry = [NSMutableString stringWithString:
-                        NSStringFromClass([node class])];
-                    if (node.accessibilityIdentifier.length != 0) {
-                        [entry appendFormat:@"#%@", node.accessibilityIdentifier];
-                    }
-                    for (NSString *probe in @[@"iconType", @"icon", @"image",
-                                              @"renderer", @"entry", @"model"]) {
-                        SEL selector = NSSelectorFromString(probe);
-                        if (![node respondsToSelector:selector]) continue;
-                        [entry appendFormat:@" %@?", probe];
-                    }
-                    [shape addObject:entry];
-                    [pending addObjectsFromArray:node.subviews];
-                }
                 return rule.firstObject;
             }
         }
@@ -228,32 +214,6 @@ static NSString *YTKACEActionPreferenceForView(UIView *view) {
 static void YTKACECreateActionViews(id receiver, SEL selector,
                                     NSArray *renderers) {
     NSArray *filtered = renderers;
-    if ([renderers isKindOfClass:NSArray.class]) {
-        static NSUInteger rendererLogged = 0;
-        if (rendererLogged < 3) {
-            rendererLogged++;
-            NSMutableArray<NSString *> *shape = [NSMutableArray array];
-            for (id renderer in renderers) {
-                NSString *match = YTKACEActionPreference(renderer);
-                NSMutableString *entry = [NSMutableString stringWithString:
-                    NSStringFromClass([renderer class])];
-                for (NSString *probe in @[@"likeButton", @"dislikeButton",
-                                          @"segmentedLikeDislikeButton",
-                                          @"buttonRenderer", @"targetId",
-                                          @"trackingParams"]) {
-                    SEL selector = NSSelectorFromString(probe);
-                    if ([renderer respondsToSelector:selector]) {
-                        [entry appendFormat:@" %@?", probe];
-                    }
-                }
-                if (match.length != 0) {
-                    [entry appendFormat:@" ->%@",
-                        [match componentsSeparatedByString:@"."].lastObject];
-                }
-                [shape addObject:entry];
-            }
-        }
-    }
     if ([renderers isKindOfClass:NSArray.class] &&
         renderers.count != 0 && YTKACEAnyActionPreferenceEnabled()) {
         NSMutableArray *kept = [NSMutableArray arrayWithCapacity:renderers.count];

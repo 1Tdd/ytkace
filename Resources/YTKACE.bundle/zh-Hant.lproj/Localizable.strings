@@ -981,3 +981,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 資料。
 "%lu failed" = "%lu 個失敗";
 "Downloading" = "正在下載";
 "All" = "全部";
+"Remove Live Streams" = "移除直播";
+"Hide live streams from the Shorts feed." = "從 Shorts 動態消息中隱藏直播。";

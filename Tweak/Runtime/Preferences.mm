@@ -3,6 +3,7 @@
 #import "../Features/Downloads/SABRDownloader.h"
 
 #import <UIKit/UIKit.h>
+#import <os/lock.h>
 
 NSString * const YTKACEMasterEnabledKey = @"YTKACE.Preference.Enabled";
 NSString * const YTKACEOLEDKey = @"YTKACE.Preference.Appearance.OLED";
@@ -21,8 +22,76 @@ static NSUserDefaults *YTKACEDefaults(void) {
     return NSUserDefaults.standardUserDefaults;
 }
 
+#pragma mark - Preference cache
+
+// Hot hooks (feed parsing, layoutSubviews, playback ticks) read preferences
+// very frequently. NSUserDefaults lookups take a lock and go through
+// CFPreferences each time, so keep an in-memory mirror that is dropped
+// whenever the defaults database changes in-process.
+static os_unfair_lock YTKACEPreferenceCacheLock = OS_UNFAIR_LOCK_INIT;
+static NSMutableDictionary<NSString *, id> *YTKACEPreferenceCache;
+static uint64_t YTKACEPreferenceCacheGeneration;
+
+static void YTKACEInvalidatePreferenceCache(void) {
+    os_unfair_lock_lock(&YTKACEPreferenceCacheLock);
+    [YTKACEPreferenceCache removeAllObjects];
+    YTKACEPreferenceCacheGeneration++;
+    os_unfair_lock_unlock(&YTKACEPreferenceCacheLock);
+}
+
+static void YTKACEInstallPreferenceCacheObserver(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        YTKACEPreferenceCache = [NSMutableDictionary dictionaryWithCapacity:128];
+        [NSNotificationCenter.defaultCenter
+            addObserverForName:NSUserDefaultsDidChangeNotification
+                        object:nil
+                         queue:nil
+                    usingBlock:^(__unused NSNotification *note) {
+            YTKACEInvalidatePreferenceCache();
+            YTKACEResetLocalizationCache();
+        }];
+    });
+}
+
+static id YTKACECachedPreferenceObject(NSString *key) {
+    YTKACEInstallPreferenceCacheObserver();
+    os_unfair_lock_lock(&YTKACEPreferenceCacheLock);
+    id cached = YTKACEPreferenceCache[key];
+    uint64_t generation = YTKACEPreferenceCacheGeneration;
+    os_unfair_lock_unlock(&YTKACEPreferenceCacheLock);
+    if (cached != nil) {
+        return cached == (id)kCFNull ? nil : cached;
+    }
+    id value = [YTKACEDefaults() objectForKey:key];
+    os_unfair_lock_lock(&YTKACEPreferenceCacheLock);
+    if (generation == YTKACEPreferenceCacheGeneration) {
+        YTKACEPreferenceCache[key] = value ?: (id)kCFNull;
+    }
+    os_unfair_lock_unlock(&YTKACEPreferenceCacheLock);
+    return value;
+}
+
+static BOOL YTKACECachedBool(NSString *key) {
+    id value = YTKACECachedPreferenceObject(key);
+    if ([value respondsToSelector:@selector(boolValue)]) {
+        return [value boolValue];
+    }
+    return NO;
+}
+
+static NSInteger YTKACECachedInteger(NSString *key) {
+    id value = YTKACECachedPreferenceObject(key);
+    if ([value respondsToSelector:@selector(integerValue)]) {
+        return [value integerValue];
+    }
+    return 0;
+}
+
+
 static void YTKACEAnnouncePreferenceChange(NSString *key) {
     if (key.length == 0) return;
+    YTKACEInvalidatePreferenceCache();
     if ([key isEqualToString:@"YTKACE.Preference.Language"]) {
         YTKACEResetLocalizationCache();
     }
@@ -69,6 +138,7 @@ void YTKACERegisterDefaults(void) {
         @"YTKACE.Preference.Downloads.Subtitles": @NO,
         @"YTKACE.Preference.Playback.CaptionLanguage": @"",
         @"YTKACE.Preference.Shorts.PinchFullscreen": @NO,
+        @"YTKACE.Preference.Shorts.LiveHidden": @YES,
         @"YTKACE.Preference.Shorts.RemixHidden": @NO,
         @"YTKACE.Preference.Shorts.ShareHidden": @NO,
         @"YTKACE.Preference.Shorts.SaveHidden": @NO,
@@ -132,6 +202,7 @@ void YTKACERegisterDefaults(void) {
         @"YTKACE.Preference.Playback.WiFiQuality": @0,
         @"YTKACE.Preference.Playback.CellularQuality": @0,
         @"YTKACE.Preference.SponsorBlock.Mode": @0,
+        @"YTKACE.Preference.SponsorBlock.FullVideoLabels": @YES,
         @"YTKACE.Preference.SponsorBlock.SkipAlertSeconds": @4.0,
         @"YTKACE.Preference.SponsorBlock.UnskipAlertSeconds": @4.0,
         @"YTKACE.Preference.Downloads.ClearOnStartup": @NO,
@@ -202,7 +273,7 @@ void YTKACERegisterDefaults(void) {
 }
 
 NSInteger YTKACEDownloadPlacement(void) {
-    return [YTKACEDefaults() integerForKey:@"YTKACE.Preference.Downloads.Placement"];
+    return YTKACECachedInteger(@"YTKACE.Preference.Downloads.Placement");
 }
 
 BOOL YTKACEDownloadsEnabled(void) {
@@ -217,7 +288,7 @@ BOOL YTKACEFeatureEnabled(NSString *key) {
     if (!YTKACEMasterEnabled() || key.length == 0) {
         return NO;
     }
-    return [YTKACEDefaults() boolForKey:key];
+    return YTKACECachedBool(key);
 }
 
 BOOL YTKACEOLEDActive(UITraitCollection *traits) {
@@ -271,7 +342,7 @@ BOOL YTKACESponsorBlockEnabled(void) {
         return NO;
     }
 
-    return [YTKACEDefaults() boolForKey:YTKACESponsorBlockKey];
+    return YTKACECachedBool(YTKACESponsorBlockKey);
 }
 
 void YTKACESetPreference(NSString *key, BOOL enabled) {
@@ -292,7 +363,7 @@ id YTKACEPreferenceObject(NSString *key) {
     if (key.length == 0) {
         return nil;
     }
-    return [YTKACEDefaults() objectForKey:key];
+    return YTKACECachedPreferenceObject(key);
 }
 
 void YTKACESetPreferenceObject(NSString *key, id value) {

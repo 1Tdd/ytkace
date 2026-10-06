@@ -19,6 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, assign, getter=isAdaptive) BOOL adaptive;
 @property(nonatomic, assign, getter=isDefaultAudio) BOOL defaultAudio;
 @property(nonatomic, strong) id rawFormat;
+- (BOOL)isEqual:(id)object;
+- (NSUInteger)hash;
 @end
 
 @interface YTKACEStreamResolver : NSObject

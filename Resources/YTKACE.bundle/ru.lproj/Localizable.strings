@@ -981,3 +981,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE использует данные Spo
 "%lu failed" = "Ошибки: %lu";
 "Downloading" = "Загрузки";
 "All" = "Все";
+"Remove Live Streams" = "Удалить прямые трансляции";
+"Hide live streams from the Shorts feed." = "Скрывать прямые трансляции из ленты Shorts.";

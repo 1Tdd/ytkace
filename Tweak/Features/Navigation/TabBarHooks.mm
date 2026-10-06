@@ -1328,21 +1328,28 @@ static BOOL YTKACEContainsCreateText(NSString *value) {
         [text containsString:@"add video"];
 }
 
-static void YTKACEHideCreateViews(UIView *view) {
-    BOOL hideCreate = [NSUserDefaults.standardUserDefaults boolForKey:@"YTKACE.Preference.Tabs.Hidden.Create"];
+static void YTKACEHideCreateViewsRecursive(UIView *view) {
     for (UIView *subview in view.subviews) {
         NSString *label = subview.accessibilityLabel;
         NSString *identifier = subview.accessibilityIdentifier;
-        NSString *className = NSStringFromClass(subview.class);
-        if (hideCreate &&
-            (YTKACEContainsCreateText(label) ||
-             YTKACEContainsCreateText(identifier) ||
-             YTKACEContainsCreateText(className))) {
+        if (YTKACEContainsCreateText(label) ||
+            YTKACEContainsCreateText(identifier)) {
             subview.hidden = YES;
             subview.userInteractionEnabled = NO;
+        } else {
+            NSString *className = NSStringFromClass(subview.class);
+            if (YTKACEContainsCreateText(className)) {
+                subview.hidden = YES;
+                subview.userInteractionEnabled = NO;
+            }
         }
-        YTKACEHideCreateViews(subview);
+        YTKACEHideCreateViewsRecursive(subview);
     }
+}
+
+static void YTKACEHideCreateViews(UIView *view) {
+    if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.Hidden.Create")) return;
+    YTKACEHideCreateViewsRecursive(view);
 }
 
 static IMP YTKACEOrigInfoDictionary;
@@ -3513,7 +3520,12 @@ static void YTKACEPivotItemSetSelected(UIView *receiver,
     if (YTKACEStencilRendering) return;
     if (selected) {
         UIView *bar = receiver.superview;
-        while (bar != nil && ![NSStringFromClass(bar.class) isEqualToString:@"YTPivotBarView"]) {
+        static Class pivotBarClass;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            pivotBarClass = NSClassFromString(@"YTPivotBarView");
+        });
+        while (bar != nil && ![bar isKindOfClass:pivotBarClass]) {
             bar = bar.superview;
         }
         if (!wasSelected) YTKACESetBarMinimized(bar, NO);
