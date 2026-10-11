@@ -1,6 +1,6 @@
 name: Bug Report
 description: File an issue about unintended behavior, crashes, or broken UI in YTKACE.
-title: "[Bug]: "
+title: "bug: "
 labels:
   - bug
 body:
