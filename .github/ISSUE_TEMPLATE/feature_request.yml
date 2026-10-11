@@ -1,6 +1,6 @@
 name: Feature Request
 description: Propose an idea or enhancement for YTKACE.
-title: "[Feature]: "
+title: "feat: "
 labels:
   - enhancement
 body:
