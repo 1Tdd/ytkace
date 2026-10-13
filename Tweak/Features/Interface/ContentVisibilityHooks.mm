@@ -1850,18 +1850,17 @@ static NSString *YTKACEBrowseID(id object) {
 }
 
 static BOOL YTKACEIsChannelBrowseID(NSString *browseID) {
+    if ([browseID hasPrefix:@"UC"] || [browseID hasPrefix:@"@"]) return YES;
     NSRange slash = [browseID rangeOfString:@"/" options:NSBackwardsSearch];
-    if (slash.location != NSNotFound) {
-        static NSSet<NSString *> *tabs;
-        if (tabs == nil) {
-            tabs = [NSSet setWithArray:@[@"videos", @"shorts", @"streams", @"live",
-                @"community", @"playlists", @"featured", @"home"]];
-        }
-        NSString *tab = [[browseID substringFromIndex:slash.location + 1]
-            lowercaseString];
-        if ([tabs containsObject:tab]) return YES;
+    if (slash.location == NSNotFound) return NO;
+    static NSSet<NSString *> *tabs;
+    if (tabs == nil) {
+        tabs = [NSSet setWithArray:@[@"videos", @"shorts", @"streams", @"live",
+            @"community", @"playlists", @"featured", @"home"]];
     }
-    return [browseID hasPrefix:@"UC"] && [browseID containsString:@"/"];
+    NSString *tab = [[browseID substringFromIndex:slash.location + 1]
+        lowercaseString];
+    return [tabs containsObject:tab];
 }
 
 static YTKACEFeedSurface YTKACESurfaceForBrowseID(NSString *browseID) {
