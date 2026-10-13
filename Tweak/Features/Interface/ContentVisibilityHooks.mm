@@ -1088,7 +1088,10 @@ static BOOL YTKACEChildClassContains(id section, NSArray<NSString *> *needles) {
 static const NSUInteger YTKACEFeedChildScanLimit = 64;
 
 static _Atomic BOOL YTKACEFeedHideShorts = NO;
+static _Atomic BOOL YTKACEFeedKeepHomeShorts = NO;
 static _Atomic BOOL YTKACEFeedKeepSubsShorts = NO;
+static _Atomic BOOL YTKACEFeedKeepSearchShorts = NO;
+static _Atomic BOOL YTKACEFeedKeepChannelShorts = NO;
 static _Atomic BOOL YTKACEFeedHideProducts = NO;
 static _Atomic BOOL YTKACEFeedHideCommunity = NO;
 static _Atomic BOOL YTKACEFeedHideHorizontalShelves = NO;
@@ -1136,8 +1139,14 @@ static void YTKACEFeedRefreshFlags(void) {
         YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.PauseCardHidden") ||
         YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.StickerAdsHidden"));
     atomic_store(&YTKACEFeedHideShorts, hideShorts);
+    atomic_store(&YTKACEFeedKeepHomeShorts,
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.HomeKept"));
     atomic_store(&YTKACEFeedKeepSubsShorts,
         YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.SubscriptionsKept"));
+    atomic_store(&YTKACEFeedKeepSearchShorts,
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.SearchKept"));
+    atomic_store(&YTKACEFeedKeepChannelShorts,
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.ChannelsKept"));
     atomic_store(&YTKACEFeedHideProducts, hideProducts);
     atomic_store(&YTKACEFeedHideCommunity, hideCommunity);
     atomic_store(&YTKACEFeedHideHorizontalShelves, hideHorizontalShelves);
@@ -1813,29 +1822,143 @@ static YTKACEFeedKind YTKACEFeedKindForSection(id section,
 
 static BOOL YTKACEIsGuidelinesSection(id section);
 
-static BOOL YTKACEKeepsShortsInFeed(id receiver) {
+typedef NS_ENUM(NSUInteger, YTKACEFeedSurface) {
+    YTKACEFeedSurfaceUnknown = 0,
+    YTKACEFeedSurfaceHome,
+    YTKACEFeedSurfaceSubscriptions,
+    YTKACEFeedSurfaceSearch,
+    YTKACEFeedSurfaceChannel,
+};
+
+static NSString *YTKACEBrowseID(id object) {
+    if (object == nil) return nil;
     static SEL browseSel;
     if (browseSel == NULL) browseSel = NSSelectorFromString(@"browseID");
-    if (![receiver respondsToSelector:browseSel]) return NO;
-    id browseID = ((id (*)(id, SEL))objc_msgSend)(receiver, browseSel);
-    if (![browseID isKindOfClass:NSString.class]) return NO;
-    if ([browseID isEqualToString:@"FEsubscriptions"]) {
-        return atomic_load(&YTKACEFeedKeepSubsShorts);
+    static SEL identifierSel;
+    if (identifierSel == NULL) {
+        identifierSel = NSSelectorFromString(@"browseIdentifier");
     }
+    for (NSUInteger index = 0; index < 2; index++) {
+        SEL selector = index == 0 ? browseSel : identifierSel;
+        if (selector == NULL || ![object respondsToSelector:selector]) continue;
+        id value = ((id (*)(id, SEL))objc_msgSend)(object, selector);
+        if ([value isKindOfClass:NSString.class] && ((NSString *)value).length != 0) {
+            return (NSString *)value;
+        }
+    }
+    return nil;
+}
+
+static BOOL YTKACEIsChannelBrowseID(NSString *browseID) {
+    NSRange slash = [browseID rangeOfString:@"/" options:NSBackwardsSearch];
+    if (slash.location != NSNotFound) {
+        static NSSet<NSString *> *tabs;
+        if (tabs == nil) {
+            tabs = [NSSet setWithArray:@[@"videos", @"shorts", @"streams", @"live",
+                @"community", @"playlists", @"featured", @"home"]];
+        }
+        NSString *tab = [[browseID substringFromIndex:slash.location + 1]
+            lowercaseString];
+        if ([tabs containsObject:tab]) return YES;
+    }
+    return [browseID hasPrefix:@"UC"] && [browseID containsString:@"/"];
+}
+
+static YTKACEFeedSurface YTKACESurfaceForBrowseID(NSString *browseID) {
+    if (browseID.length == 0) return YTKACEFeedSurfaceUnknown;
+    if ([browseID isEqualToString:@"FEwhat_to_watch"]) {
+        return YTKACEFeedSurfaceHome;
+    }
+    if ([browseID isEqualToString:@"FEsubscriptions"]) {
+        return YTKACEFeedSurfaceSubscriptions;
+    }
+    if (YTKACEIsChannelBrowseID(browseID)) {
+        return YTKACEFeedSurfaceChannel;
+    }
+    return YTKACEFeedSurfaceUnknown;
+}
+
+static id YTKACESurfaceAncestor(id receiver, NSString *className) {
+    if (receiver == nil || className.length == 0) return nil;
+    Class cls = NSClassFromString(className);
+    if (cls == Nil) return nil;
+    SEL parentSel = NSSelectorFromString(@"parentViewController");
+    id walk = receiver;
+    for (NSUInteger depth = 0; walk != nil && depth < 12; depth++) {
+        if ([walk isKindOfClass:cls]) return walk;
+        id parent = [walk respondsToSelector:parentSel]
+            ? ((id (*)(id, SEL))objc_msgSend)(walk, parentSel) : nil;
+        if (parent == nil && [walk isKindOfClass:UIResponder.class]) {
+            parent = ((UIResponder *)walk).nextResponder;
+        }
+        if (parent == walk) break;
+        walk = parent;
+    }
+    return nil;
+}
+
+static const void *YTKACEFeedSurfaceAssociation = &YTKACEFeedSurfaceAssociation;
+
+static YTKACEFeedSurface YTKACEShortsSurface(id receiver) {
+    if (receiver == nil) return YTKACEFeedSurfaceUnknown;
+    NSNumber *memo = objc_getAssociatedObject(receiver, YTKACEFeedSurfaceAssociation);
+    if (memo != nil) return (YTKACEFeedSurface)memo.unsignedIntegerValue;
+
+    YTKACEFeedSurface surface = YTKACESurfaceForBrowseID(YTKACEBrowseID(receiver));
+    if (surface == YTKACEFeedSurfaceUnknown) {
+        if (YTKACESurfaceAncestor(receiver, @"YTSearchResultsViewController") != nil) {
+            surface = YTKACEFeedSurfaceSearch;
+        }
+    }
+    if (surface == YTKACEFeedSurfaceUnknown) {
+        surface = YTKACESurfaceForBrowseID(
+            YTKACEBrowseID(YTKACESurfaceAncestor(receiver, @"YTBrowseViewController")));
+    }
+    if (surface != YTKACEFeedSurfaceUnknown) {
+        objc_setAssociatedObject(receiver, YTKACEFeedSurfaceAssociation,
+                                 @(surface), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return surface;
+}
+
+static BOOL YTKACEKeepsShortsInFeed(id receiver) {
+    NSString *browseID = YTKACEBrowseID(receiver);
     static NSSet<NSString *> *personal;
-    if (personal == nil) personal = [NSSet setWithArray:@[@"FEhistory", @"FElibrary", @"FEplaylist_aggregation"]];
-    return [personal containsObject:browseID];
+    if (personal == nil) {
+        personal = [NSSet setWithArray:@[@"FEhistory", @"FElibrary",
+            @"FEplaylist_aggregation"]];
+    }
+    if ([personal containsObject:browseID]) return YES;
+    YTKACEFeedSurface surface = YTKACEShortsSurface(receiver);
+    BOOL keep = NO;
+    switch (surface) {
+        case YTKACEFeedSurfaceHome:
+            keep = atomic_load(&YTKACEFeedKeepHomeShorts);
+            break;
+        case YTKACEFeedSurfaceSubscriptions:
+            keep = atomic_load(&YTKACEFeedKeepSubsShorts);
+            break;
+        case YTKACEFeedSurfaceSearch:
+            keep = atomic_load(&YTKACEFeedKeepSearchShorts);
+            break;
+        case YTKACEFeedSurfaceChannel:
+            keep = atomic_load(&YTKACEFeedKeepChannelShorts);
+            break;
+        case YTKACEFeedSurfaceUnknown:
+            break;
+    }
+    static NSString *const names[] = { @"unknown", @"home", @"subscriptions",
+        @"search", @"channel" };
+    YTKACEDebugLog(@"shorts", @"surface=%@ browse=%@ keep=%@ class=%@",
+        names[surface], browseID.length == 0 ? @"-" : browseID,
+        keep ? @"yes" : @"no", NSStringFromClass([receiver class]));
+    return keep;
 }
 
 static BOOL YTKACEKeepsShelvesInFeed(id receiver) {
-    static SEL browseSel;
-    if (browseSel == NULL) browseSel = NSSelectorFromString(@"browseID");
-    if (![receiver respondsToSelector:browseSel]) return NO;
-    id browseID = ((id (*)(id, SEL))objc_msgSend)(receiver, browseSel);
-    if (![browseID isKindOfClass:NSString.class]) return NO;
     static NSSet<NSString *> *personal;
     if (personal == nil) personal = [NSSet setWithArray:@[@"FEhistory", @"FElibrary"]];
-    return [personal containsObject:browseID];
+    return [personal containsObject:YTKACEBrowseID(receiver)];
 }
 
 static const void *YTKACEAIChannelKey = &YTKACEAIChannelKey;
@@ -1878,12 +2001,8 @@ static BOOL YTKACESectionIsAIChannel(id receiver, id section, BOOL blocklist, BO
         }
     }
     if (hit) {
-        static SEL browseSel;
-        if (browseSel == NULL) browseSel = NSSelectorFromString(@"browseID");
-        id browseID = [receiver respondsToSelector:browseSel]
-            ? ((id (*)(id, SEL))objc_msgSend)(receiver, browseSel) : nil;
         YTKACEDebugLog(@"aislist", @"hid %@ in %@ (%@) class=%@", matched,
-                          [browseID isKindOfClass:NSString.class] ? browseID : @"-",
+                          YTKACEBrowseID(receiver) ?: @"-",
                           NSStringFromClass([receiver class]), NSStringFromClass([section class]));
     }
     return hit;
