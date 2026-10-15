@@ -93,7 +93,11 @@
         for (NSString *name in selectors) {
             SEL selector = NSSelectorFromString(name);
             if ([responder respondsToSelector:selector]) {
+                YTKACEManualPiPRequested = YES;
                 ((void (*)(id, SEL))objc_msgSend)(responder, selector);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    YTKACEManualPiPRequested = NO;
+                });
                 return YES;
             }
         }
@@ -342,7 +346,11 @@
         [self hideLoading];
         self.player.volume = 1.0;
         [self.player play];
+        YTKACEManualPiPRequested = YES;
         [self.controller startPictureInPicture];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            YTKACEManualPiPRequested = NO;
+        });
         return;
     }
     if (attempts <= 0) {

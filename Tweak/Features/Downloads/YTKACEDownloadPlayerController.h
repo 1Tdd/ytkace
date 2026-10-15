@@ -7,6 +7,9 @@ FOUNDATION_EXPORT UIView *YTKACELibraryVideoView(void);
 
 @class AVPlayer;
 @class AVPlayerLayer;
+@class AVPictureInPictureController;
+
+FOUNDATION_EXPORT NSHashTable<AVPictureInPictureController *> *YTKACEAllPiPControllers(void);
 
 extern NSNotificationName const YTKACEDownloadPlaybackDidChangeNotification;
 extern NSNotificationName const YTKACEDownloadPlaybackDidStopNotification;

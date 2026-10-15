@@ -759,7 +759,7 @@ static void YTKACEStoreCompleted(NSURL *URL, NSTimeInterval duration,
 
 @end
 
-static NSHashTable<AVPictureInPictureController *> *YTKACEAllPiPControllers(void) {
+NSHashTable<AVPictureInPictureController *> *YTKACEAllPiPControllers(void) {
     static NSHashTable *table;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{ table = [NSHashTable weakObjectsHashTable]; });

@@ -737,6 +737,10 @@ static void YTKACEEvaluateSponsorTime(id controller, double time) {
 
 static __weak id YTKACELastPlayerController;
 
+id YTKACEActivePlayerViewController(void) {
+    return YTKACECurrentSponsorController ?: YTKACELastPlayerController;
+}
+
 void YTKACEPauseYouTubePlayer(void) {
     id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
     SEL pause = NSSelectorFromString(@"pause");
@@ -1689,6 +1693,7 @@ static void YTKACESingleVideoTimeChanged(id receiver,
             receiver, selector, video, videoTime
         );
     }
+    YTKACENotifyPlaybackTick();
     double objTime = YTKACEDoubleMessage(videoTime, @[@"time"]);
     double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"]);
     double resolved = current > 0.0 ? current : objTime;

@@ -1595,6 +1595,7 @@ static void YTKACEReelPlayerHandleLoopBehavior(id receiver, SEL selector) {
 }
 
 static void YTKACEShortsTimeChanged(NSNotification *notification) {
+    YTKACENotifyPlaybackTick();
     id player = notification.object;
     NSArray<UIViewController *> *controllers = YTKACECollectShortsControllers(player);
     UIViewController *shorts = controllers.firstObject;

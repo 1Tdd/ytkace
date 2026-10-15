@@ -119,6 +119,10 @@ void YTKACEScheduleFirstLaunch(void);
 
 NS_ASSUME_NONNULL_END
 void YTKACEInstallPlaybackFixHooks(void);
+FOUNDATION_EXPORT BOOL YTKACEManualPiPRequested;
+void YTKACENotifyPlaybackTick(void);
+BOOL YTKACEIsPlaybackPaused(id _Nullable sender);
+id _Nullable YTKACEActivePlayerViewController(void);
 NSDictionary<NSString *, NSString *> * _Nullable YTKACESolveChallenges(NSString * _Nullable playerID,
     NSString * _Nullable playerJS, NSString * _Nonnull type, NSArray<NSString *> * _Nonnull challenges);
 NSData * _Nonnull YTKACETVClientInfo(void);
