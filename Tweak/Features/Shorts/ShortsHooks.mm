@@ -828,16 +828,19 @@ static BOOL YTKACEAdvanceShort(NSArray<UIViewController *> *controllers, __unuse
             }
         }
     }
-    for (UIWindow *window in UIApplication.sharedApplication.windows) {
-        if (window.hidden || window.alpha < 0.1) continue;
-        UIScrollView *pager = YTKACEShortsFindPager(window, 0);
-        if (pager != nil) {
-            CGFloat page = CGRectGetHeight(pager.bounds);
-            if (page > 100.0) {
-                CGFloat next = round(pager.contentOffset.y / page) * page + page;
-                if (next <= pager.contentSize.height - page + 1.0) {
-                    [pager setContentOffset:CGPointMake(pager.contentOffset.x, next) animated:YES];
-                    return YES;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (window.hidden || window.alpha < 0.1) continue;
+            UIScrollView *pager = YTKACEShortsFindPager(window, 0);
+            if (pager != nil) {
+                CGFloat page = CGRectGetHeight(pager.bounds);
+                if (page > 100.0) {
+                    CGFloat next = round(pager.contentOffset.y / page) * page + page;
+                    if (next <= pager.contentSize.height - page + 1.0) {
+                        [pager setContentOffset:CGPointMake(pager.contentOffset.x, next) animated:YES];
+                        return YES;
+                    }
                 }
             }
         }

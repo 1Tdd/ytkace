@@ -1,8 +1,6 @@
 name: Deb
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
   workflow_call:
 
@@ -49,6 +47,7 @@ jobs:
 
       - name: Build
         run: |
+          set -o pipefail
           make clean
           if ! make package FINALPACKAGE=1 \
             THEOS_PACKAGE_SCHEME="${{ matrix.scheme }}" \
