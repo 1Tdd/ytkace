@@ -353,7 +353,6 @@ static BOOL YTKACEShouldDropReelObject(id object) {
     }
     if (YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LiveHidden")) {
         if (YTKACEReelObjectLooksLikeLive(object, 0)) return YES;
-        if (YTKACEObjectValue(object, @"nonVideoContentModel") != nil) return YES;
     }
     return NO;
 }

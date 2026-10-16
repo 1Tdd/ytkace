@@ -951,22 +951,26 @@ static void YTKACEPrepareNewShortsContainer(UIView *receiver) {
 static void YTKACEConfigureReelView(UIView *receiver, BOOL showDownload) {
     [YTKACEReelViews addObject:receiver];
     YTKACEPrepareNewShortsContainer(receiver);
-    CALayer *track = objc_getAssociatedObject(receiver, YTKACEShortsTrackAssociation);
-    CALayer *fill = objc_getAssociatedObject(receiver, YTKACEShortsFillAssociation);
-    if (track == nil) {
-        track = [CALayer layer];
-        track.backgroundColor = [UIColor colorWithWhite:0.45 alpha:0.55].CGColor;
-        track.zPosition = 10000.0;
-        fill = [CALayer layer];
-        fill.backgroundColor = UIColor.redColor.CGColor;
-        objc_setAssociatedObject(receiver, YTKACEShortsFillAssociation,
-                                 fill, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [track addSublayer:fill];
-        [receiver.layer addSublayer:track];
-        objc_setAssociatedObject(receiver, YTKACEShortsTrackAssociation,
-                                 track, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(receiver, YTKACEShortsFillAssociation,
-                                 fill, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (![NSStringFromClass(receiver.class) containsString:@"PlayerView"]) {
+        CALayer *track = objc_getAssociatedObject(receiver, YTKACEShortsTrackAssociation);
+        CALayer *fill = objc_getAssociatedObject(receiver, YTKACEShortsFillAssociation);
+        if (track == nil) {
+            track = [CALayer layer];
+            track.backgroundColor = [UIColor colorWithWhite:0.45 alpha:0.55].CGColor;
+            track.zPosition = 10000.0;
+            track.hidden = !YTKACEFeatureEnabled(@"shortsProgress");
+            fill = [CALayer layer];
+            fill.backgroundColor = UIColor.redColor.CGColor;
+            fill.hidden = track.hidden;
+            objc_setAssociatedObject(receiver, YTKACEShortsFillAssociation,
+                                     fill, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [track addSublayer:fill];
+            [receiver.layer addSublayer:track];
+            objc_setAssociatedObject(receiver, YTKACEShortsTrackAssociation,
+                                     track, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(receiver, YTKACEShortsFillAssociation,
+                                     fill, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
     }
     if (showDownload) {
         YTKACEApplyShortsActionVisibility(receiver);
@@ -1087,7 +1091,9 @@ static void YTKACEConfigureReelView(UIView *receiver, BOOL showDownload) {
 
 static void YTKACEReelLayout(UIView *receiver, SEL selector) {
     YTKACEInvokeShortsOriginal(receiver, selector);
-    YTKACEConfigureReelView(receiver, NO);
+    if (![NSStringFromClass(receiver.class) containsString:@"PlayerView"]) {
+        YTKACEConfigureReelView(receiver, NO);
+    }
     YTKACEAutoSkipLiveShort(receiver);
 }
 

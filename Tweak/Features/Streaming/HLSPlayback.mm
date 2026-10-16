@@ -218,7 +218,13 @@ static void YTKACEHLSKeepOriginal(NSString *videoID, id data) {
 
 static void YTKACEHLSSwap(id data) {
     if (!YTKACEHLSEnabled() || data == nil) return;
-    NSString *videoID = YTKACEHLSGet(YTKACEHLSGet(data, @"videoDetails"), @"videoId");
+    id videoDetails = YTKACEHLSGet(data, @"videoDetails");
+    if (YTKACEHLSBool(videoDetails, @"isShorts") ||
+        YTKACEHLSGet(data, @"reelPlayerConfig") != nil ||
+        YTKACEHLSGet(data, @"reelPlaybackContext") != nil) {
+        return;
+    }
+    NSString *videoID = YTKACEHLSGet(videoDetails, @"videoId");
     if (![videoID isKindOfClass:NSString.class] || videoID.length == 0) return;
     id streaming = YTKACEHLSGet(data, @"streamingData");
     if (streaming == nil || YTKACEHLSBool(streaming, @"isLivePlayback")) return;

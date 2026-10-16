@@ -103,11 +103,10 @@ static BOOL YTKACELibraryOwnsPiP(void) {
     return session.currentURL != nil && session.player.rate != 0.0f;
 }
 
-static BOOL YTKACEShortsBlocksPiP(id controller) {
-    if (YTKACELibraryOwnsPiP()) return YES;
-    if (!YTKACEFeatureEnabled(YTKACEShortsPiPKey)) return NO;
-    SEL parentSel = NSSelectorFromString(@"parentResponder");
+static BOOL YTKACEControllerIsReel(id controller) {
     id current = YTKACEShortsPiPOwner(controller);
+    if (current == nil) current = controller;
+    SEL parentSel = NSSelectorFromString(@"parentResponder");
     for (NSUInteger depth = 0; current != nil && depth < 10; depth++) {
         NSString *name = NSStringFromClass([current class]);
         if ([name containsString:@"Reel"] || [name containsString:@"Shorts"] ||
@@ -120,8 +119,21 @@ static BOOL YTKACEShortsBlocksPiP(id controller) {
     return NO;
 }
 
+static BOOL YTKACEShortsBlocksPiP(id controller) {
+    if (YTKACELibraryOwnsPiP()) return YES;
+    if (YTKACEFeatureEnabled(YTKACEShortsPiPKey) && YTKACEControllerIsReel(controller)) {
+        return YES;
+    }
+    return NO;
+}
+
 static BOOL YTKACEShortsAllowed(id self, SEL _cmd) {
     if (YTKACEShortsBlocksPiP(self)) return NO;
+    if (YTKACEControllerIsReel(self)) {
+        return YTKACEShortsOrigAllowed != NULL
+            ? ((BOOL (*)(id, SEL))YTKACEShortsOrigAllowed)(self, _cmd)
+            : NO;
+    }
     return YTKACEShortsOrigAllowed != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigAllowed)(self, _cmd)
         : YES;
@@ -129,15 +141,23 @@ static BOOL YTKACEShortsAllowed(id self, SEL _cmd) {
 
 static BOOL YTKACEShortsEligible(id self, SEL _cmd) {
     if (YTKACEShortsBlocksPiP(self)) return NO;
+    BOOL isReel = YTKACEControllerIsReel(self);
     BOOL eligible = YTKACEShortsOrigEligible != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigEligible)(self, _cmd)
         : NO;
-    if (!eligible && YTKACEFeatureEnabled(YTKACEBackgroundPlaybackKey)) return YES;
+    if (!eligible && !isReel && YTKACEFeatureEnabled(YTKACEBackgroundPlaybackKey)) {
+        return YES;
+    }
     return eligible;
 }
 
 static BOOL YTKACEShortsCanEnable(id self, SEL _cmd) {
     if (YTKACEShortsBlocksPiP(self)) return NO;
+    if (YTKACEControllerIsReel(self)) {
+        return YTKACEShortsOrigCanEnable != NULL
+            ? ((BOOL (*)(id, SEL))YTKACEShortsOrigCanEnable)(self, _cmd)
+            : NO;
+    }
     return YTKACEShortsOrigCanEnable != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigCanEnable)(self, _cmd)
         : YES;
