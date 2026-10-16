@@ -1693,10 +1693,10 @@ static void YTKACESingleVideoTimeChanged(id receiver,
             receiver, selector, video, videoTime
         );
     }
-    YTKACENotifyPlaybackTick();
     double objTime = YTKACEDoubleMessage(videoTime, @[@"time"]);
     double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"]);
     double resolved = current > 0.0 ? current : objTime;
+    YTKACENotifyVideoTime(resolved);
     double duration = YTKACEDoubleMessage(video, @[@"totalMediaTime", @"duration"]);
     if (duration <= 0.0) {
         duration = YTKACEDoubleMessage(receiver, @[
@@ -1729,6 +1729,7 @@ static void YTKACEMutatedVideoTimeChanged(id receiver,
     double objTime = YTKACEDoubleMessage(videoTime, @[@"time"]);
     double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"]);
     double resolved = current > 0.0 ? current : objTime;
+    YTKACENotifyVideoTime(resolved);
     double duration = YTKACEDoubleMessage(video, @[@"totalMediaTime", @"duration"]);
     if (duration <= 0.0) {
         duration = YTKACEDoubleMessage(receiver, @[

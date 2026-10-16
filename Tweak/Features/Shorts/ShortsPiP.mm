@@ -7,16 +7,34 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
-#import <CoreMedia/CoreMedia.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 
 BOOL YTKACEManualPiPRequested = NO;
-static CFTimeInterval YTKACELastPauseTime = 0.0;
-static CFTimeInterval YTKACELastPlayTime = 0.0;
+static CFTimeInterval YTKACELastPlayTick = 0.0;
+static CFTimeInterval YTKACELastPauseTick = 0.0;
+static BOOL YTKACEPlaybackIsPlaying = NO;
+static double YTKACELastSeenVideoTime = -1.0;
 
 void YTKACENotifyPlaybackTick(void) {
-    YTKACELastPlayTime = CACurrentMediaTime();
+    YTKACELastPlayTick = CACurrentMediaTime();
+    YTKACEPlaybackIsPlaying = YES;
+}
+
+void YTKACENotifyPlaybackPaused(void) {
+    YTKACELastPauseTick = CACurrentMediaTime();
+    YTKACEPlaybackIsPlaying = NO;
+}
+
+void YTKACENotifyVideoTime(double time) {
+    if (time > 0.0) {
+        if (fabs(time - YTKACELastSeenVideoTime) > 0.01) {
+            YTKACELastSeenVideoTime = time;
+            YTKACENotifyPlaybackTick();
+        }
+    } else {
+        YTKACENotifyPlaybackTick();
+    }
 }
 
 static NSString *const YTKACEShortsPiPKey = @"YTKACE.Preference.Shorts.PiPDisabled";
@@ -26,14 +44,63 @@ static IMP YTKACEShortsOrigEligible;
 static IMP YTKACEShortsOrigCanEnable;
 static IMP YTKACEOrigMaybeEnablePiP;
 static IMP YTKACEOrigMaybeInvokePiP;
-static IMP YTKACEOrigMLPIPActivate;
 static IMP YTKACEOrigPiPGetAuto;
 static IMP YTKACEOrigPiPGetAutoLegacy;
 static IMP YTKACEOrigPiPStart;
-static IMP YTKACEOrigPlayerVCPause;
-static IMP YTKACEOrigPlayerVCPlay;
+static IMP YTKACEOrigHAMSetRate;
 static IMP YTKACEOrigMLAVPlayerPlay;
 static IMP YTKACEOrigMLAVPlayerPause;
+static IMP YTKACEOrigPlayerPIPPlay;
+static IMP YTKACEOrigPlayerPIPPause;
+static IMP YTKACEOrigMLPIPPause;
+static IMP YTKACEOrigMLPIPImplPause;
+static IMP YTKACEOrigMLPIPStartPlayback;
+static IMP YTKACEOrigMLPIPStopPlayback;
+static IMP YTKACEOrigDidPressPause;
+static IMP YTKACEOrigDidPressPlay;
+static IMP YTKACEOrigPlayerVCPause;
+static IMP YTKACEOrigPlayerVCPlay;
+
+BOOL YTKACEIsPlaybackPaused(id sender) {
+    if (YTKACEManualPiPRequested) return NO;
+
+    // Check offline downloads player session
+    YTKACEDownloadPlaybackSession *dlSession = YTKACEDownloadPlaybackSession.existingSession;
+    if (dlSession != nil && dlSession.currentURL != nil && dlSession.player != nil) {
+        return dlSession.player.rate <= 0.001f;
+    }
+
+    // Direct AVPlayer check if sender exposes a playerLayer with AVPlayer
+    if ([sender isKindOfClass:AVPictureInPictureController.class]) {
+        AVPictureInPictureController *pip = (AVPictureInPictureController *)sender;
+        if ([pip respondsToSelector:@selector(playerLayer)]) {
+            AVPlayerLayer *pl = pip.playerLayer;
+            if (pl != nil && [pl isKindOfClass:AVPlayerLayer.class] && pl.player != nil) {
+                return pl.player.rate <= 0.001f;
+            }
+        }
+    }
+
+    CFTimeInterval now = CACurrentMediaTime();
+
+    // Explicit pause occurred after the last play tick -> PAUSED
+    if (YTKACELastPauseTick > 0.0 && YTKACELastPauseTick >= YTKACELastPlayTick) {
+        return YES;
+    }
+
+    // Playback ticked recently (within 2.5s) and not superseded by pause -> PLAYING
+    if (YTKACELastPlayTick > 0.0 && (now - YTKACELastPlayTick < 2.5)) {
+        return NO;
+    }
+
+    // Playback is marked playing and ticked within 3.5s -> PLAYING
+    if (YTKACEPlaybackIsPlaying && YTKACELastPlayTick > 0.0 && (now - YTKACELastPlayTick < 3.5)) {
+        return NO;
+    }
+
+    // Otherwise (cold launch, ended video, idle) -> PAUSED
+    return YES;
+}
 
 static id YTKACEShortsPiPOwner(id controller) {
     if (controller == nil) return nil;
@@ -47,168 +114,6 @@ static id YTKACEShortsPiPOwner(id controller) {
 static BOOL YTKACELibraryOwnsPiP(void) {
     YTKACEDownloadPlaybackSession *session = YTKACEDownloadPlaybackSession.existingSession;
     return session.currentURL != nil && session.player.rate != 0.0f;
-}
-
-static BOOL YTKACEIsPiPControllerPaused(AVPictureInPictureController *pip) {
-    if (pip == nil) return YES;
-
-    AVPlayerLayer *playerLayer = nil;
-    if ([pip respondsToSelector:@selector(playerLayer)]) {
-        playerLayer = pip.playerLayer;
-    }
-    if (playerLayer == nil) {
-        @try {
-            id val = [pip valueForKey:@"_playerLayer"];
-            if ([val isKindOfClass:AVPlayerLayer.class]) {
-                playerLayer = (AVPlayerLayer *)val;
-            }
-        } @catch (__unused id ex) {}
-    }
-    if (playerLayer != nil && [playerLayer isKindOfClass:AVPlayerLayer.class]) {
-        AVPlayer *player = playerLayer.player;
-        if (player != nil) {
-            if (player.rate <= 0.001f) return YES;
-            if (@available(iOS 10.0, *)) {
-                if (player.timeControlStatus == AVPlayerTimeControlStatusPaused) {
-                    return YES;
-                }
-            }
-            return NO;
-        }
-    }
-
-    if (@available(iOS 15.0, *)) {
-        if ([pip respondsToSelector:@selector(contentSource)]) {
-            AVPictureInPictureControllerContentSource *source = pip.contentSource;
-            if (source != nil) {
-                if ([source respondsToSelector:@selector(playerLayer)]) {
-                    AVPlayerLayer *pl = source.playerLayer;
-                    if (pl != nil && [pl isKindOfClass:AVPlayerLayer.class] && pl.player != nil) {
-                        if (pl.player.rate <= 0.001f) return YES;
-                        if (pl.player.timeControlStatus == AVPlayerTimeControlStatusPaused) {
-                            return YES;
-                        }
-                        return NO;
-                    }
-                }
-                if ([source respondsToSelector:@selector(sampleBufferDisplayLayer)]) {
-                    AVSampleBufferDisplayLayer *sbdl = source.sampleBufferDisplayLayer;
-                    if (sbdl != nil && [sbdl isKindOfClass:AVSampleBufferDisplayLayer.class]) {
-                        CMTimebaseRef tb = sbdl.controlTimebase;
-                        if (tb == NULL) return YES;
-                        Float64 rate = CMTimebaseGetRate(tb);
-                        return rate <= 0.001;
-                    }
-                }
-            }
-        }
-    }
-
-    return NO;
-}
-
-BOOL YTKACEIsPlaybackPaused(id sender) {
-    if (YTKACEManualPiPRequested) return NO;
-
-    if ([sender isKindOfClass:AVPictureInPictureController.class]) {
-        return YTKACEIsPiPControllerPaused((AVPictureInPictureController *)sender);
-    }
-
-    if (sender != nil) {
-        @try {
-            id pip = [sender valueForKey:@"_pipController"];
-            if (pip != nil) {
-                id avpip = [pip valueForKey:@"_pictureInPictureController"];
-                if ([avpip isKindOfClass:AVPictureInPictureController.class]) {
-                    return YTKACEIsPiPControllerPaused((AVPictureInPictureController *)avpip);
-                }
-            }
-        } @catch (__unused id ex) {}
-    }
-
-    CFTimeInterval now = CACurrentMediaTime();
-    if (YTKACELastPauseTime > 0.0 &&
-        (YTKACELastPauseTime >= YTKACELastPlayTime ||
-         (now - YTKACELastPlayTime > 1.5 && YTKACELastPauseTime > YTKACELastPlayTime - 0.5))) {
-        return YES;
-    }
-
-    id owner = nil;
-    if (sender != nil) {
-        owner = YTKACEShortsPiPOwner(sender);
-    }
-    if (owner == nil) {
-        owner = YTKACEActivePlayerViewController();
-    }
-
-    if (owner != nil) {
-        id media = nil;
-        SEL mediaSel = NSSelectorFromString(@"mediaPlayer");
-        SEL activeSel = NSSelectorFromString(@"activeVideo");
-        if ([owner respondsToSelector:mediaSel]) {
-            media = ((id (*)(id, SEL))objc_msgSend)(owner, mediaSel);
-        } else if ([owner respondsToSelector:activeSel]) {
-            id v = ((id (*)(id, SEL))objc_msgSend)(owner, activeSel);
-            if (v != nil && [v respondsToSelector:mediaSel]) {
-                media = ((id (*)(id, SEL))objc_msgSend)(v, mediaSel);
-            }
-        }
-
-        if (media != nil) {
-            SEL rateSel = NSSelectorFromString(@"rate");
-            if ([media respondsToSelector:rateSel]) {
-                float r = ((float (*)(id, SEL))objc_msgSend)(media, rateSel);
-                if (r <= 0.001f) return YES;
-                return NO;
-            }
-            SEL isPlayingSel = NSSelectorFromString(@"isPlaying");
-            if ([media respondsToSelector:isPlayingSel]) {
-                BOOL playing = ((BOOL (*)(id, SEL))objc_msgSend)(media, isPlayingSel);
-                return !playing;
-            }
-            SEL isPausedSel = NSSelectorFromString(@"isPaused");
-            if ([media respondsToSelector:isPausedSel]) {
-                return ((BOOL (*)(id, SEL))objc_msgSend)(media, isPausedSel);
-            }
-        }
-
-        SEL isPlayingSel = NSSelectorFromString(@"isPlaying");
-        if ([owner respondsToSelector:isPlayingSel]) {
-            BOOL playing = ((BOOL (*)(id, SEL))objc_msgSend)(owner, isPlayingSel);
-            return !playing;
-        }
-        SEL rateSel = NSSelectorFromString(@"rate");
-        if ([owner respondsToSelector:rateSel]) {
-            float r = ((float (*)(id, SEL))objc_msgSend)(owner, rateSel);
-            if (r <= 0.001f) return YES;
-            return NO;
-        }
-        SEL playerStateSel = NSSelectorFromString(@"playerState");
-        if ([owner respondsToSelector:playerStateSel]) {
-            NSInteger state = ((NSInteger (*)(id, SEL))objc_msgSend)(owner, playerStateSel);
-            if (state == 3 || state == 1 || state == 0) return YES;
-            if (state == 2) return NO;
-        }
-    }
-
-    NSHashTable<AVPictureInPictureController *> *allPiP = YTKACEAllPiPControllers();
-    if (allPiP != nil && allPiP.count > 0) {
-        BOOL anyPlaying = NO;
-        BOOL foundKnownState = NO;
-        for (AVPictureInPictureController *pip in allPiP.allObjects) {
-            if ([pip isKindOfClass:AVPictureInPictureController.class]) {
-                if (!YTKACEIsPiPControllerPaused(pip)) {
-                    anyPlaying = YES;
-                    break;
-                }
-                foundKnownState = YES;
-            }
-        }
-        if (anyPlaying) return NO;
-        if (foundKnownState) return YES;
-    }
-
-    return NO;
 }
 
 static BOOL YTKACEShortsBlocksPiP(id controller) {
@@ -230,10 +135,9 @@ static BOOL YTKACEShortsBlocksPiP(id controller) {
 
 static BOOL YTKACEShortsAllowed(id self, SEL _cmd) {
     if (YTKACEShortsBlocksPiP(self)) return NO;
-    if (YTKACEIsPlaybackPaused(self)) return NO;
     return YTKACEShortsOrigAllowed != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigAllowed)(self, _cmd)
-        : NO;
+        : YES;
 }
 
 static BOOL YTKACEShortsEligible(id self, SEL _cmd) {
@@ -251,7 +155,7 @@ static BOOL YTKACEShortsCanEnable(id self, SEL _cmd) {
     if (YTKACEIsPlaybackPaused(self)) return NO;
     return YTKACEShortsOrigCanEnable != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigCanEnable)(self, _cmd)
-        : NO;
+        : YES;
 }
 
 static void YTKACEMaybeEnablePiP(id self, SEL _cmd) {
@@ -268,25 +172,18 @@ static void YTKACEMaybeInvokePiP(id self, SEL _cmd) {
     }
 }
 
-static void YTKACEMLPIPActivate(id self, SEL _cmd) {
-    if (!YTKACEManualPiPRequested && YTKACEIsPlaybackPaused(self)) return;
-    if (YTKACEOrigMLPIPActivate != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigMLPIPActivate)(self, _cmd);
-    }
-}
-
 static BOOL YTKACEPiPGetAuto(id self, SEL _cmd) {
     if (YTKACEIsPlaybackPaused(self)) return NO;
     return YTKACEOrigPiPGetAuto != NULL
         ? ((BOOL (*)(id, SEL))YTKACEOrigPiPGetAuto)(self, _cmd)
-        : NO;
+        : YES;
 }
 
 static BOOL YTKACEPiPGetAutoLegacy(id self, SEL _cmd) {
     if (YTKACEIsPlaybackPaused(self)) return NO;
     return YTKACEOrigPiPGetAutoLegacy != NULL
         ? ((BOOL (*)(id, SEL))YTKACEOrigPiPGetAutoLegacy)(self, _cmd)
-        : NO;
+        : YES;
 }
 
 static void YTKACEPiPStart(id self, SEL _cmd) {
@@ -298,31 +195,98 @@ static void YTKACEPiPStart(id self, SEL _cmd) {
     }
 }
 
-static void YTKACEPlayerVCPause(id self, SEL _cmd) {
-    YTKACELastPauseTime = CACurrentMediaTime();
-    if (YTKACEOrigPlayerVCPause != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigPlayerVCPause)(self, _cmd);
+static void YTKACEHAMSetRate(id self, SEL _cmd, float rate) {
+    if (rate <= 0.001f) {
+        YTKACENotifyPlaybackPaused();
+    } else {
+        YTKACENotifyPlaybackTick();
     }
-}
-
-static void YTKACEPlayerVCPlay(id self, SEL _cmd) {
-    YTKACELastPlayTime = CACurrentMediaTime();
-    if (YTKACEOrigPlayerVCPlay != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigPlayerVCPlay)(self, _cmd);
+    if (YTKACEOrigHAMSetRate != NULL) {
+        ((void (*)(id, SEL, float))YTKACEOrigHAMSetRate)(self, _cmd, rate);
     }
 }
 
 static void YTKACEMLAVPlayerPlay(id self, SEL _cmd) {
-    YTKACELastPlayTime = CACurrentMediaTime();
+    YTKACENotifyPlaybackTick();
     if (YTKACEOrigMLAVPlayerPlay != NULL) {
         ((void (*)(id, SEL))YTKACEOrigMLAVPlayerPlay)(self, _cmd);
     }
 }
 
 static void YTKACEMLAVPlayerPause(id self, SEL _cmd, int reason) {
-    YTKACELastPauseTime = CACurrentMediaTime();
+    YTKACENotifyPlaybackPaused();
     if (YTKACEOrigMLAVPlayerPause != NULL) {
         ((void (*)(id, SEL, int))YTKACEOrigMLAVPlayerPause)(self, _cmd, reason);
+    }
+}
+
+static void YTKACEPlayerPIPPlay(id self, SEL _cmd) {
+    YTKACENotifyPlaybackTick();
+    if (YTKACEOrigPlayerPIPPlay != NULL) {
+        ((void (*)(id, SEL))YTKACEOrigPlayerPIPPlay)(self, _cmd);
+    }
+}
+
+static void YTKACEPlayerPIPPause(id self, SEL _cmd) {
+    YTKACENotifyPlaybackPaused();
+    if (YTKACEOrigPlayerPIPPause != NULL) {
+        ((void (*)(id, SEL))YTKACEOrigPlayerPIPPause)(self, _cmd);
+    }
+}
+
+static void YTKACEMLPIPPause(id self, SEL _cmd) {
+    YTKACENotifyPlaybackPaused();
+    if (YTKACEOrigMLPIPPause != NULL) {
+        ((void (*)(id, SEL))YTKACEOrigMLPIPPause)(self, _cmd);
+    }
+}
+
+static void YTKACEMLPIPImplPause(id self, SEL _cmd) {
+    YTKACENotifyPlaybackPaused();
+    if (YTKACEOrigMLPIPImplPause != NULL) {
+        ((void (*)(id, SEL))YTKACEOrigMLPIPImplPause)(self, _cmd);
+    }
+}
+
+static void YTKACEMLPIPStartPlayback(id self, SEL _cmd) {
+    YTKACENotifyPlaybackTick();
+    if (YTKACEOrigMLPIPStartPlayback != NULL) {
+        ((void (*)(id, SEL))YTKACEOrigMLPIPStartPlayback)(self, _cmd);
+    }
+}
+
+static void YTKACEMLPIPStopPlayback(id self, SEL _cmd) {
+    YTKACENotifyPlaybackPaused();
+    if (YTKACEOrigMLPIPStopPlayback != NULL) {
+        ((void (*)(id, SEL))YTKACEOrigMLPIPStopPlayback)(self, _cmd);
+    }
+}
+
+static void YTKACEDidPressPause(id self, SEL _cmd, id sender) {
+    YTKACENotifyPlaybackPaused();
+    if (YTKACEOrigDidPressPause != NULL) {
+        ((void (*)(id, SEL, id))YTKACEOrigDidPressPause)(self, _cmd, sender);
+    }
+}
+
+static void YTKACEDidPressPlay(id self, SEL _cmd, id sender) {
+    YTKACENotifyPlaybackTick();
+    if (YTKACEOrigDidPressPlay != NULL) {
+        ((void (*)(id, SEL, id))YTKACEOrigDidPressPlay)(self, _cmd, sender);
+    }
+}
+
+static void YTKACEPlayerVCPause(id self, SEL _cmd) {
+    YTKACENotifyPlaybackPaused();
+    if (YTKACEOrigPlayerVCPause != NULL) {
+        ((void (*)(id, SEL))YTKACEOrigPlayerVCPause)(self, _cmd);
+    }
+}
+
+static void YTKACEPlayerVCPlay(id self, SEL _cmd) {
+    YTKACENotifyPlaybackTick();
+    if (YTKACEOrigPlayerVCPlay != NULL) {
+        ((void (*)(id, SEL))YTKACEOrigPlayerVCPlay)(self, _cmd);
     }
 }
 
@@ -338,11 +302,19 @@ void YTKACEInstallShortsPiPHooks(void) {
         (IMP)YTKACEMaybeEnablePiP, &YTKACEOrigMaybeEnablePiP);
     YTKACEInstallInstanceHook(pipClass, @"maybeInvokePictureInPicture",
         (IMP)YTKACEMaybeInvokePiP, &YTKACEOrigMaybeInvokePiP);
+    YTKACEInstallInstanceHook(pipClass, @"play",
+        (IMP)YTKACEPlayerPIPPlay, &YTKACEOrigPlayerPIPPlay);
+    YTKACEInstallInstanceHook(pipClass, @"pause",
+        (IMP)YTKACEPlayerPIPPause, &YTKACEOrigPlayerPIPPause);
 
-    YTKACEInstallInstanceHook(@"MLPIPController", @"activatePiPController",
-        (IMP)YTKACEMLPIPActivate, &YTKACEOrigMLPIPActivate);
-    YTKACEInstallInstanceHook(@"MLPIPControllerImpl", @"activatePiPController",
-        (IMP)YTKACEMLPIPActivate, &YTKACEOrigMLPIPActivate);
+    YTKACEInstallInstanceHook(@"MLPIPController", @"pause",
+        (IMP)YTKACEMLPIPPause, &YTKACEOrigMLPIPPause);
+    YTKACEInstallInstanceHook(@"MLPIPControllerImpl", @"pause",
+        (IMP)YTKACEMLPIPImplPause, &YTKACEOrigMLPIPImplPause);
+    YTKACEInstallInstanceHook(@"MLPIPController", @"pictureInPictureControllerStartPlayback",
+        (IMP)YTKACEMLPIPStartPlayback, &YTKACEOrigMLPIPStartPlayback);
+    YTKACEInstallInstanceHook(@"MLPIPController", @"pictureInPictureControllerStopPlayback",
+        (IMP)YTKACEMLPIPStopPlayback, &YTKACEOrigMLPIPStopPlayback);
 
     YTKACEInstallInstanceHook(@"AVPictureInPictureController",
         @"canStartPictureInPictureAutomaticallyFromInline",
@@ -357,13 +329,21 @@ void YTKACEInstallShortsPiPHooks(void) {
         @"startPictureInPicture",
         (IMP)YTKACEPiPStart, &YTKACEOrigPiPStart);
 
-    YTKACEInstallInstanceHook(@"YTPlayerViewController", @"pause",
-        (IMP)YTKACEPlayerVCPause, &YTKACEOrigPlayerVCPause);
-    YTKACEInstallInstanceHook(@"YTPlayerViewController", @"play",
-        (IMP)YTKACEPlayerVCPlay, &YTKACEOrigPlayerVCPlay);
+    YTKACEInstallInstanceHook(@"MLHAMQueuePlayer", @"setRate:",
+        (IMP)YTKACEHAMSetRate, &YTKACEOrigHAMSetRate);
 
     YTKACEInstallInstanceHook(@"MLAVPlayer", @"play",
         (IMP)YTKACEMLAVPlayerPlay, &YTKACEOrigMLAVPlayerPlay);
     YTKACEInstallInstanceHook(@"MLAVPlayer", @"pauseWithStoppageReason:",
         (IMP)YTKACEMLAVPlayerPause, &YTKACEOrigMLAVPlayerPause);
+
+    YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayViewController",
+        @"didPressPause:", (IMP)YTKACEDidPressPause, &YTKACEOrigDidPressPause);
+    YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayViewController",
+        @"didPressPlay:", (IMP)YTKACEDidPressPlay, &YTKACEOrigDidPressPlay);
+
+    YTKACEInstallInstanceHook(@"YTPlayerViewController", @"pause",
+        (IMP)YTKACEPlayerVCPause, &YTKACEOrigPlayerVCPause);
+    YTKACEInstallInstanceHook(@"YTPlayerViewController", @"play",
+        (IMP)YTKACEPlayerVCPlay, &YTKACEOrigPlayerVCPlay);
 }

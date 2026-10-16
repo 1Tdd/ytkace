@@ -121,6 +121,8 @@ NS_ASSUME_NONNULL_END
 void YTKACEInstallPlaybackFixHooks(void);
 FOUNDATION_EXPORT BOOL YTKACEManualPiPRequested;
 void YTKACENotifyPlaybackTick(void);
+void YTKACENotifyPlaybackPaused(void);
+void YTKACENotifyVideoTime(double time);
 BOOL YTKACEIsPlaybackPaused(id _Nullable sender);
 id _Nullable YTKACEActivePlayerViewController(void);
 NSDictionary<NSString *, NSString *> * _Nullable YTKACESolveChallenges(NSString * _Nullable playerID,
