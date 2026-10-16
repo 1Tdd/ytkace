@@ -42,24 +42,11 @@ static NSString *const YTKACEShortsPiPKey = @"YTKACE.Preference.Shorts.PiPDisabl
 static IMP YTKACEShortsOrigAllowed;
 static IMP YTKACEShortsOrigEligible;
 static IMP YTKACEShortsOrigCanEnable;
-static IMP YTKACEOrigMaybeEnablePiP;
-static IMP YTKACEOrigMaybeInvokePiP;
 static IMP YTKACEOrigPiPGetAuto;
 static IMP YTKACEOrigPiPGetAutoLegacy;
 static IMP YTKACEOrigPiPStart;
-static IMP YTKACEOrigHAMSetRate;
-static IMP YTKACEOrigMLAVPlayerPlay;
-static IMP YTKACEOrigMLAVPlayerPause;
-static IMP YTKACEOrigPlayerPIPPlay;
-static IMP YTKACEOrigPlayerPIPPause;
-static IMP YTKACEOrigMLPIPPause;
-static IMP YTKACEOrigMLPIPImplPause;
-static IMP YTKACEOrigMLPIPStartPlayback;
-static IMP YTKACEOrigMLPIPStopPlayback;
 static IMP YTKACEOrigDidPressPause;
 static IMP YTKACEOrigDidPressPlay;
-static IMP YTKACEOrigPlayerVCPause;
-static IMP YTKACEOrigPlayerVCPlay;
 
 BOOL YTKACEIsPlaybackPaused(id sender) {
     if (YTKACEManualPiPRequested) return NO;
@@ -142,7 +129,6 @@ static BOOL YTKACEShortsAllowed(id self, SEL _cmd) {
 
 static BOOL YTKACEShortsEligible(id self, SEL _cmd) {
     if (YTKACEShortsBlocksPiP(self)) return NO;
-    if (YTKACEIsPlaybackPaused(self)) return NO;
     BOOL eligible = YTKACEShortsOrigEligible != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigEligible)(self, _cmd)
         : NO;
@@ -152,24 +138,9 @@ static BOOL YTKACEShortsEligible(id self, SEL _cmd) {
 
 static BOOL YTKACEShortsCanEnable(id self, SEL _cmd) {
     if (YTKACEShortsBlocksPiP(self)) return NO;
-    if (YTKACEIsPlaybackPaused(self)) return NO;
     return YTKACEShortsOrigCanEnable != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigCanEnable)(self, _cmd)
         : YES;
-}
-
-static void YTKACEMaybeEnablePiP(id self, SEL _cmd) {
-    if (YTKACEIsPlaybackPaused(self)) return;
-    if (YTKACEOrigMaybeEnablePiP != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigMaybeEnablePiP)(self, _cmd);
-    }
-}
-
-static void YTKACEMaybeInvokePiP(id self, SEL _cmd) {
-    if (YTKACEIsPlaybackPaused(self)) return;
-    if (YTKACEOrigMaybeInvokePiP != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigMaybeInvokePiP)(self, _cmd);
-    }
 }
 
 static BOOL YTKACEPiPGetAuto(id self, SEL _cmd) {
@@ -195,73 +166,6 @@ static void YTKACEPiPStart(id self, SEL _cmd) {
     }
 }
 
-static void YTKACEHAMSetRate(id self, SEL _cmd, float rate) {
-    if (rate <= 0.001f) {
-        YTKACENotifyPlaybackPaused();
-    } else {
-        YTKACENotifyPlaybackTick();
-    }
-    if (YTKACEOrigHAMSetRate != NULL) {
-        ((void (*)(id, SEL, float))YTKACEOrigHAMSetRate)(self, _cmd, rate);
-    }
-}
-
-static void YTKACEMLAVPlayerPlay(id self, SEL _cmd) {
-    YTKACENotifyPlaybackTick();
-    if (YTKACEOrigMLAVPlayerPlay != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigMLAVPlayerPlay)(self, _cmd);
-    }
-}
-
-static void YTKACEMLAVPlayerPause(id self, SEL _cmd, int reason) {
-    YTKACENotifyPlaybackPaused();
-    if (YTKACEOrigMLAVPlayerPause != NULL) {
-        ((void (*)(id, SEL, int))YTKACEOrigMLAVPlayerPause)(self, _cmd, reason);
-    }
-}
-
-static void YTKACEPlayerPIPPlay(id self, SEL _cmd) {
-    YTKACENotifyPlaybackTick();
-    if (YTKACEOrigPlayerPIPPlay != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigPlayerPIPPlay)(self, _cmd);
-    }
-}
-
-static void YTKACEPlayerPIPPause(id self, SEL _cmd) {
-    YTKACENotifyPlaybackPaused();
-    if (YTKACEOrigPlayerPIPPause != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigPlayerPIPPause)(self, _cmd);
-    }
-}
-
-static void YTKACEMLPIPPause(id self, SEL _cmd) {
-    YTKACENotifyPlaybackPaused();
-    if (YTKACEOrigMLPIPPause != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigMLPIPPause)(self, _cmd);
-    }
-}
-
-static void YTKACEMLPIPImplPause(id self, SEL _cmd) {
-    YTKACENotifyPlaybackPaused();
-    if (YTKACEOrigMLPIPImplPause != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigMLPIPImplPause)(self, _cmd);
-    }
-}
-
-static void YTKACEMLPIPStartPlayback(id self, SEL _cmd) {
-    YTKACENotifyPlaybackTick();
-    if (YTKACEOrigMLPIPStartPlayback != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigMLPIPStartPlayback)(self, _cmd);
-    }
-}
-
-static void YTKACEMLPIPStopPlayback(id self, SEL _cmd) {
-    YTKACENotifyPlaybackPaused();
-    if (YTKACEOrigMLPIPStopPlayback != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigMLPIPStopPlayback)(self, _cmd);
-    }
-}
-
 static void YTKACEDidPressPause(id self, SEL _cmd, id sender) {
     YTKACENotifyPlaybackPaused();
     if (YTKACEOrigDidPressPause != NULL) {
@@ -276,20 +180,6 @@ static void YTKACEDidPressPlay(id self, SEL _cmd, id sender) {
     }
 }
 
-static void YTKACEPlayerVCPause(id self, SEL _cmd) {
-    YTKACENotifyPlaybackPaused();
-    if (YTKACEOrigPlayerVCPause != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigPlayerVCPause)(self, _cmd);
-    }
-}
-
-static void YTKACEPlayerVCPlay(id self, SEL _cmd) {
-    YTKACENotifyPlaybackTick();
-    if (YTKACEOrigPlayerVCPlay != NULL) {
-        ((void (*)(id, SEL))YTKACEOrigPlayerVCPlay)(self, _cmd);
-    }
-}
-
 void YTKACEInstallShortsPiPHooks(void) {
     NSString *pipClass = @"YTPlayerPIPController";
     YTKACEInstallInstanceHook(pipClass, @"isPictureInPictureAllowed",
@@ -298,23 +188,6 @@ void YTKACEInstallShortsPiPHooks(void) {
         (IMP)YTKACEShortsEligible, &YTKACEShortsOrigEligible);
     YTKACEInstallInstanceHook(pipClass, @"canEnablePictureInPicture",
         (IMP)YTKACEShortsCanEnable, &YTKACEShortsOrigCanEnable);
-    YTKACEInstallInstanceHook(pipClass, @"maybeEnablePictureInPicture",
-        (IMP)YTKACEMaybeEnablePiP, &YTKACEOrigMaybeEnablePiP);
-    YTKACEInstallInstanceHook(pipClass, @"maybeInvokePictureInPicture",
-        (IMP)YTKACEMaybeInvokePiP, &YTKACEOrigMaybeInvokePiP);
-    YTKACEInstallInstanceHook(pipClass, @"play",
-        (IMP)YTKACEPlayerPIPPlay, &YTKACEOrigPlayerPIPPlay);
-    YTKACEInstallInstanceHook(pipClass, @"pause",
-        (IMP)YTKACEPlayerPIPPause, &YTKACEOrigPlayerPIPPause);
-
-    YTKACEInstallInstanceHook(@"MLPIPController", @"pause",
-        (IMP)YTKACEMLPIPPause, &YTKACEOrigMLPIPPause);
-    YTKACEInstallInstanceHook(@"MLPIPControllerImpl", @"pause",
-        (IMP)YTKACEMLPIPImplPause, &YTKACEOrigMLPIPImplPause);
-    YTKACEInstallInstanceHook(@"MLPIPController", @"pictureInPictureControllerStartPlayback",
-        (IMP)YTKACEMLPIPStartPlayback, &YTKACEOrigMLPIPStartPlayback);
-    YTKACEInstallInstanceHook(@"MLPIPController", @"pictureInPictureControllerStopPlayback",
-        (IMP)YTKACEMLPIPStopPlayback, &YTKACEOrigMLPIPStopPlayback);
 
     YTKACEInstallInstanceHook(@"AVPictureInPictureController",
         @"canStartPictureInPictureAutomaticallyFromInline",
@@ -329,21 +202,8 @@ void YTKACEInstallShortsPiPHooks(void) {
         @"startPictureInPicture",
         (IMP)YTKACEPiPStart, &YTKACEOrigPiPStart);
 
-    YTKACEInstallInstanceHook(@"MLHAMQueuePlayer", @"setRate:",
-        (IMP)YTKACEHAMSetRate, &YTKACEOrigHAMSetRate);
-
-    YTKACEInstallInstanceHook(@"MLAVPlayer", @"play",
-        (IMP)YTKACEMLAVPlayerPlay, &YTKACEOrigMLAVPlayerPlay);
-    YTKACEInstallInstanceHook(@"MLAVPlayer", @"pauseWithStoppageReason:",
-        (IMP)YTKACEMLAVPlayerPause, &YTKACEOrigMLAVPlayerPause);
-
     YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayViewController",
         @"didPressPause:", (IMP)YTKACEDidPressPause, &YTKACEOrigDidPressPause);
     YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayViewController",
         @"didPressPlay:", (IMP)YTKACEDidPressPlay, &YTKACEOrigDidPressPlay);
-
-    YTKACEInstallInstanceHook(@"YTPlayerViewController", @"pause",
-        (IMP)YTKACEPlayerVCPause, &YTKACEOrigPlayerVCPause);
-    YTKACEInstallInstanceHook(@"YTPlayerViewController", @"play",
-        (IMP)YTKACEPlayerVCPlay, &YTKACEOrigPlayerVCPlay);
 }

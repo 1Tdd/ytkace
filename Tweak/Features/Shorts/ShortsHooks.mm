@@ -1304,7 +1304,13 @@ static BOOL YTKACEShortsIsLivePlayback(UIViewController *controller, id player) 
         if (model != nil) {
             NSString *modelName = NSStringFromClass([model class]).lowercaseString;
             if ([modelName containsString:@"live"]) return YES;
-            if (YTKACEShortsObject(model, @"nonVideoContentModel") != nil) return YES;
+            id nonVideo = YTKACEShortsObject(model, @"nonVideoContentModel");
+            if (nonVideo != nil) {
+                if (YTKACEShortsObject(nonVideo, @"reelLiveItemRenderer") != nil ||
+                    [NSStringFromClass([nonVideo class]).lowercaseString containsString:@"live"]) {
+                    return YES;
+                }
+            }
             if (YTKACEShortsObject(model, @"reelLiveItemRenderer") != nil) return YES;
             for (NSString *selName in @[@"isLive", @"isLivePlayback", @"isLiveStream", @"isLiveContent", @"hasReelLiveItemRenderer"]) {
                 SEL sel = NSSelectorFromString(selName);
@@ -1321,8 +1327,7 @@ static BOOL YTKACEShortsIsLivePlayback(UIViewController *controller, id player) 
         }
 
         id response = YTKACEShortsPlayerResponseFromObject(currentItem) ?:
-                      YTKACEShortsPlayerResponseFromObject(controller) ?:
-                      YTKACELatestShortsPlayerResponse;
+                      YTKACEShortsPlayerResponseFromObject(controller);
         if (response != nil) {
             id videoDetails = YTKACEShortsObject(response, @"videoDetails");
             if (videoDetails != nil) {
@@ -1435,6 +1440,7 @@ static void YTKACEShortsControllerLayout(UIViewController *receiver,
 
 static void YTKACEPausedLayout(UIView *receiver, SEL selector) {
     YTKACEInvokeShortsOriginal(receiver, selector);
+    YTKACENotifyPlaybackPaused();
     BOOL hidden = YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.PauseCardHidden");
     YTKACESetShortsHidden(receiver, hidden);
 }
