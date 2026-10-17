@@ -33,6 +33,7 @@ static IMP OriginalPlayerBarControllerSetChapters;
 static IMP OriginalInlinePlayerBarSetChapters;
 static BOOL YTKACEUserIsScrubbing = NO;
 static double YTKACELatestResolvedVideoTime = 0.0;
+static double YTKACELatestResolvedVideoDuration = 0.0;
 static IMP OriginalModularPlayerBarLayout;
 
 static const void *YTKACESponsorSegmentsAssociation = &YTKACESponsorSegmentsAssociation;
@@ -879,12 +880,28 @@ double YTKACESponsorCurrentDuration(void) {
             @[@"currentVideoTotalMediaTime", @"currentVideoTotalTime",
               @"currentVideoDuration", @"totalMediaTime"]
         );
+        if (dur <= 0.0) {
+            id videoObj = objc_getAssociatedObject(controller, YTKACESponsorVideoObjectAssociation);
+            if (videoObj != nil) {
+                dur = YTKACEDoubleMessage(videoObj, @[@"totalMediaTime", @"duration"]);
+            }
+        }
+    }
+    if (dur <= 0.0 && YTKACELatestResolvedVideoDuration > 0.0) {
+        dur = YTKACELatestResolvedVideoDuration;
     }
     if (dur <= 0.0) {
         id details = YTKACESponsorCurrentVideoDetails();
         NSNumber *len = YTKACESafeNumberForKey(details, @"lengthSeconds");
         if (len != nil && [len doubleValue] > 0.0) {
             dur = [len doubleValue];
+        }
+    }
+    if (dur <= 0.0) {
+        for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
+            if (ch.endTime > dur) {
+                dur = ch.endTime;
+            }
         }
     }
     return dur;
@@ -1704,6 +1721,7 @@ static void YTKACEDidActivateVideo(id receiver,
         YTKACELastChaptersVideoID = videoID;
     }
     YTKACELatestResolvedVideoTime = 0.0;
+    YTKACELatestResolvedVideoDuration = 0.0;
     [NSNotificationCenter.defaultCenter postNotificationName:@"YTKACESponsorVideoDidActivate"
                                                       object:nil
                                                     userInfo:@{@"videoID": videoID}];
@@ -1785,6 +1803,9 @@ static void YTKACESingleVideoTimeChanged(id receiver,
             @"totalMediaTime"
         ]);
     }
+    if (duration > 0.0) {
+        YTKACELatestResolvedVideoDuration = duration;
+    }
     if (YTKACESponsorTimeUpdatesEnabled) {
         YTKACEEvaluateSponsorTime(receiver, resolved);
     }
@@ -1820,6 +1841,9 @@ static void YTKACEMutatedVideoTimeChanged(id receiver,
             @"currentVideoDuration",
             @"totalMediaTime"
         ]);
+    }
+    if (duration > 0.0) {
+        YTKACELatestResolvedVideoDuration = duration;
     }
     if (YTKACESponsorTimeUpdatesEnabled) {
         YTKACEEvaluateSponsorTime(receiver, resolved);
