@@ -31,6 +31,8 @@ static IMP OriginalOverlayChaptersDidChange;
 static IMP OriginalPlayerBarControllerSetChapters;
 static IMP OriginalInlinePlayerBarSetChapters;
 static BOOL YTKACEUserIsScrubbing = NO;
+static double YTKACELatestResolvedVideoTime = 0.0;
+static IMP OriginalModularPlayerBarLayout;
 
 static const void *YTKACESponsorSegmentsAssociation = &YTKACESponsorSegmentsAssociation;
 static const void *YTKACESponsorVideoAssociation = &YTKACESponsorVideoAssociation;
@@ -723,7 +725,7 @@ static void YTKACEEvaluateSponsorTime(id controller, double time) {
             if (sinceUnskip > 2.0 && (time < start - 1.0 || time > end + 1.0)) {
                 [skipped removeObject:token];
             }
-            if (time >= start && time < end - 0.25 && ![skipped containsObject:token]) {
+            if (time >= start && time < end - 0.05 && ![skipped containsObject:token]) {
                 [skipped addObject:token];
                 if (behavior == 1) {
                     YTKACEAskToSkipSponsor(controller, start, end, index, category);
@@ -767,8 +769,19 @@ NSString *YTKACESponsorCurrentVideoID(void) {
 
 double YTKACESponsorCurrentTime(void) {
     id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
-    if (controller == nil) return 0.0;
-    return YTKACEDoubleMessage(controller, @[@"currentVideoMediaTime"]);
+    double time = 0.0;
+    if (controller != nil) {
+        time = YTKACEDoubleMessage(controller, @[
+            @"currentVideoMediaTime",
+            @"currentVideoTime",
+            @"currentMediaTime",
+            @"mediaTime"
+        ]);
+    }
+    if (time <= 0.0 && YTKACELatestResolvedVideoTime > 0.0) {
+        time = YTKACELatestResolvedVideoTime;
+    }
+    return time;
 }
 
 static id YTKACEFindVideoDetailsInObject(id obj, NSHashTable *visited, NSUInteger depth) {
@@ -1628,6 +1641,7 @@ static void YTKACEDidActivateVideo(id receiver,
         YTKACELastReceivedChapters = nil;
         YTKACELastChaptersVideoID = videoID;
     }
+    YTKACELatestResolvedVideoTime = 0.0;
     [NSNotificationCenter.defaultCenter postNotificationName:@"YTKACESponsorVideoDidActivate"
                                                       object:nil
                                                     userInfo:@{@"videoID": videoID}];
@@ -1696,6 +1710,9 @@ static void YTKACESingleVideoTimeChanged(id receiver,
     double objTime = YTKACEDoubleMessage(videoTime, @[@"time"]);
     double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"]);
     double resolved = current > 0.0 ? current : objTime;
+    if (resolved > 0.0) {
+        YTKACELatestResolvedVideoTime = resolved;
+    }
     YTKACENotifyVideoTime(resolved);
     double duration = YTKACEDoubleMessage(video, @[@"totalMediaTime", @"duration"]);
     if (duration <= 0.0) {
@@ -1729,6 +1746,9 @@ static void YTKACEMutatedVideoTimeChanged(id receiver,
     double objTime = YTKACEDoubleMessage(videoTime, @[@"time"]);
     double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"]);
     double resolved = current > 0.0 ? current : objTime;
+    if (resolved > 0.0) {
+        YTKACELatestResolvedVideoTime = resolved;
+    }
     YTKACENotifyVideoTime(resolved);
     double duration = YTKACEDoubleMessage(video, @[@"totalMediaTime", @"duration"]);
     if (duration <= 0.0) {
@@ -1928,8 +1948,11 @@ static double YTKACEParseSecondsFromTimeString(NSString *str) {
     if (str.length == 0) return -1.0;
     NSCharacterSet *trim = [NSCharacterSet whitespaceAndNewlineCharacterSet];
     NSString *cleaned = [str stringByTrimmingCharactersInSet:trim];
-    if ([cleaned hasPrefix:@"-"] || [cleaned hasPrefix:@"–"]) {
-        cleaned = [cleaned substringFromIndex:1];
+    if ([cleaned hasPrefix:@"-"] || [cleaned hasPrefix:@"–"] || [cleaned hasPrefix:@"—"]) {
+        cleaned = [[cleaned substringFromIndex:1] stringByTrimmingCharactersInSet:trim];
+    }
+    if ([cleaned hasPrefix:@"/"]) {
+        cleaned = [[cleaned substringFromIndex:1] stringByTrimmingCharactersInSet:trim];
     }
     NSArray<NSString *> *parts = [cleaned componentsSeparatedByString:@":"];
     if (parts.count < 2 || parts.count > 3) return -1.0;
@@ -1969,22 +1992,19 @@ static BOOL YTKACEIsExcludedTimeView(UIView *view) {
     if (view == nil) return YES;
     NSString *cls = NSStringFromClass(view.class).lowercaseString;
     if ([cls containsString:@"preview"] ||
-        [cls containsString:@"scrub"] ||
         [cls containsString:@"chapter"] ||
         [cls containsString:@"tooltip"] ||
+        [cls containsString:@"bubble"] ||
         [cls containsString:@"badge"] ||
-        [cls containsString:@"seek"] ||
-        [cls containsString:@"speed"] ||
-        [cls containsString:@"button"]) {
+        [cls containsString:@"speed"]) {
         return YES;
     }
     NSString *ident = view.accessibilityIdentifier.lowercaseString ?: @"";
     if ([ident containsString:@"preview"] ||
-        [ident containsString:@"scrub"] ||
         [ident containsString:@"chapter"] ||
         [ident containsString:@"tooltip"] ||
+        [ident containsString:@"bubble"] ||
         [ident containsString:@"badge"] ||
-        [ident containsString:@"seek"] ||
         [ident containsString:@"current"] ||
         [ident containsString:@"elapsed"]) {
         return YES;
@@ -2003,7 +2023,7 @@ static BOOL YTKACEHasExcludedAncestor(UIView *view, UIView *root) {
 
 static BOOL YTKACEIsValidTimeString(NSString *str) {
     if (str.length < 3 || str.length > 30) return NO;
-    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:@"0123456789: -–/·•()"];
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:@"0123456789: -–—/·•()"];
     if ([str rangeOfCharacterFromSet:[allowed invertedSet]].location != NSNotFound) {
         return NO;
     }
@@ -2015,21 +2035,29 @@ static void YTKACECollectTimeLabelsFromView(UIView *view,
                                             NSMutableSet<UILabel *> *durationLabels) {
     if (view == nil) return;
     for (NSString *sel in @[@"currentTimeLabel", @"elapsedTimeLabel", @"currentMediaTimeLabel"]) {
-        id obj = YTKACEObjectMessage(view, sel);
+        id obj = YTKACEObjectMessage(view, sel) ?: YTKACESafeObjectIvar(view, [@"_" stringByAppendingString:sel].UTF8String);
         if ([obj isKindOfClass:UILabel.class]) [currentLabels addObject:(UILabel *)obj];
     }
-    id timeObj = YTKACEObjectMessage(view, @"timeLabel");
+    id timeObj = YTKACEObjectMessage(view, @"timeLabel") ?: YTKACESafeObjectIvar(view, "_timeLabel");
     if ([timeObj isKindOfClass:UILabel.class]) {
         UILabel *lbl = (UILabel *)timeObj;
-        if (YTKACEFindCompoundSeparator(lbl.text) != nil) {
+        if (YTKACEFindCompoundSeparator(lbl.text) != nil || [lbl.text hasPrefix:@"-"] || [lbl.text hasPrefix:@"–"] || [lbl.text hasPrefix:@"—"]) {
             [durationLabels addObject:lbl];
-        } else {
-            [currentLabels addObject:lbl];
         }
     }
     for (NSString *sel in @[@"durationLabel", @"totalTimeLabel", @"remainingTimeLabel"]) {
-        id obj = YTKACEObjectMessage(view, sel);
+        id obj = YTKACEObjectMessage(view, sel) ?: YTKACESafeObjectIvar(view, [@"_" stringByAppendingString:sel].UTF8String);
         if ([obj isKindOfClass:UILabel.class]) [durationLabels addObject:(UILabel *)obj];
+    }
+    if ([view isKindOfClass:UIButton.class]) {
+        UILabel *btnLbl = ((UIButton *)view).titleLabel;
+        if (btnLbl != nil && btnLbl.text.length > 0) {
+            if (YTKACEFindCompoundSeparator(btnLbl.text) != nil ||
+                [btnLbl.text hasPrefix:@"-"] || [btnLbl.text hasPrefix:@"–"] || [btnLbl.text hasPrefix:@"—"] ||
+                [btnLbl.text containsString:@"/"]) {
+                [durationLabels addObject:btnLbl];
+            }
+        }
     }
 }
 
@@ -2041,10 +2069,20 @@ static NSArray<UILabel *> *YTKACEDurationLabelsInBar(UIView *barView, NSMutableS
     NSMutableSet<UILabel *> *knownDurationLabels = [NSMutableSet set];
 
     YTKACECollectTimeLabelsFromView(barView, knownCurrentLabels, knownDurationLabels);
-    for (NSString *childSel in @[@"playerBar", @"segmentablePlayerBar", @"modularPlayerBar", @"timeStatusView", @"inlinePlayerBarView"]) {
-        id child = YTKACEObjectMessage(barView, childSel);
+    NSArray<NSString *> *childProps = @[@"playerBar", @"segmentablePlayerBar", @"modularPlayerBar", @"timeStatusView", @"inlinePlayerBarView", @"playerBarView"];
+    for (NSString *childSel in childProps) {
+        id child = YTKACEObjectMessage(barView, childSel) ?: YTKACESafeObjectIvar(barView, [@"_" stringByAppendingString:childSel].UTF8String);
         if ([child isKindOfClass:UIView.class]) {
             YTKACECollectTimeLabelsFromView((UIView *)child, knownCurrentLabels, knownDurationLabels);
+        }
+    }
+    for (UIView *subview in barView.subviews) {
+        YTKACECollectTimeLabelsFromView(subview, knownCurrentLabels, knownDurationLabels);
+        for (NSString *childSel in childProps) {
+            id child = YTKACEObjectMessage(subview, childSel) ?: YTKACESafeObjectIvar(subview, [@"_" stringByAppendingString:childSel].UTF8String);
+            if ([child isKindOfClass:UIView.class]) {
+                YTKACECollectTimeLabelsFromView((UIView *)child, knownCurrentLabels, knownDurationLabels);
+            }
         }
     }
 
@@ -2101,9 +2139,18 @@ static NSArray<UILabel *> *YTKACEDurationLabelsInBar(UIView *barView, NSMutableS
     } else if (candidates.count == 1) {
         UILabel *cand = candidates.firstObject;
         if (YTKACEFindCompoundSeparator(cand.text) != nil ||
-            [cand.text hasPrefix:@"-"] || [cand.text hasPrefix:@"–"] ||
+            [cand.text hasPrefix:@"-"] || [cand.text hasPrefix:@"–"] || [cand.text hasPrefix:@"—"] ||
+            [cand.text containsString:@"/"] ||
+            knownCurrentLabels.count > 0 ||
             objc_getAssociatedObject(cand, YTKACEOptionsOriginalDurationTextKey) != nil) {
             [labels addObject:cand];
+        } else {
+            id ctrl = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
+            double dur = ctrl ? YTKACEDoubleMessage(ctrl, @[@"currentVideoTotalMediaTime", @"currentVideoTotalTime", @"currentVideoDuration", @"totalMediaTime"]) : 0.0;
+            double parsed = YTKACEParseSecondsFromTimeString(cand.text);
+            if (dur > 0.0 && parsed > 0.0 && fabs(parsed - dur) <= 2.0) {
+                [labels addObject:cand];
+            }
         }
     }
 
@@ -2195,9 +2242,22 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
                 }
             }
 
+            UIButton *parentButton = nil;
+            UIView *anc = label;
+            while (anc != nil && anc != barView) {
+                if ([anc isKindOfClass:UIButton.class]) {
+                    parentButton = (UIButton *)anc;
+                    break;
+                }
+                anc = anc.superview;
+            }
+
             if (!shouldModify) {
                 if (modified != nil && [currentText isEqualToString:modified] && original != nil) {
                     label.text = original;
+                    if (parentButton != nil) {
+                        [parentButton setTitle:original forState:UIControlStateNormal];
+                    }
                     [label sizeToFit];
                 }
                 objc_setAssociatedObject(label, YTKACEOptionsOriginalDurationTextKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -2213,8 +2273,8 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
                 compoundSep = YTKACEFindCompoundSeparator(modified);
             }
 
-            BOOL isCountdown = [original hasPrefix:@"-"] || [original hasPrefix:@" -"] || [original hasPrefix:@"–"] ||
-                               [currentText hasPrefix:@"-"] || [currentText hasPrefix:@" -"] || [currentText hasPrefix:@"–"];
+            BOOL isCountdown = [original hasPrefix:@"-"] || [original hasPrefix:@" -"] || [original hasPrefix:@"–"] || [original hasPrefix:@"—"] ||
+                               [currentText hasPrefix:@"-"] || [currentText hasPrefix:@" -"] || [currentText hasPrefix:@"–"] || [currentText hasPrefix:@"—"];
 
             if (compoundSep == nil && !isCountdown) {
                 double parsed = YTKACEParseSecondsFromTimeString(currentText);
@@ -2239,19 +2299,26 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
 
             NSString *newDurStr = nil;
             if (compoundSep != nil) {
-                NSRange r = [original rangeOfString:compoundSep];
                 NSString *leftPart = nil;
-                if (r.location != NSNotFound) {
-                    leftPart = [original substringToIndex:r.location];
+                if (modified != nil && [currentText isEqualToString:modified]) {
+                    leftPart = YTKACEFormatTimeDuration(current, forceHours);
                 } else {
                     NSRange curR = [currentText rangeOfString:compoundSep];
                     if (curR.location != NSNotFound) {
                         leftPart = [currentText substringToIndex:curR.location];
+                    } else {
+                        NSRange origR = [original rangeOfString:compoundSep];
+                        if (origR.location != NSNotFound) {
+                            leftPart = [original substringToIndex:origR.location];
+                        } else {
+                            leftPart = YTKACEFormatTimeDuration(current, forceHours);
+                        }
                     }
                 }
                 if (leftPart.length > 0) {
                     leftPart = [leftPart stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-                    newDurStr = [NSString stringWithFormat:@"%@ / %@", leftPart, combinedDurStr];
+                    NSString *sepToUse = [compoundSep containsString:@" "] ? compoundSep : [NSString stringWithFormat:@" %@ ", compoundSep];
+                    newDurStr = [NSString stringWithFormat:@"%@%@%@", leftPart, sepToUse, combinedDurStr];
                 }
             } else if (isCountdown) {
                 NSMutableArray<NSDictionary *> *remSegments = [NSMutableArray array];
@@ -2271,12 +2338,24 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
                 double remainingSkips = YTKACESponsorCalculateSkippedDuration(remSegments, duration);
                 double remaining = MAX(0.0, duration - current);
                 double remainingEffective = MAX(0.0, remaining - remainingSkips);
-                NSString *prefix = [original hasPrefix:@" -"] ? @" -" : ([original hasPrefix:@"–"] ? @"–" : @"-");
+                NSString *prefix = [original hasPrefix:@" -"] ? @" -" : ([original hasPrefix:@"–"] ? @"–" : ([original hasPrefix:@"—"] ? @"—" : @"-"));
                 NSString *effectiveRemStr = [prefix stringByAppendingString:YTKACEFormatTimeDuration(remainingEffective, forceHours)];
                 NSString *origRemStr = [prefix stringByAppendingString:YTKACEFormatTimeDuration(remaining, forceHours)];
                 newDurStr = [NSString stringWithFormat:@"%@ (%@)", effectiveRemStr, origRemStr];
             } else {
-                newDurStr = [NSString stringWithFormat:@" / %@", combinedDurStr];
+                NSString *prefix = @"";
+                if ([original hasPrefix:@" / "]) {
+                    prefix = @" / ";
+                } else if ([original hasPrefix:@" /"]) {
+                    prefix = @" /";
+                } else if ([original hasPrefix:@"/ "]) {
+                    prefix = @"/ ";
+                } else if ([original hasPrefix:@"/"]) {
+                    prefix = @"/";
+                } else if (inlineSep != nil) {
+                    prefix = @" / ";
+                }
+                newDurStr = [NSString stringWithFormat:@"%@%@", prefix, combinedDurStr];
                 if ([original hasSuffix:@" "]) {
                     newDurStr = [newDurStr stringByAppendingString:@" "];
                 }
@@ -2284,6 +2363,9 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
 
             if (newDurStr.length > 0 && ![currentText isEqualToString:newDurStr]) {
                 label.text = newDurStr;
+                if (parentButton != nil) {
+                    [parentButton setTitle:newDurStr forState:UIControlStateNormal];
+                }
                 objc_setAssociatedObject(label, YTKACEOptionsModifiedDurationTextKey, newDurStr, OBJC_ASSOCIATION_COPY_NONATOMIC);
                 [label sizeToFit];
             }
@@ -2304,12 +2386,28 @@ static void YTKACEPlayerBarLayout(UIView *receiver, SEL selector) {
     for (UIView *subview in receiver.subviews) {
         if ([NSStringFromClass(subview.class) isEqualToString:@"YTModularPlayerBarView"]) {
             target = subview;
+            [YTKACESponsorBars addObject:target];
             break;
         }
     }
     YTKACERenderSponsorMarkers(receiver, target, NO);
     if (!YTKACEUserIsScrubbing && !YTKACEIsScrubbing(nil, receiver)) {
         YTKACEUpdatePlayerBarDuration(receiver);
+        if (target != nil && target != receiver) {
+            YTKACEUpdatePlayerBarDuration(target);
+        }
+    }
+}
+
+static void YTKACEModularPlayerBarLayout(UIView *receiver, SEL selector) {
+    if (OriginalModularPlayerBarLayout != NULL) {
+        ((void (*)(id, SEL))OriginalModularPlayerBarLayout)(receiver, selector);
+    }
+    if (receiver != nil) {
+        [YTKACESponsorBars addObject:receiver];
+        if (!YTKACEUserIsScrubbing && !YTKACEIsScrubbing(nil, receiver)) {
+            YTKACEUpdatePlayerBarDuration(receiver);
+        }
     }
 }
 
@@ -2355,6 +2453,13 @@ static void YTKACEPlayerBarControllerSetChapters(id receiver,
         );
     }
     YTKACELastPlayerBarController = receiver;
+    UIView *ctrlBarView = YTKACEObjectMessage(receiver, @"view");
+    if ([ctrlBarView isKindOfClass:UIView.class]) {
+        [YTKACESponsorBars addObject:ctrlBarView];
+        if (!YTKACEUserIsScrubbing && !YTKACEIsScrubbing(nil, ctrlBarView)) {
+            YTKACEUpdatePlayerBarDuration(ctrlBarView);
+        }
+    }
     if ([chapters isKindOfClass:NSArray.class]) {
         if ([(NSArray *)chapters count] > 0) {
             YTKACELastReceivedChapters = [chapters copy];
@@ -2443,6 +2548,10 @@ void YTKACEInstallSponsorBlockHooks(void) {
                               @"layoutSubviews",
                               (IMP)YTKACEPlayerBarLayout,
                               &OriginalPlayerBarLayout);
+    YTKACEInstallInstanceHook(@"YTModularPlayerBarView",
+                              @"layoutSubviews",
+                              (IMP)YTKACEModularPlayerBarLayout,
+                              &OriginalModularPlayerBarLayout);
     YTKACEInstallInstanceHook(@"YTWatchFloatingMiniplayerProgressBarView",
                               @"layoutSubviews",
                               (IMP)YTKACEMiniplayerBarLayout,

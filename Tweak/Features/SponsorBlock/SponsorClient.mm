@@ -208,8 +208,14 @@
     [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
 
     BOOL isFullVideo = [resolvedAction isEqualToString:@"full"];
+    double resolvedStart = start;
+    double resolvedEnd = end;
+    if (duration > 0.0 && !isFullVideo) {
+        if (resolvedEnd > duration) resolvedEnd = duration;
+        if (resolvedStart > duration) resolvedStart = duration;
+    }
     NSDictionary *segment = @{
-        @"segment": isFullVideo ? @[@(0.0), @(0.0)] : @[@(start), @(end)],
+        @"segment": isFullVideo ? @[@(0.0), @(0.0)] : @[@(resolvedStart), @(resolvedEnd)],
         @"category": category ?: @"sponsor",
         @"actionType": resolvedAction
     };

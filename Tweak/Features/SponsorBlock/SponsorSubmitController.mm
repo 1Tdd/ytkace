@@ -281,8 +281,14 @@ static UIViewController *YTKACEFindTopController(void) {
         YTKACEShowNotice(YTKACELocalized(@"No active video"));
         return;
     }
-    double start = self.hasDraftStart ? self.draftStartTime : YTKACESponsorCurrentTime();
-    double end = self.hasDraftEnd ? self.draftEndTime : (self.hasDraftStart ? YTKACESponsorCurrentTime() : start);
+    double dur = YTKACESponsorCurrentDuration();
+    double curTime = YTKACESponsorCurrentTime();
+    if (dur > 0.0 && curTime > dur) curTime = dur;
+    double start = self.hasDraftStart ? self.draftStartTime : curTime;
+    double end = self.hasDraftEnd ? self.draftEndTime : (self.hasDraftStart ? curTime : start);
+    if (dur > 0.0 && self.hasDraftStart && (end <= 0.0 || end >= dur - 0.5)) {
+        end = dur;
+    }
     YTKACEPresentSponsorSubmitController(videoID, start, end, nil);
 }
 
@@ -471,6 +477,11 @@ static UIViewController *YTKACEFindTopController(void) {
     }
 
     double now = YTKACESponsorCurrentTime();
+    double dur = YTKACESponsorCurrentDuration();
+    if (dur > 0.0 && now > dur) now = dur;
+    if (dur > 0.0 && self.hasDraftStart && (now <= 0.0 || now >= dur - 0.5)) {
+        now = dur;
+    }
     NSString *nowText = YTKACEFormatSponsorTime(now);
     __weak YTKACESponsorSubmitCoordinator *weakSelf = self;
 
@@ -665,17 +676,23 @@ static UIViewController *YTKACEFindTopController(void) {
                 YTKACEPresentSponsorSubmitController(videoID, strongSelf.draftStartTime, end, nil);
             } copy]
         }];
+        double rawCurTime = YTKACESponsorCurrentTime();
+        if (dur > 0.0 && rawCurTime > dur) rawCurTime = dur;
+        NSString *rawCurText = YTKACEFormatSponsorTime(rawCurTime);
         [actions addObject:@{
-            @"title": [NSString stringWithFormat:@"%@ (%@)", YTKACELocalized(@"Update Start Time"), nowText],
+            @"title": [NSString stringWithFormat:@"%@ (%@)", YTKACELocalized(@"Update Start Time"), rawCurText],
             @"icon": [UIImage systemImageNamed:@"arrow.counterclockwise"] ?: [UIImage new],
             @"handler": [^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
                 if (!strongSelf) return;
-                strongSelf.draftStartTime = now;
+                double curTime = YTKACESponsorCurrentTime();
+                double curDur = YTKACESponsorCurrentDuration();
+                if (curDur > 0.0 && curTime > curDur) curTime = curDur;
+                strongSelf.draftStartTime = curTime;
                 [strongSelf updateButton];
                 AudioServicesPlaySystemSound(1519);
                 [strongSelf showDraftStartBannerWithMessage:[NSString stringWithFormat:@"%@: %@",
-                    YTKACELocalized(@"Segment start updated"), nowText]];
+                    YTKACELocalized(@"Segment start updated"), YTKACEFormatSponsorTime(curTime)]];
             } copy]
         }];
         [actions addObject:@{
@@ -1600,7 +1617,10 @@ static UIViewController *YTKACEFindTopController(void) {
         self.actionType = @"skip";
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
-    self.startTime = YTKACESponsorCurrentTime();
+    double now = YTKACESponsorCurrentTime();
+    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    if (dur > 0.0 && now > dur) now = dur;
+    self.startTime = now;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
 }
@@ -1610,7 +1630,12 @@ static UIViewController *YTKACEFindTopController(void) {
         self.actionType = @"skip";
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
-    self.endTime = YTKACESponsorCurrentTime();
+    double now = YTKACESponsorCurrentTime();
+    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    if (dur > 0.0 && ((now <= 0.0 && self.startTime > 0.0) || now >= dur - 0.5 || now > dur)) {
+        now = dur;
+    }
+    self.endTime = now;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
 }
@@ -1631,7 +1656,10 @@ static UIViewController *YTKACEFindTopController(void) {
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
     double delta = (double)sender.tag / 10.0;
-    self.startTime = MAX(0.0, self.startTime + delta);
+    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    double newStart = MAX(0.0, self.startTime + delta);
+    if (dur > 0.0 && newStart > dur) newStart = dur;
+    self.startTime = newStart;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
 }
@@ -1642,7 +1670,10 @@ static UIViewController *YTKACEFindTopController(void) {
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
     double delta = (double)sender.tag / 10.0;
-    self.endTime = MAX(0.0, self.endTime + delta);
+    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    double newEnd = MAX(0.0, self.endTime + delta);
+    if (dur > 0.0 && newEnd > dur) newEnd = dur;
+    self.endTime = newEnd;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
 }
@@ -1771,6 +1802,10 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
     double duration = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
     double submitStart = isFull ? 0.0 : self.startTime;
     double submitEnd = isFull ? 0.0 : self.endTime;
+    if (duration > 0.0 && !isFull) {
+        if (submitEnd > duration) submitEnd = duration;
+        if (submitStart > duration) submitStart = duration;
+    }
 
     __weak YTKACESponsorSubmitController *weakSelf = self;
     [YTKACESponsorClient.sharedClient submitSegmentForVideoID:self.videoID
@@ -1835,6 +1870,12 @@ void YTKACEPresentSponsorSubmitController(NSString *videoID,
     controller.videoID = videoID.length > 0 ? videoID : YTKACESponsorCurrentVideoID();
     controller.videoTitle = YTKACESponsorCurrentVideoTitle();
     controller.videoDuration = YTKACESponsorCurrentDuration();
+    double dur = controller.videoDuration;
+    if (dur > 0.0 && (endTime < startTime || endTime >= dur - 0.5) && startTime < dur) {
+        endTime = dur;
+    }
+    if (dur > 0.0 && startTime > dur) startTime = dur;
+    if (dur > 0.0 && endTime > dur) endTime = dur;
     controller.startTime = startTime;
     controller.endTime = endTime >= startTime ? endTime : startTime;
 
