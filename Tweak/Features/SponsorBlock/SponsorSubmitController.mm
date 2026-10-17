@@ -735,10 +735,11 @@ static UIViewController *YTKACEFindTopController(void) {
                 UISheetPresentationControllerDetent.mediumDetent,
                 UISheetPresentationControllerDetent.largeDetent
             ];
-            sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierLarge;
+            sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
             sheet.largestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
             sheet.prefersGrabberVisible = YES;
             sheet.prefersEdgeAttachedInCompactHeight = NO;
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = NO;
             sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = YES;
         }
         if (YTKACELiquidGlassAvailable()) {
@@ -783,18 +784,8 @@ static UIViewController *YTKACEFindTopController(void) {
 @property(nonatomic, strong) UILabel *titleLabel;
 @property(nonatomic, strong) UILabel *videoIDBadge;
 @property(nonatomic, strong) UILabel *durationLabel;
-@property(nonatomic, strong) UIView *videoPreviewContainer;
-@property(nonatomic, strong) AVPlayerLayer *playerLayer;
-@property(nonatomic, strong) UIImageView *fallbackThumbnailView;
-@property(nonatomic, strong) UIView *previewCategoryDot;
-@property(nonatomic, strong) UILabel *previewCategoryLabel;
-@property(nonatomic, strong) UILabel *previewTimeLabel;
-@property(nonatomic, strong) UILabel *previewStatusLabel;
-@property(nonatomic, strong) UIButton *previewCutButton;
-@property(nonatomic, strong) UIButton *previewPlayPauseButton;
 @property(nonatomic, strong) NSTimer *previewTimer;
 @property(nonatomic, assign) BOOL isPreviewing;
-@property(nonatomic, assign) BOOL isPlaying;
 @property(nonatomic, assign) double previewTargetEnd;
 @property(nonatomic, strong) UILabel *startTimeLabel;
 @property(nonatomic, strong) UILabel *startSecLabel;
@@ -872,33 +863,6 @@ static UIViewController *YTKACEFindTopController(void) {
     }
 }
 
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    if (self.playerLayer == nil && self.videoPreviewContainer != nil) {
-        AVPlayer *activePlayer = YTKACESponsorActivePlayer();
-        if (activePlayer != nil) {
-            self.playerLayer = [AVPlayerLayer playerLayerWithPlayer:activePlayer];
-            self.playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
-            self.playerLayer.frame = self.videoPreviewContainer.bounds;
-            if (self.fallbackThumbnailView != nil) {
-                [self.videoPreviewContainer.layer insertSublayer:self.playerLayer above:self.fallbackThumbnailView.layer];
-            } else {
-                [self.videoPreviewContainer.layer addSublayer:self.playerLayer];
-            }
-        }
-    }
-}
-
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    if (self.playerLayer != nil && self.videoPreviewContainer != nil) {
-        [CATransaction begin];
-        [CATransaction setDisableActions:YES];
-        self.playerLayer.frame = self.videoPreviewContainer.bounds;
-        [CATransaction commit];
-    }
-}
-
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     [self stopPreviewTimer];
@@ -909,22 +873,12 @@ static UIViewController *YTKACEFindTopController(void) {
     [super viewDidDisappear:animated];
     [self stopPreviewTimer];
     YTKACESetTestSkip(-1.0, -1.0);
-    if (self.playerLayer != nil) {
-        [self.playerLayer removeFromSuperlayer];
-        self.playerLayer.player = nil;
-        self.playerLayer = nil;
-    }
 }
 
 - (void)dealloc {
     [_previewTimer invalidate];
     _previewTimer = nil;
     YTKACESetTestSkip(-1.0, -1.0);
-    if (_playerLayer != nil) {
-        [_playerLayer removeFromSuperlayer];
-        _playerLayer.player = nil;
-        _playerLayer = nil;
-    }
 }
 
 - (void)stopPreviewTimer {
@@ -933,36 +887,6 @@ static UIViewController *YTKACEFindTopController(void) {
         self.previewTimer = nil;
     }
     self.isPreviewing = NO;
-}
-
-- (void)updatePlayPauseButton:(BOOL)playing {
-    self.isPlaying = playing;
-    NSString *title = playing ? YTKACELocalized(@"Pause") : YTKACELocalized(@"Play");
-    NSString *iconName = playing ? @"pause.fill" : @"play.fill";
-    [self.previewPlayPauseButton setTitle:title forState:UIControlStateNormal];
-    [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:iconName] forState:UIControlStateNormal];
-}
-
-- (void)togglePlaybackTapped {
-    AVPlayer *player = YTKACESponsorActivePlayer();
-    BOOL currentlyPlaying = (player != nil && player.rate > 0.0);
-    if (currentlyPlaying) {
-        [self stopPreviewTimer];
-        YTKACESetTestSkip(-1.0, -1.0);
-        YTKACEPauseYouTubePlayer();
-        [self updatePlayPauseButton:NO];
-        if (self.previewStatusLabel != nil) {
-            self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@",
-                YTKACELocalized(@"Paused at"),
-                YTKACEFormatSponsorTime(YTKACESponsorCurrentTime())];
-        }
-    } else {
-        YTKACEPlayYouTubePlayer();
-        [self updatePlayPauseButton:YES];
-        if (self.previewStatusLabel != nil) {
-            self.previewStatusLabel.text = YTKACELocalized(@"Playing video...");
-        }
-    }
 }
 
 - (void)setupScrollView {
@@ -1015,310 +939,6 @@ static UIViewController *YTKACEFindTopController(void) {
     return card;
 }
 
-- (UIView *)buildVideoPreviewCard {
-    UIView *card = [self buildCardView];
-
-    UILabel *header = [UILabel new];
-    header.translatesAutoresizingMaskIntoConstraints = NO;
-    header.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightBold];
-    header.textColor = YTKACESubtitleColor();
-    header.text = YTKACELocalized(@"VIDEO PREVIEW & CUT VERIFICATION");
-    [card addSubview:header];
-
-    // 16:9 Video container
-    UIView *previewContainer = [UIView new];
-    previewContainer.translatesAutoresizingMaskIntoConstraints = NO;
-    previewContainer.backgroundColor = UIColor.blackColor;
-    previewContainer.layer.cornerRadius = 10.0;
-    previewContainer.layer.cornerCurve = kCACornerCurveContinuous;
-    previewContainer.layer.masksToBounds = YES;
-    previewContainer.clipsToBounds = YES;
-    previewContainer.userInteractionEnabled = YES;
-    UITapGestureRecognizer *tapPreview = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(togglePlaybackTapped)];
-    [previewContainer addGestureRecognizer:tapPreview];
-    [card addSubview:previewContainer];
-    self.videoPreviewContainer = previewContainer;
-
-    // Fallback poster thumbnail
-    UIImageView *fallback = [UIImageView new];
-    fallback.translatesAutoresizingMaskIntoConstraints = NO;
-    fallback.contentMode = UIViewContentModeScaleAspectFit;
-    fallback.clipsToBounds = YES;
-    fallback.backgroundColor = UIColor.blackColor;
-    [previewContainer addSubview:fallback];
-    self.fallbackThumbnailView = fallback;
-
-    [NSLayoutConstraint activateConstraints:@[
-        [fallback.topAnchor constraintEqualToAnchor:previewContainer.topAnchor],
-        [fallback.leadingAnchor constraintEqualToAnchor:previewContainer.leadingAnchor],
-        [fallback.trailingAnchor constraintEqualToAnchor:previewContainer.trailingAnchor],
-        [fallback.bottomAnchor constraintEqualToAnchor:previewContainer.bottomAnchor]
-    ]];
-
-    if (self.videoID.length > 0) {
-        NSString *thumbUrlStr = [NSString stringWithFormat:@"https://i.ytimg.com/vi/%@/hqdefault.jpg", self.videoID];
-        NSURL *thumbUrl = [NSURL URLWithString:thumbUrlStr];
-        if (thumbUrl != nil) {
-            __weak UIImageView *weakThumb = fallback;
-            [[NSURLSession.sharedSession dataTaskWithURL:thumbUrl completionHandler:^(NSData * _Nullable data, __unused NSURLResponse * _Nullable response, NSError * _Nullable error) {
-                if (data.length > 0 && error == nil) {
-                    UIImage *img = [UIImage imageWithData:data];
-                    if (img != nil) {
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            weakThumb.image = img;
-                        });
-                    }
-                }
-            }] resume];
-        }
-    }
-
-    // Attach active player layer if available
-    AVPlayer *activePlayer = YTKACESponsorActivePlayer();
-    if (activePlayer != nil) {
-        self.playerLayer = [AVPlayerLayer playerLayerWithPlayer:activePlayer];
-        self.playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
-        [previewContainer.layer insertSublayer:self.playerLayer above:fallback.layer];
-    }
-
-    // Category Pill (Top-Left)
-    UIView *catPill = [UIView new];
-    catPill.translatesAutoresizingMaskIntoConstraints = NO;
-    catPill.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.65];
-    catPill.layer.cornerRadius = 11.0;
-    catPill.layer.cornerCurve = kCACornerCurveContinuous;
-    catPill.layer.masksToBounds = YES;
-    catPill.layer.zPosition = 10;
-    [previewContainer addSubview:catPill];
-
-    UIView *catDot = [UIView new];
-    catDot.translatesAutoresizingMaskIntoConstraints = NO;
-    catDot.backgroundColor = YTKACESponsorCategoryColor(self.selectedCategory);
-    catDot.layer.cornerRadius = 4.0;
-    [catPill addSubview:catDot];
-    self.previewCategoryDot = catDot;
-
-    UILabel *catLbl = [UILabel new];
-    catLbl.translatesAutoresizingMaskIntoConstraints = NO;
-    catLbl.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightBold];
-    catLbl.textColor = UIColor.whiteColor;
-    catLbl.text = YTKACESponsorCategoryTitle(self.selectedCategory);
-    [catPill addSubview:catLbl];
-    self.previewCategoryLabel = catLbl;
-
-    [NSLayoutConstraint activateConstraints:@[
-        [catPill.topAnchor constraintEqualToAnchor:previewContainer.topAnchor constant:8.0],
-        [catPill.leadingAnchor constraintEqualToAnchor:previewContainer.leadingAnchor constant:8.0],
-        [catPill.heightAnchor constraintEqualToConstant:22.0],
-
-        [catDot.centerYAnchor constraintEqualToAnchor:catPill.centerYAnchor],
-        [catDot.leadingAnchor constraintEqualToAnchor:catPill.leadingAnchor constant:8.0],
-        [catDot.widthAnchor constraintEqualToConstant:8.0],
-        [catDot.heightAnchor constraintEqualToConstant:8.0],
-
-        [catLbl.centerYAnchor constraintEqualToAnchor:catPill.centerYAnchor],
-        [catLbl.leadingAnchor constraintEqualToAnchor:catDot.trailingAnchor constant:6.0],
-        [catLbl.trailingAnchor constraintEqualToAnchor:catPill.trailingAnchor constant:-8.0]
-    ]];
-
-    // Time Pill (Top-Right)
-    UIView *timePill = [UIView new];
-    timePill.translatesAutoresizingMaskIntoConstraints = NO;
-    timePill.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.65];
-    timePill.layer.cornerRadius = 11.0;
-    timePill.layer.cornerCurve = kCACornerCurveContinuous;
-    timePill.layer.masksToBounds = YES;
-    timePill.layer.zPosition = 10;
-    [previewContainer addSubview:timePill];
-
-    UILabel *timeLbl = [UILabel new];
-    timeLbl.translatesAutoresizingMaskIntoConstraints = NO;
-    timeLbl.font = [UIFont monospacedDigitSystemFontOfSize:11.0 weight:UIFontWeightMedium];
-    timeLbl.textColor = UIColor.whiteColor;
-    double diff = MAX(0.0, self.endTime - self.startTime);
-    timeLbl.text = [NSString stringWithFormat:@"%@ ➔ %@ (%.1fs)",
-        YTKACEFormatSponsorTime(self.startTime),
-        YTKACEFormatSponsorTime(self.endTime),
-        diff];
-    [timePill addSubview:timeLbl];
-    self.previewTimeLabel = timeLbl;
-
-    [NSLayoutConstraint activateConstraints:@[
-        [timePill.topAnchor constraintEqualToAnchor:previewContainer.topAnchor constant:8.0],
-        [timePill.trailingAnchor constraintEqualToAnchor:previewContainer.trailingAnchor constant:-8.0],
-        [timePill.heightAnchor constraintEqualToConstant:22.0],
-
-        [timeLbl.centerYAnchor constraintEqualToAnchor:timePill.centerYAnchor],
-        [timeLbl.leadingAnchor constraintEqualToAnchor:timePill.leadingAnchor constant:8.0],
-        [timeLbl.trailingAnchor constraintEqualToAnchor:timePill.trailingAnchor constant:-8.0]
-    ]];
-
-    // Bottom Status Banner on Preview Container
-    UIView *statusBanner = [UIView new];
-    statusBanner.translatesAutoresizingMaskIntoConstraints = NO;
-    statusBanner.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.70];
-    statusBanner.layer.zPosition = 10;
-    [previewContainer addSubview:statusBanner];
-
-    UILabel *statusLbl = [UILabel new];
-    statusLbl.translatesAutoresizingMaskIntoConstraints = NO;
-    statusLbl.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightMedium];
-    statusLbl.textColor = UIColor.whiteColor;
-    statusLbl.textAlignment = NSTextAlignmentCenter;
-    statusLbl.text = YTKACELocalized(@"Tap Preview Cut (✂) to watch skip transition");
-    [statusBanner addSubview:statusLbl];
-    self.previewStatusLabel = statusLbl;
-
-    [NSLayoutConstraint activateConstraints:@[
-        [statusBanner.leadingAnchor constraintEqualToAnchor:previewContainer.leadingAnchor],
-        [statusBanner.trailingAnchor constraintEqualToAnchor:previewContainer.trailingAnchor],
-        [statusBanner.bottomAnchor constraintEqualToAnchor:previewContainer.bottomAnchor],
-        [statusBanner.heightAnchor constraintEqualToConstant:26.0],
-
-        [statusLbl.centerYAnchor constraintEqualToAnchor:statusBanner.centerYAnchor],
-        [statusLbl.leadingAnchor constraintEqualToAnchor:statusBanner.leadingAnchor constant:8.0],
-        [statusLbl.trailingAnchor constraintEqualToAnchor:statusBanner.trailingAnchor constant:-8.0]
-    ]];
-
-    // Controls Row below 16:9 preview box
-    UIStackView *controlStack = [UIStackView new];
-    controlStack.translatesAutoresizingMaskIntoConstraints = NO;
-    controlStack.axis = UILayoutConstraintAxisHorizontal;
-    controlStack.spacing = 8.0;
-    controlStack.distribution = UIStackViewDistributionFillProportionally;
-    [card addSubview:controlStack];
-
-    // 1. Preview Cut Button
-    UIButton *cutBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    cutBtn.translatesAutoresizingMaskIntoConstraints = NO;
-    if (YTKACELiquidGlassAvailable()) {
-        cutBtn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.12]
-                : [UIColor colorWithWhite:0.0 alpha:0.06];
-        }];
-        cutBtn.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.16]
-                : [UIColor colorWithWhite:0.0 alpha:0.10];
-        }].CGColor;
-        cutBtn.layer.borderWidth = 0.5;
-    } else {
-        cutBtn.backgroundColor = YTKACEButtonBgColor();
-    }
-    cutBtn.layer.cornerRadius = 8.0;
-    cutBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [cutBtn setTitle:YTKACELocalized(@"Preview Cut (✂)") forState:UIControlStateNormal];
-    [cutBtn setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
-    cutBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
-    [cutBtn setImage:[UIImage systemImageNamed:@"scissors"] forState:UIControlStateNormal];
-    cutBtn.tintColor = YTKACEAccentColor();
-    cutBtn.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
-    [cutBtn addTarget:self action:@selector(previewSkipTapped) forControlEvents:UIControlEventTouchUpInside];
-    self.previewCutButton = cutBtn;
-    [controlStack addArrangedSubview:cutBtn];
-
-    // 2. Play / Pause Button
-    UIButton *playBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    playBtn.translatesAutoresizingMaskIntoConstraints = NO;
-    if (YTKACELiquidGlassAvailable()) {
-        playBtn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.10]
-                : [UIColor colorWithWhite:0.0 alpha:0.05];
-        }];
-        playBtn.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.12]
-                : [UIColor colorWithWhite:0.0 alpha:0.08];
-        }].CGColor;
-        playBtn.layer.borderWidth = 0.5;
-    } else {
-        playBtn.backgroundColor = YTKACEButtonBgColor();
-    }
-    playBtn.layer.cornerRadius = 8.0;
-    playBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [playBtn setTitle:YTKACELocalized(@"Play") forState:UIControlStateNormal];
-    [playBtn setTitleColor:YTKACETitleColor() forState:UIControlStateNormal];
-    playBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
-    [playBtn setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
-    playBtn.tintColor = YTKACETitleColor();
-    playBtn.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
-    [playBtn addTarget:self action:@selector(togglePlaybackTapped) forControlEvents:UIControlEventTouchUpInside];
-    self.previewPlayPauseButton = playBtn;
-    [controlStack addArrangedSubview:playBtn];
-
-    // 3. Seek Start Button
-    UIButton *seekStartBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    seekStartBtn.translatesAutoresizingMaskIntoConstraints = NO;
-    if (YTKACELiquidGlassAvailable()) {
-        seekStartBtn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.10]
-                : [UIColor colorWithWhite:0.0 alpha:0.05];
-        }];
-        seekStartBtn.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.12]
-                : [UIColor colorWithWhite:0.0 alpha:0.08];
-        }].CGColor;
-        seekStartBtn.layer.borderWidth = 0.5;
-    } else {
-        seekStartBtn.backgroundColor = YTKACEButtonBgColor();
-    }
-    seekStartBtn.layer.cornerRadius = 8.0;
-    seekStartBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [seekStartBtn setTitle:YTKACELocalized(@"⏮ Start") forState:UIControlStateNormal];
-    [seekStartBtn setTitleColor:YTKACETitleColor() forState:UIControlStateNormal];
-    seekStartBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium];
-    [seekStartBtn addTarget:self action:@selector(seekToStart) forControlEvents:UIControlEventTouchUpInside];
-    [controlStack addArrangedSubview:seekStartBtn];
-
-    // 4. Seek End Button
-    UIButton *seekEndBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    seekEndBtn.translatesAutoresizingMaskIntoConstraints = NO;
-    if (YTKACELiquidGlassAvailable()) {
-        seekEndBtn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.10]
-                : [UIColor colorWithWhite:0.0 alpha:0.05];
-        }];
-        seekEndBtn.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.12]
-                : [UIColor colorWithWhite:0.0 alpha:0.08];
-        }].CGColor;
-        seekEndBtn.layer.borderWidth = 0.5;
-    } else {
-        seekEndBtn.backgroundColor = YTKACEButtonBgColor();
-    }
-    seekEndBtn.layer.cornerRadius = 8.0;
-    seekEndBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [seekEndBtn setTitle:YTKACELocalized(@"⏭ End") forState:UIControlStateNormal];
-    [seekEndBtn setTitleColor:YTKACETitleColor() forState:UIControlStateNormal];
-    seekEndBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium];
-    [seekEndBtn addTarget:self action:@selector(seekToEnd) forControlEvents:UIControlEventTouchUpInside];
-    [controlStack addArrangedSubview:seekEndBtn];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [header.topAnchor constraintEqualToAnchor:card.topAnchor constant:10.0],
-        [header.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
-
-        [previewContainer.topAnchor constraintEqualToAnchor:header.bottomAnchor constant:8.0],
-        [previewContainer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
-        [previewContainer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
-        [previewContainer.heightAnchor constraintEqualToAnchor:previewContainer.widthAnchor multiplier:(9.0 / 16.0)],
-
-        [controlStack.topAnchor constraintEqualToAnchor:previewContainer.bottomAnchor constant:10.0],
-        [controlStack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
-        [controlStack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
-        [controlStack.heightAnchor constraintEqualToConstant:32.0],
-        [controlStack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-12.0]
-    ]];
-
-    return card;
-}
-
 - (void)buildUI {
     // 1. Video Info Card
     UIView *infoCard = [self buildCardView];
@@ -1365,11 +985,7 @@ static UIViewController *YTKACEFindTopController(void) {
         [self.durationLabel.bottomAnchor constraintEqualToAnchor:infoCard.bottomAnchor constant:-12.0]
     ]];
 
-    // 1b. Video Preview Card
-    UIView *previewCard = [self buildVideoPreviewCard];
-    [self.contentView addSubview:previewCard];
-
-    // 1c. Select Video Chapter Button
+    // 2. Select Video Chapter Button
     UIButton *chapterButton = [UIButton buttonWithType:UIButtonTypeSystem];
     chapterButton.translatesAutoresizingMaskIntoConstraints = NO;
     if (YTKACELiquidGlassAvailable()) {
@@ -1407,17 +1023,17 @@ static UIViewController *YTKACEFindTopController(void) {
     [self.contentView addSubview:chapterButton];
     self.chapterButton = chapterButton;
 
-    // 2. Start Time Card
+    // 3. Start Time Card
     UIView *startCard = [self buildTimeCardWithTitle:YTKACELocalized(@"START TIME")
                                              isStart:YES];
     [self.contentView addSubview:startCard];
 
-    // 3. End Time Card
+    // 4. End Time Card
     UIView *endCard = [self buildTimeCardWithTitle:YTKACELocalized(@"END TIME")
                                            isStart:NO];
     [self.contentView addSubview:endCard];
 
-    // 4. Length Indicator Badge
+    // 5. Length Indicator Badge
     self.lengthBadgeView = [UIView new];
     self.lengthBadgeView.translatesAutoresizingMaskIntoConstraints = NO;
     self.lengthBadgeView.layer.cornerRadius = 10.0;
@@ -1440,11 +1056,11 @@ static UIViewController *YTKACEFindTopController(void) {
         [self.lengthBadgeLabel.centerYAnchor constraintEqualToAnchor:self.lengthBadgeView.centerYAnchor]
     ]];
 
-    // 5. Category Selection Card
+    // 6. Category Selection Card
     UIView *categoryCard = [self buildCategoryCard];
     [self.contentView addSubview:categoryCard];
 
-    // 6. Preview Skip Button
+    // 7. Preview Skip Button
     self.previewSkipButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.previewSkipButton.translatesAutoresizingMaskIntoConstraints = NO;
     if (YTKACELiquidGlassAvailable()) {
@@ -1465,16 +1081,19 @@ static UIViewController *YTKACEFindTopController(void) {
     self.previewSkipButton.layer.cornerRadius = 12.0;
     self.previewSkipButton.layer.cornerCurve = kCACornerCurveContinuous;
     self.previewSkipButton.layer.masksToBounds = YES;
-    [self.previewSkipButton setTitle:YTKACELocalized(@"Preview Skip (Real Cut)") forState:UIControlStateNormal];
+    [self.previewSkipButton setTitle:YTKACELocalized(@"Preview Skip (Real Cut ✂)") forState:UIControlStateNormal];
     [self.previewSkipButton setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
     self.previewSkipButton.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightSemibold];
-    [self.previewSkipButton setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
-    self.previewSkipButton.tintColor = YTKACEAccentColor();
-    self.previewSkipButton.imageEdgeInsets = UIEdgeInsetsMake(0, -8, 0, 8);
+    UIImage *scissors = [UIImage systemImageNamed:@"scissors"];
+    if (scissors != nil) {
+        [self.previewSkipButton setImage:scissors forState:UIControlStateNormal];
+        self.previewSkipButton.tintColor = YTKACEAccentColor();
+        self.previewSkipButton.imageEdgeInsets = UIEdgeInsetsMake(0, -8, 0, 8);
+    }
     [self.previewSkipButton addTarget:self action:@selector(previewSkipTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.contentView addSubview:self.previewSkipButton];
 
-    // 7. Big Bottom Submit Button
+    // 8. Big Bottom Submit Button
     self.submitButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.submitButton.translatesAutoresizingMaskIntoConstraints = NO;
     self.submitButton.backgroundColor = YTKACESponsorCategoryColor(@"sponsor");
@@ -1499,11 +1118,7 @@ static UIViewController *YTKACEFindTopController(void) {
     [self.submitButton addSubview:self.spinner];
 
     [NSLayoutConstraint activateConstraints:@[
-        [previewCard.topAnchor constraintEqualToAnchor:infoCard.bottomAnchor constant:10.0],
-        [previewCard.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16.0],
-        [previewCard.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16.0],
-
-        [chapterButton.topAnchor constraintEqualToAnchor:previewCard.bottomAnchor constant:10.0],
+        [chapterButton.topAnchor constraintEqualToAnchor:infoCard.bottomAnchor constant:10.0],
         [chapterButton.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16.0],
         [chapterButton.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16.0],
         [chapterButton.heightAnchor constraintEqualToConstant:42.0],
@@ -1971,12 +1586,6 @@ static UIViewController *YTKACEFindTopController(void) {
     }
     self.categoryDescLabel.text = YTKACESponsorCategoryDescription(self.selectedCategory);
     self.submitButton.backgroundColor = YTKACESponsorCategoryColor(self.selectedCategory);
-    if (self.previewCategoryDot != nil) {
-        self.previewCategoryDot.backgroundColor = YTKACESponsorCategoryColor(self.selectedCategory);
-    }
-    if (self.previewCategoryLabel != nil) {
-        self.previewCategoryLabel.text = YTKACESponsorCategoryTitle(self.selectedCategory);
-    }
     BOOL isPOI = [self.selectedCategory isEqualToString:@"poi_highlight"];
     BOOL supportsFull = [self.selectedCategory isEqualToString:@"sponsor"] ||
                         [self.selectedCategory isEqualToString:@"selfpromo"];
@@ -2009,16 +1618,8 @@ static UIViewController *YTKACEFindTopController(void) {
         self.submitButton.alpha = 1.0;
         self.previewSkipButton.enabled = NO;
         self.previewSkipButton.alpha = 0.4;
-        self.previewCutButton.enabled = NO;
-        self.previewCutButton.alpha = 0.4;
-        if (self.previewTimeLabel != nil) {
-            self.previewTimeLabel.text = YTKACELocalized(@"Full Video");
-        }
         return;
     }
-
-    self.previewSkipButton.enabled = YES;
-    self.previewSkipButton.alpha = 1.0;
 
     self.startTimeLabel.text = YTKACEFormatSponsorTime(self.startTime);
     self.startSecLabel.text = [NSString stringWithFormat:@"(%.2fs)", self.startTime];
@@ -2036,8 +1637,8 @@ static UIViewController *YTKACEFindTopController(void) {
         self.navigationItem.rightBarButtonItem.enabled = YES;
         self.submitButton.enabled = YES;
         self.submitButton.alpha = 1.0;
-        self.previewCutButton.enabled = YES;
-        self.previewCutButton.alpha = 1.0;
+        self.previewSkipButton.enabled = YES;
+        self.previewSkipButton.alpha = 1.0;
     } else {
         self.lengthBadgeView.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.18];
         self.lengthBadgeLabel.textColor = UIColor.systemRedColor;
@@ -2045,15 +1646,8 @@ static UIViewController *YTKACEFindTopController(void) {
         self.navigationItem.rightBarButtonItem.enabled = NO;
         self.submitButton.enabled = NO;
         self.submitButton.alpha = 0.5;
-        self.previewCutButton.enabled = NO;
-        self.previewCutButton.alpha = 0.4;
-    }
-
-    if (self.previewTimeLabel != nil) {
-        self.previewTimeLabel.text = [NSString stringWithFormat:@"%@ ➔ %@ (%.1fs)",
-            YTKACEFormatSponsorTime(self.startTime),
-            YTKACEFormatSponsorTime(self.endTime),
-            MAX(0.0, diff)];
+        self.previewSkipButton.enabled = NO;
+        self.previewSkipButton.alpha = 0.4;
     }
 }
 
@@ -2068,11 +1662,6 @@ static UIViewController *YTKACEFindTopController(void) {
     self.startTime = now;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
-    if (self.previewStatusLabel != nil) {
-        self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@",
-            YTKACELocalized(@"Marked start at"),
-            YTKACEFormatSponsorTime(self.startTime)];
-    }
 }
 
 - (void)setEndToNow {
@@ -2088,37 +1677,20 @@ static UIViewController *YTKACEFindTopController(void) {
     self.endTime = now;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
-    if (self.previewStatusLabel != nil) {
-        self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@",
-            YTKACELocalized(@"Marked end at"),
-            YTKACEFormatSponsorTime(self.endTime)];
-    }
 }
 
 - (void)seekToStart {
     [self stopPreviewTimer];
     YTKACESetTestSkip(-1.0, -1.0);
     YTKACESponsorSeek(self.startTime);
-    YTKACEPauseYouTubePlayer();
-    [self updatePlayPauseButton:NO];
-    if (self.previewStatusLabel != nil) {
-        self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@",
-            YTKACELocalized(@"Frame preview at start"),
-            YTKACEFormatSponsorTime(self.startTime)];
-    }
+    YTKACEPlayYouTubePlayer();
 }
 
 - (void)seekToEnd {
     [self stopPreviewTimer];
     YTKACESetTestSkip(-1.0, -1.0);
     YTKACESponsorSeek(self.endTime);
-    YTKACEPauseYouTubePlayer();
-    [self updatePlayPauseButton:NO];
-    if (self.previewStatusLabel != nil) {
-        self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@",
-            YTKACELocalized(@"Frame preview at end"),
-            YTKACEFormatSponsorTime(self.endTime)];
-    }
+    YTKACEPlayYouTubePlayer();
 }
 
 - (void)stepStart:(UIButton *)sender {
@@ -2136,13 +1708,6 @@ static UIViewController *YTKACEFindTopController(void) {
     [self stopPreviewTimer];
     YTKACESetTestSkip(-1.0, -1.0);
     YTKACESponsorSeek(self.startTime);
-    YTKACEPauseYouTubePlayer();
-    [self updatePlayPauseButton:NO];
-    if (self.previewStatusLabel != nil) {
-        self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@",
-            YTKACELocalized(@"Frame at start"),
-            YTKACEFormatSponsorTime(self.startTime)];
-    }
 }
 
 - (void)stepEnd:(UIButton *)sender {
@@ -2160,13 +1725,6 @@ static UIViewController *YTKACEFindTopController(void) {
     [self stopPreviewTimer];
     YTKACESetTestSkip(-1.0, -1.0);
     YTKACESponsorSeek(self.endTime);
-    YTKACEPauseYouTubePlayer();
-    [self updatePlayPauseButton:NO];
-    if (self.previewStatusLabel != nil) {
-        self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@",
-            YTKACELocalized(@"Frame at end"),
-            YTKACEFormatSponsorTime(self.endTime)];
-    }
 }
 
 static double YTKACEParseManualTimestamp(NSString *raw) {
@@ -2238,13 +1796,6 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
             [strongSelf stopPreviewTimer];
             YTKACESetTestSkip(-1.0, -1.0);
             YTKACESponsorSeek(parsed);
-            YTKACEPauseYouTubePlayer();
-            [strongSelf updatePlayPauseButton:NO];
-            if (strongSelf.previewStatusLabel != nil) {
-                strongSelf.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@",
-                    YTKACELocalized(@"Frame preview at"),
-                    YTKACEFormatSponsorTime(parsed)];
-            }
         }
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -2265,18 +1816,27 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
     }
     [self stopPreviewTimer];
     self.isPreviewing = YES;
-    self.previewTargetEnd = self.endTime + 2.0;
+
+    if (@available(iOS 15.0, *)) {
+        if (self.sheetPresentationController != nil) {
+            [self.sheetPresentationController animateChanges:^{
+                self.sheetPresentationController.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
+            }];
+        }
+    }
 
     double previewStart = MAX(0.0, self.startTime - 2.0);
+    self.previewTargetEnd = self.endTime + 2.0;
+
     YTKACESetTestSkip(self.startTime, self.endTime);
     YTKACESponsorSeek(previewStart);
     YTKACEPlayYouTubePlayer();
-    [self updatePlayPauseButton:YES];
 
-    if (self.previewStatusLabel != nil) {
-        self.previewStatusLabel.text = YTKACELocalized(@"Playing pre-cut (2s before segment)...");
-    }
-    YTKACEShowNotice(YTKACELocalized(@"Previewing skip..."));
+    YTKACEShowNotice(YTKACELocalized(@"Previewing skip in player..."));
+
+    __block BOOL hasSeekedToStart = NO;
+    __block BOOL hasCutOccurred = NO;
+    __block NSTimeInterval startTimeInterval = [NSDate timeIntervalSinceReferenceDate];
 
     __weak YTKACESponsorSubmitController *weakSelf = self;
     self.previewTimer = [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer * _Nonnull timer) {
@@ -2285,22 +1845,35 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
             [timer invalidate];
             return;
         }
+        NSTimeInterval elapsedRealTime = [NSDate timeIntervalSinceReferenceDate] - startTimeInterval;
         double current = YTKACESponsorCurrentTime();
-        if (current < strongSelf.startTime) {
-            strongSelf.previewStatusLabel.text = [NSString stringWithFormat:@"%@ (-%.1fs)",
-                YTKACELocalized(@"Playing pre-cut"),
-                strongSelf.startTime - current];
-        } else if (current >= strongSelf.endTime && current < strongSelf.previewTargetEnd) {
-            strongSelf.previewStatusLabel.text = [NSString stringWithFormat:@"%@ (+%.1fs)",
-                YTKACELocalized(@"✂ Cut skipped! Showing resumption"),
-                current - strongSelf.endTime];
-        } else if (current >= strongSelf.previewTargetEnd || (strongSelf.videoDuration > 0.0 && current >= strongSelf.videoDuration)) {
+
+        if (!hasSeekedToStart) {
+            if (fabs(current - previewStart) <= 1.0 || (current >= previewStart && current < strongSelf.startTime)) {
+                hasSeekedToStart = YES;
+            } else if (elapsedRealTime > 3.0) {
+                hasSeekedToStart = YES;
+            } else {
+                return;
+            }
+        }
+
+        if (!hasCutOccurred) {
+            if (current >= strongSelf.endTime) {
+                hasCutOccurred = YES;
+            }
+        }
+
+        if (hasCutOccurred && (current >= strongSelf.previewTargetEnd || (strongSelf.videoDuration > 0.0 && current >= strongSelf.videoDuration))) {
             [strongSelf stopPreviewTimer];
             YTKACESetTestSkip(-1.0, -1.0);
             YTKACEPauseYouTubePlayer();
-            [strongSelf updatePlayPauseButton:NO];
-            strongSelf.previewStatusLabel.text = YTKACELocalized(@"✓ Cut preview complete");
             AudioServicesPlaySystemSound(1519);
+            YTKACEShowNotice(YTKACELocalized(@"Cut preview complete"));
+        } else if (elapsedRealTime > 15.0) {
+            [strongSelf stopPreviewTimer];
+            YTKACESetTestSkip(-1.0, -1.0);
+            YTKACEPauseYouTubePlayer();
         }
     }];
 }
@@ -2369,7 +1942,15 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
             YTKACESponsorFetchUserInfo(nil);
 
             [YTKACESponsorSubmitCoordinator.sharedCoordinator clearDraft];
-            YTKACESponsorRefreshCurrentVideo();
+
+            NSDictionary *submittedSeg = @{
+                @"start": @(submitStart),
+                @"end": @(submitEnd),
+                @"category": strongSelf.selectedCategory ?: @"sponsor",
+                @"actionType": actionType ?: @"skip",
+                @"uuid": [[NSUUID UUID] UUIDString]
+            };
+            YTKACESponsorAddActiveSegment(strongSelf.videoID, submittedSeg);
 
             YTKACEShowNotice(YTKACELocalized(@"Segment submitted to SponsorBlock!"));
             if (strongSelf.onDismiss) strongSelf.onDismiss();
@@ -2430,10 +2011,11 @@ void YTKACEPresentSponsorSubmitController(NSString *videoID,
             UISheetPresentationControllerDetent.mediumDetent,
             UISheetPresentationControllerDetent.largeDetent
         ];
-        sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierLarge;
+        sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
         sheet.largestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
         sheet.prefersGrabberVisible = YES;
         sheet.prefersEdgeAttachedInCompactHeight = NO;
+        sheet.prefersScrollingExpandsWhenScrolledToEdge = NO;
         sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = YES;
     }
     if (YTKACELiquidGlassAvailable()) {

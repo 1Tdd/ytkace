@@ -7,6 +7,7 @@
 @interface YTKACESponsorClient ()
 @property(nonatomic, strong) NSCache<NSString *, NSArray *> *cache;
 @property(nonatomic, strong) NSURLSession *session;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<NSDictionary *> *> *localSubmissions;
 @end
 
 @implementation YTKACESponsorClient
@@ -25,6 +26,7 @@
     if (self) {
         _cache = [NSCache new];
         _cache.countLimit = 128;
+        _localSubmissions = [NSMutableDictionary dictionary];
 
         NSURLSessionConfiguration *configuration =
             NSURLSessionConfiguration.ephemeralSessionConfiguration;
@@ -59,6 +61,37 @@
 
     NSArray *cached = [self.cache objectForKey:cacheKey];
     if (cached != nil) {
+        NSArray *locals = self.localSubmissions[videoID];
+        if (locals.count > 0) {
+            NSMutableArray *merged = [cached mutableCopy];
+            BOOL changed = NO;
+            for (NSDictionary *local in locals) {
+                NSString *cat = local[@"category"];
+                if (cat.length > 0 && ![categories containsObject:cat]) continue;
+                double lStart = [local[@"start"] doubleValue];
+                double lEnd = [local[@"end"] doubleValue];
+                BOOL duplicate = NO;
+                for (NSDictionary *ex in merged) {
+                    if ([ex[@"uuid"] isEqualToString:local[@"uuid"]] ||
+                        (fabs([ex[@"start"] doubleValue] - lStart) < 0.2 &&
+                         fabs([ex[@"end"] doubleValue] - lEnd) < 0.2)) {
+                        duplicate = YES;
+                        break;
+                    }
+                }
+                if (!duplicate) {
+                    [merged addObject:local];
+                    changed = YES;
+                }
+            }
+            if (changed) {
+                [merged sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+                    return [a[@"start"] compare:b[@"start"]];
+                }];
+                cached = [merged copy];
+                [self.cache setObject:cached forKey:cacheKey];
+            }
+        }
         completion(cached);
         return;
     }
@@ -148,6 +181,28 @@
             }
         }
 
+        NSArray *locals = weakSelf.localSubmissions[videoID];
+        if (locals.count > 0) {
+            for (NSDictionary *local in locals) {
+                NSString *cat = local[@"category"];
+                if (cat.length > 0 && ![categories containsObject:cat]) continue;
+                double lStart = [local[@"start"] doubleValue];
+                double lEnd = [local[@"end"] doubleValue];
+                BOOL duplicate = NO;
+                for (NSDictionary *ex in segments) {
+                    if ([ex[@"uuid"] isEqualToString:local[@"uuid"]] ||
+                        (fabs([ex[@"start"] doubleValue] - lStart) < 0.2 &&
+                         fabs([ex[@"end"] doubleValue] - lEnd) < 0.2)) {
+                        duplicate = YES;
+                        break;
+                    }
+                }
+                if (!duplicate) {
+                    [segments addObject:local];
+                }
+            }
+        }
+
         NSArray *result = [segments sortedArrayUsingComparator:
             ^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
                 return [left[@"start"] compare:right[@"start"]];
@@ -167,6 +222,34 @@
 }
 
 - (void)clearCacheForVideoID:(__unused NSString *)videoID {
+    [self.cache removeAllObjects];
+}
+
+- (void)addLocalSegment:(NSDictionary<NSString *, id> *)segment forVideoID:(NSString *)videoID {
+    if (videoID.length == 0 || segment == nil) return;
+    NSMutableArray *list = self.localSubmissions[videoID];
+    if (list == nil) {
+        list = [NSMutableArray array];
+        self.localSubmissions[videoID] = list;
+    }
+    NSString *uuid = segment[@"uuid"];
+    double start = [segment[@"start"] doubleValue];
+    double end = [segment[@"end"] doubleValue];
+    BOOL exists = NO;
+    for (NSDictionary *item in list) {
+        if (uuid.length > 0 && [item[@"uuid"] isEqualToString:uuid]) {
+            exists = YES;
+            break;
+        }
+        if (fabs([item[@"start"] doubleValue] - start) < 0.1 &&
+            fabs([item[@"end"] doubleValue] - end) < 0.1) {
+            exists = YES;
+            break;
+        }
+    }
+    if (!exists) {
+        [list addObject:segment];
+    }
     [self.cache removeAllObjects];
 }
 
@@ -206,6 +289,7 @@
     request.HTTPMethod = @"POST";
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+    [request setValue:@"YTKACE/1.1.3 (iOS)" forHTTPHeaderField:@"User-Agent"];
 
     BOOL isFullVideo = [resolvedAction isEqualToString:@"full"];
     double resolvedStart = start;
@@ -214,17 +298,21 @@
         if (resolvedEnd > duration) resolvedEnd = duration;
         if (resolvedStart > duration) resolvedStart = duration;
     }
+    resolvedStart = round(resolvedStart * 1000.0) / 1000.0;
+    resolvedEnd = round(resolvedEnd * 1000.0) / 1000.0;
+
     NSDictionary *segment = @{
         @"segment": isFullVideo ? @[@(0.0), @(0.0)] : @[@(resolvedStart), @(resolvedEnd)],
         @"category": category ?: @"sponsor",
-        @"actionType": resolvedAction
+        @"actionType": resolvedAction,
+        @"description": @""
     };
 
     NSDictionary *payload = @{
         @"videoID": videoID,
         @"userID": userID,
         @"videoDuration": @(duration > 0.0 ? duration : 0.0),
-        @"userAgent": @"YTKACE/1.1.1 (iOS)",
+        @"userAgent": @"YTKACE/1.1.3 (iOS)",
         @"segments": @[segment]
     };
 
@@ -249,32 +337,38 @@
         NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class]
             ? (NSHTTPURLResponse *)response : nil;
         NSInteger statusCode = http != nil ? http.statusCode : 0;
-        BOOL success = (error == nil && statusCode == 200);
+        BOOL success = (error == nil && (statusCode >= 200 && statusCode < 300));
         NSString *message = nil;
+        NSString *bodyString = data.length > 0
+            ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
 
         if (success) {
-            [weakSelf clearCache];
+            NSDictionary *localSeg = @{
+                @"start": @(resolvedStart),
+                @"end": @(resolvedEnd),
+                @"category": category ?: @"sponsor",
+                @"actionType": resolvedAction,
+                @"uuid": [[NSUUID UUID] UUIDString]
+            };
+            [weakSelf addLocalSegment:localSeg forVideoID:videoID];
         } else if (error != nil) {
             message = error.localizedDescription ?: YTKACELocalized(@"Network error");
         } else if (statusCode == 409) {
             message = YTKACELocalized(@"Segment has already been submitted before.");
         } else if (statusCode == 403) {
-            NSString *bodyString = data.length > 0
-                ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
             message = bodyString.length > 0
                 ? bodyString
                 : YTKACELocalized(@"Submission forbidden or category locked.");
         } else if (statusCode == 429) {
             message = YTKACELocalized(@"Too many submissions. Please wait a moment.");
         } else if (statusCode == 400) {
-            NSString *bodyString = data.length > 0
-                ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
             message = bodyString.length > 0
                 ? bodyString
                 : YTKACELocalized(@"Invalid segment parameters.");
         } else {
-            message = [NSString stringWithFormat:@"%@: %ld",
-                       YTKACELocalized(@"Submission failed"), (long)statusCode];
+            message = [NSString stringWithFormat:@"%@: %ld%@",
+                       YTKACELocalized(@"Submission failed"), (long)statusCode,
+                       (bodyString.length > 0 ? [NSString stringWithFormat:@" (%@)", bodyString] : @"")];
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{

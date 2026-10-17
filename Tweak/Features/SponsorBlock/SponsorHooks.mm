@@ -744,52 +744,6 @@ id YTKACEActivePlayerViewController(void) {
     return YTKACECurrentSponsorController ?: YTKACELastPlayerController;
 }
 
-static AVPlayer *YTKACESearchPlayerInLayer(CALayer *layer, NSInteger depth) {
-    if (layer == nil || depth > 20) return nil;
-    if ([layer isKindOfClass:AVPlayerLayer.class]) {
-        AVPlayer *p = ((AVPlayerLayer *)layer).player;
-        if (p != nil) return p;
-    }
-    for (CALayer *child in layer.sublayers) {
-        AVPlayer *p = YTKACESearchPlayerInLayer(child, depth + 1);
-        if (p != nil) return p;
-    }
-    return nil;
-}
-
-AVPlayer *YTKACESponsorActivePlayer(void) {
-    id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
-    if (controller != nil) {
-        for (NSString *selName in @[@"player", @"avPlayer", @"activePlayer", @"videoPlayer"]) {
-            SEL s = NSSelectorFromString(selName);
-            if ([controller respondsToSelector:s]) {
-                id p = ((id (*)(id, SEL))objc_msgSend)(controller, s);
-                if ([p isKindOfClass:AVPlayer.class]) return (AVPlayer *)p;
-                SEL subSel = NSSelectorFromString(@"player");
-                if ([p respondsToSelector:subSel]) {
-                    id sub = ((id (*)(id, SEL))objc_msgSend)(p, subSel);
-                    if ([sub isKindOfClass:AVPlayer.class]) return (AVPlayer *)sub;
-                }
-            }
-        }
-        SEL viewSel = NSSelectorFromString(@"view");
-        if ([controller respondsToSelector:viewSel]) {
-            UIView *v = ((id (*)(id, SEL))objc_msgSend)(controller, viewSel);
-            if ([v isKindOfClass:UIView.class]) {
-                AVPlayer *p = YTKACESearchPlayerInLayer(v.layer, 0);
-                if (p != nil) return p;
-            }
-        }
-    }
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
-        for (UIWindow *w in ((UIWindowScene *)scene).windows) {
-            AVPlayer *p = YTKACESearchPlayerInLayer(w.layer, 0);
-            if (p != nil) return p;
-        }
-    }
-    return nil;
-}
 
 void YTKACEPauseYouTubePlayer(void) {
     id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
@@ -1601,6 +1555,66 @@ void YTKACESponsorSeek(double time) {
     id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
     if (controller != nil) {
         YTKACESeekToTime(controller, time);
+    }
+}
+
+void YTKACESponsorAddActiveSegment(NSString *videoID, NSDictionary<NSString *, id> *segment) {
+    if (segment == nil) return;
+    id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
+    if (controller == nil) return;
+
+    NSString *currentVID = objc_getAssociatedObject(controller, YTKACESponsorVideoAssociation)
+                        ?: YTKACEVideoIDFromObject(controller)
+                        ?: YTKACELastVideoID();
+    if (videoID.length > 0 && currentVID.length > 0 && ![videoID isEqualToString:currentVID]) {
+        return;
+    }
+
+    [YTKACESponsorClient.sharedClient addLocalSegment:segment forVideoID:currentVID ?: videoID];
+
+    NSArray *existing = objc_getAssociatedObject(controller, YTKACESponsorSegmentsAssociation);
+    NSMutableArray *updated = [NSMutableArray array];
+    if ([existing isKindOfClass:NSArray.class]) {
+        [updated addObjectsFromArray:existing];
+    }
+
+    NSString *newUUID = segment[@"uuid"];
+    double newStart = [segment[@"start"] doubleValue];
+    double newEnd = [segment[@"end"] doubleValue];
+    BOOL exists = NO;
+    for (NSDictionary *item in updated) {
+        if (newUUID.length > 0 && [item[@"uuid"] isEqualToString:newUUID]) {
+            exists = YES;
+            break;
+        }
+        if (fabs([item[@"start"] doubleValue] - newStart) < 0.1 &&
+            fabs([item[@"end"] doubleValue] - newEnd) < 0.1) {
+            exists = YES;
+            break;
+        }
+    }
+    if (!exists) {
+        [updated addObject:segment];
+        [updated sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+            return [a[@"start"] compare:b[@"start"]];
+        }];
+        objc_setAssociatedObject(controller,
+                                 YTKACESponsorSegmentsAssociation,
+                                 [updated copy],
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(controller,
+                                 YTKACESponsorSkippedAssociation,
+                                 [NSMutableSet set],
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(controller,
+                                 YTKACESponsorUnskippedAssociation,
+                                 [NSMutableSet set],
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        for (UIView *bar in YTKACESponsorBars.allObjects) {
+            [bar setNeedsLayout];
+            [bar layoutIfNeeded];
+            YTKACEUpdatePlayerBarDuration(bar);
+        }
     }
 }
 

@@ -28,7 +28,7 @@ void YTKACEPauseYouTubePlayer(void);
 void YTKACESponsorRefreshCurrentVideo(void);
 void YTKACESetTestSkip(double start, double end);
 void YTKACESponsorUserDidManualSeek(void);
-AVPlayer * _Nullable YTKACESponsorActivePlayer(void);
+void YTKACESponsorAddActiveSegment(NSString * _Nullable videoID, NSDictionary<NSString *, id> *segment);
 id _Nullable YTKACEActivePlayerViewController(void);
 
 NS_ASSUME_NONNULL_END
