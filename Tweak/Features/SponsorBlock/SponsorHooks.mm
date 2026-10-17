@@ -12,6 +12,7 @@
 #import "../../UI/Assets.h"
 
 #import <QuartzCore/QuartzCore.h>
+#import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
@@ -741,6 +742,53 @@ static __weak id YTKACELastPlayerController;
 
 id YTKACEActivePlayerViewController(void) {
     return YTKACECurrentSponsorController ?: YTKACELastPlayerController;
+}
+
+static AVPlayer *YTKACESearchPlayerInLayer(CALayer *layer, NSInteger depth) {
+    if (layer == nil || depth > 20) return nil;
+    if ([layer isKindOfClass:AVPlayerLayer.class]) {
+        AVPlayer *p = ((AVPlayerLayer *)layer).player;
+        if (p != nil) return p;
+    }
+    for (CALayer *child in layer.sublayers) {
+        AVPlayer *p = YTKACESearchPlayerInLayer(child, depth + 1);
+        if (p != nil) return p;
+    }
+    return nil;
+}
+
+AVPlayer *YTKACESponsorActivePlayer(void) {
+    id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
+    if (controller != nil) {
+        for (NSString *selName in @[@"player", @"avPlayer", @"activePlayer", @"videoPlayer"]) {
+            SEL s = NSSelectorFromString(selName);
+            if ([controller respondsToSelector:s]) {
+                id p = ((id (*)(id, SEL))objc_msgSend)(controller, s);
+                if ([p isKindOfClass:AVPlayer.class]) return (AVPlayer *)p;
+                SEL subSel = NSSelectorFromString(@"player");
+                if ([p respondsToSelector:subSel]) {
+                    id sub = ((id (*)(id, SEL))objc_msgSend)(p, subSel);
+                    if ([sub isKindOfClass:AVPlayer.class]) return (AVPlayer *)sub;
+                }
+            }
+        }
+        SEL viewSel = NSSelectorFromString(@"view");
+        if ([controller respondsToSelector:viewSel]) {
+            UIView *v = ((id (*)(id, SEL))objc_msgSend)(controller, viewSel);
+            if ([v isKindOfClass:UIView.class]) {
+                AVPlayer *p = YTKACESearchPlayerInLayer(v.layer, 0);
+                if (p != nil) return p;
+            }
+        }
+    }
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
+        for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+            AVPlayer *p = YTKACESearchPlayerInLayer(w.layer, 0);
+            if (p != nil) return p;
+        }
+    }
+    return nil;
 }
 
 void YTKACEPauseYouTubePlayer(void) {

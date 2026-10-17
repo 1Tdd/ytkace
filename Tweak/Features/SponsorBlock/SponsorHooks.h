@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <AVFoundation/AVFoundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -27,5 +28,7 @@ void YTKACEPauseYouTubePlayer(void);
 void YTKACESponsorRefreshCurrentVideo(void);
 void YTKACESetTestSkip(double start, double end);
 void YTKACESponsorUserDidManualSeek(void);
+AVPlayer * _Nullable YTKACESponsorActivePlayer(void);
+id _Nullable YTKACEActivePlayerViewController(void);
 
 NS_ASSUME_NONNULL_END
