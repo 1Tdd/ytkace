@@ -1060,7 +1060,7 @@ static UIViewController *YTKACEFindTopController(void) {
         NSURL *thumbUrl = [NSURL URLWithString:thumbUrlStr];
         if (thumbUrl != nil) {
             __weak UIImageView *weakThumb = fallback;
-            [[NSURLSession.sharedSession dataTaskWithURL:thumbUrl completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+            [[NSURLSession.sharedSession dataTaskWithURL:thumbUrl completionHandler:^(NSData * _Nullable data, __unused NSURLResponse * _Nullable response, NSError * _Nullable error) {
                 if (data.length > 0 && error == nil) {
                     UIImage *img = [UIImage imageWithData:data];
                     if (img != nil) {
