@@ -455,29 +455,29 @@ class SponsorPreferencesTests(unittest.TestCase):
     def test_player_bar_duration_formatting_standalone(self):
         # Plain duration text: should unconditionally have ' / ' prefix
         res = format_player_bar_duration("24:53", 1493.0, 225.0)
-        self.assertEqual(res, " / 21:08 (24:53)")
+        self.assertEqual(res, " / 24:53 (21:08)")
 
         # Native duration text with leading slash: should still format with ' / '
         res_slash = format_player_bar_duration(" / 24:53", 1493.0, 225.0)
-        self.assertEqual(res_slash, " / 21:08 (24:53)")
+        self.assertEqual(res_slash, " / 24:53 (21:08)")
 
         # Trailing space preserved if present
         res_space = format_player_bar_duration("24:53 ", 1493.0, 225.0)
-        self.assertEqual(res_space, " / 21:08 (24:53) ")
+        self.assertEqual(res_space, " / 24:53 (21:08) ")
 
     def test_player_bar_duration_formatting_compound(self):
         # Compound label with slash
         res = format_player_bar_duration("0:01 / 26:07", 1567.0, 77.0)
-        self.assertEqual(res, "0:01 / 24:50 (26:07)")
+        self.assertEqual(res, "0:01 / 26:07 (24:50)")
 
         # Compound label with bullet separator: must replace bullet with ' / '
         res_bullet = format_player_bar_duration("0:01 • 26:07", 1567.0, 77.0)
-        self.assertEqual(res_bullet, "0:01 / 24:50 (26:07)")
+        self.assertEqual(res_bullet, "0:01 / 26:07 (24:50)")
 
     def test_player_bar_duration_formatting_countdown(self):
         # Countdown mode (negative): should format remaining time without slash
         res = format_player_bar_duration("-26:07", 1567.0, 77.0, current=60.0, remaining_skips=77.0)
-        self.assertEqual(res, "-23:50 (-25:07)")
+        self.assertEqual(res, "-25:07 (-23:50)")
 
     def test_parse_seconds_and_time_validation(self):
         # Valid time strings
@@ -609,7 +609,7 @@ def format_player_bar_duration(original_text: str, duration: float, skipped: flo
     force_hours = duration >= 3600.0
     effective_str = format_time_duration(effective_duration, force_hours)
     orig_str = format_time_duration(duration, force_hours)
-    combined = f"{effective_str} ({orig_str})"
+    combined = f"{orig_str} ({effective_str})"
     
     # Check compound
     separators = [" / ", " • ", " · ", " - ", " – ", " — ", "/", "-"]
@@ -633,7 +633,7 @@ def format_player_bar_duration(original_text: str, duration: float, skipped: flo
         prefix = " -" if original_text.startswith(" -") else ("–" if original_text.startswith("–") else "-")
         eff_rem_str = prefix + format_time_duration(rem_eff, force_hours)
         orig_rem_str = prefix + format_time_duration(remaining, force_hours)
-        return f"{eff_rem_str} ({orig_rem_str})"
+        return f"{orig_rem_str} ({eff_rem_str})"
     else:
         res = f" / {combined}"
         if original_text.endswith(" "):

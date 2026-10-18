@@ -713,13 +713,16 @@ static void YTKACELoadQueueInfo(NSURL *URL, void (^completion)(NSDictionary *inf
         self.slider.maximumValue = MAX(duration, 1.0);
         self.slider.value = MIN(current, self.slider.maximumValue);
     }
-    NSTimeInterval displayDuration = duration;
+    NSString *durText = YTKACEAudioTime(duration);
     if (YTKACESponsorShowTimeWithSkipsEnabled() && duration > 0.0) {
         double skipped = YTKACESponsorCalculateSkippedDuration(self.session.sponsorSegments, duration);
-        displayDuration = MAX(0.0, duration - skipped);
+        if (skipped > 0.0) {
+            NSTimeInterval effective = MAX(0.0, duration - skipped);
+            durText = [NSString stringWithFormat:@"%@ (%@)", YTKACEAudioTime(duration), YTKACEAudioTime(effective)];
+        }
     }
     self.elapsedLabel.text = YTKACEAudioTime(current);
-    self.durationLabel.text = YTKACEAudioTime(displayDuration);
+    self.durationLabel.text = durText;
 }
 
 - (void)togglePlayback { [self.session togglePlayback]; [self refresh]; }

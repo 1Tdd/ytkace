@@ -1782,13 +1782,16 @@ static UIImage *YTKACEScrubberThumb(CGFloat diameter, UIColor *color) {
         self.slider.maximumValue = isfinite(duration) && duration > 0.0
             ? (float)duration : 1.0f;
         self.slider.value = isfinite(elapsed) ? (float)elapsed : 0.0f;
-        NSTimeInterval displayDuration = duration;
+        NSString *durText = YTKACEPlayerTimeText(duration);
         if (YTKACESponsorShowTimeWithSkipsEnabled() && isfinite(duration) && duration > 0.0) {
             double skipped = YTKACESponsorCalculateSkippedDuration(self.session.sponsorSegments, duration);
-            displayDuration = MAX(0.0, duration - skipped);
+            if (skipped > 0.0) {
+                NSTimeInterval effective = MAX(0.0, duration - skipped);
+                durText = [NSString stringWithFormat:@"%@ (%@)", YTKACEPlayerTimeText(duration), YTKACEPlayerTimeText(effective)];
+            }
         }
         self.timeLabel.text = [NSString stringWithFormat:@"%@ / %@",
-            YTKACEPlayerTimeText(elapsed), YTKACEPlayerTimeText(displayDuration)];
+            YTKACEPlayerTimeText(elapsed), durText];
     }
     [self.slider setSegments:self.session.sponsorSegments duration:duration];
     NSString *playSymbol = self.session.player.rate == 0.0f ? @"play.fill" : @"pause.fill";
@@ -2068,13 +2071,16 @@ static UIImage *YTKACEScrubberThumb(CGFloat diameter, UIColor *color) {
 - (void)sliderChanged {
     [self.slider updateProgress];
     NSTimeInterval duration = CMTimeGetSeconds(self.session.player.currentItem.duration);
-    NSTimeInterval displayDuration = duration;
+    NSString *durText = YTKACEPlayerTimeText(duration);
     if (YTKACESponsorShowTimeWithSkipsEnabled() && isfinite(duration) && duration > 0.0) {
         double skipped = YTKACESponsorCalculateSkippedDuration(self.session.sponsorSegments, duration);
-        displayDuration = MAX(0.0, duration - skipped);
+        if (skipped > 0.0) {
+            NSTimeInterval effective = MAX(0.0, duration - skipped);
+            durText = [NSString stringWithFormat:@"%@ (%@)", YTKACEPlayerTimeText(duration), YTKACEPlayerTimeText(effective)];
+        }
     }
     self.timeLabel.text = [NSString stringWithFormat:@"%@ / %@",
-        YTKACEPlayerTimeText(self.slider.value), YTKACEPlayerTimeText(displayDuration)];
+        YTKACEPlayerTimeText(self.slider.value), durText];
 }
 - (void)sliderEnded {
     self.scrubbing = NO;

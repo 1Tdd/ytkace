@@ -122,12 +122,21 @@ static NSNumber *YTKACESafeNumberForKey(id obj, NSString *key) {
 }
 
 static double YTKACEDoubleMessage(id receiver, NSArray<NSString *> *selectorNames) {
-    for (NSString *selectorName in selectorNames) {
-        SEL selector = NSSelectorFromString(selectorName);
-        if ([receiver respondsToSelector:selector]) {
-            return ((double (*)(id, SEL))objc_msgSend)(receiver, selector);
+    if (receiver == nil) return 0.0;
+    @try {
+        for (NSString *selectorName in selectorNames) {
+            SEL selector = NSSelectorFromString(selectorName);
+            if ([receiver respondsToSelector:selector]) {
+                NSMethodSignature *sig = [receiver methodSignatureForSelector:selector];
+                if (sig != nil) {
+                    const char *retType = [sig methodReturnType];
+                    if (retType != NULL && (retType[0] == 'd' || retType[0] == 'f')) {
+                        return ((double (*)(id, SEL))objc_msgSend)(receiver, selector);
+                    }
+                }
+            }
         }
-    }
+    } @catch (__unused NSException *e) {}
     return 0.0;
 }
 
@@ -2275,11 +2284,79 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
             @[@"currentVideoMediaTime", @"currentMediaTime"]
         );
     }
+    if (duration <= 0.0) {
+        duration = YTKACEDoubleMessage(
+            barView,
+            @[@"totalTime", @"currentVideoTotalMediaTime", @"totalMediaTime"]
+        );
+    }
+    if (current <= 0.0) {
+        current = YTKACEDoubleMessage(
+            barView,
+            @[@"mediaTime", @"currentVideoMediaTime", @"currentMediaTime"]
+        );
+    }
+    if (duration <= 0.0) {
+        id del = YTKACEObjectMessage(barView, @"delegate");
+        if (del != nil) {
+            duration = YTKACEDoubleMessage(del, @[@"currentVideoTotalMediaTime", @"totalTime", @"currentVideoDuration", @"totalMediaTime"]);
+            if (current <= 0.0) {
+                current = YTKACEDoubleMessage(del, @[@"currentVideoMediaTime", @"mediaTime", @"currentMediaTime"]);
+            }
+        }
+    }
+    if (duration <= 0.0) {
+        for (UILabel *lbl in labels) {
+            NSString *t = lbl.text;
+            NSString *compSep = YTKACEFindCompoundSeparator(t);
+            if (compSep != nil) {
+                NSRange r = [t rangeOfString:compSep];
+                if (r.location != NSNotFound) {
+                    NSString *lPart = [t substringToIndex:r.location];
+                    NSString *rPart = [t substringFromIndex:r.location + r.length];
+                    double pLeft = YTKACEParseSecondsFromTimeString(lPart);
+                    double pRight = YTKACEParseSecondsFromTimeString(rPart);
+                    if (pRight > 0.0) {
+                        duration = pRight;
+                        if (current <= 0.0 && pLeft >= 0.0) current = pLeft;
+                        break;
+                    }
+                }
+            } else {
+                double parsed = YTKACEParseSecondsFromTimeString(t);
+                if (parsed > 0.0) {
+                    duration = parsed;
+                    break;
+                }
+            }
+        }
+    }
+    if (duration <= 0.0 && YTKACELatestResolvedVideoDuration > 0.0) {
+        duration = YTKACELatestResolvedVideoDuration;
+    }
+    if (current <= 0.0 && YTKACELatestResolvedVideoTime > 0.0) {
+        current = YTKACELatestResolvedVideoTime;
+    }
     if (!isfinite(duration) || duration <= 0.0) return;
     if (!isfinite(current) || current < 0.0) current = 0.0;
 
     NSArray *rawSegments = controller != nil ? objc_getAssociatedObject(controller, YTKACESponsorSegmentsAssociation) : nil;
+    if (rawSegments == nil && YTKACECurrentSponsorController != nil) {
+        rawSegments = objc_getAssociatedObject(YTKACECurrentSponsorController, YTKACESponsorSegmentsAssociation);
+    }
+    if (rawSegments == nil && YTKACELastPlayerController != nil) {
+        rawSegments = objc_getAssociatedObject(YTKACELastPlayerController, YTKACESponsorSegmentsAssociation);
+    }
+    if (rawSegments == nil) {
+        rawSegments = objc_getAssociatedObject(barView, YTKACESponsorSegmentsAssociation);
+    }
     NSSet<NSNumber *> *unskipped = controller != nil ? objc_getAssociatedObject(controller, YTKACESponsorUnskippedAssociation) : nil;
+    if (unskipped == nil && YTKACECurrentSponsorController != nil) {
+        unskipped = objc_getAssociatedObject(YTKACECurrentSponsorController, YTKACESponsorUnskippedAssociation);
+    }
+    if (unskipped == nil && YTKACELastPlayerController != nil) {
+        unskipped = objc_getAssociatedObject(YTKACELastPlayerController, YTKACESponsorUnskippedAssociation);
+    }
     NSMutableArray<NSDictionary *> *segments = [NSMutableArray arrayWithCapacity:rawSegments.count];
     [rawSegments enumerateObjectsUsingBlock:^(NSDictionary *seg, NSUInteger idx, __unused BOOL *stop) {
         if (![unskipped containsObject:@(idx)]) {
@@ -2387,7 +2464,7 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
 
             NSString *effectiveDurStr = YTKACEFormatTimeDuration(effectiveDuration, forceHours);
             NSString *origDurStr = YTKACEFormatTimeDuration(duration, forceHours);
-            NSString *combinedDurStr = [NSString stringWithFormat:@"%@ (%@)", effectiveDurStr, origDurStr];
+            NSString *combinedDurStr = [NSString stringWithFormat:@"%@ (%@)", origDurStr, effectiveDurStr];
 
             NSString *newDurStr = nil;
             if (compoundSep != nil) {
@@ -2409,7 +2486,10 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
                 }
                 if (leftPart.length > 0) {
                     leftPart = [leftPart stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-                    NSString *sepToUse = [compoundSep containsString:@" "] ? compoundSep : [NSString stringWithFormat:@" %@ ", compoundSep];
+                    NSString *sepToUse = @" / ";
+                    if (![compoundSep containsString:@"•"] && ![compoundSep containsString:@"·"]) {
+                        sepToUse = [compoundSep containsString:@" "] ? compoundSep : [NSString stringWithFormat:@" %@ ", compoundSep];
+                    }
                     newDurStr = [NSString stringWithFormat:@"%@%@%@", leftPart, sepToUse, combinedDurStr];
                 }
             } else if (isCountdown) {
@@ -2433,7 +2513,7 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
                 NSString *prefix = [original hasPrefix:@" -"] ? @" -" : ([original hasPrefix:@"–"] ? @"–" : ([original hasPrefix:@"—"] ? @"—" : @"-"));
                 NSString *effectiveRemStr = [prefix stringByAppendingString:YTKACEFormatTimeDuration(remainingEffective, forceHours)];
                 NSString *origRemStr = [prefix stringByAppendingString:YTKACEFormatTimeDuration(remaining, forceHours)];
-                newDurStr = [NSString stringWithFormat:@"%@ (%@)", effectiveRemStr, origRemStr];
+                newDurStr = [NSString stringWithFormat:@"%@ (%@)", origRemStr, effectiveRemStr];
             } else {
                 NSString *prefix = @"";
                 if ([original hasPrefix:@" / "]) {
@@ -2444,7 +2524,7 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
                     prefix = @"/ ";
                 } else if ([original hasPrefix:@"/"]) {
                     prefix = @"/";
-                } else if (inlineSep != nil) {
+                } else if (inlineSep != nil || currentLabels.count > 0) {
                     prefix = @" / ";
                 }
                 newDurStr = [NSString stringWithFormat:@"%@%@", prefix, combinedDurStr];
