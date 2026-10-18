@@ -537,10 +537,12 @@ static void YTKACEAskToSkipSponsor(id controller, double start, double end,
 
 static double YTKACETestSkipStart = -1.0;
 static double YTKACETestSkipEnd = -1.0;
+static BOOL YTKACETestSkipArmed = NO;
 
 void YTKACESetTestSkip(double start, double end) {
     YTKACETestSkipStart = start;
     YTKACETestSkipEnd = end;
+    YTKACETestSkipArmed = NO;
 }
 
 void YTKACESponsorUserDidManualSeek(void) {
@@ -643,10 +645,14 @@ static BOOL YTKACEIsScrubbing(id controller, UIView *barView) {
 
 static void YTKACEEvaluateSponsorTime(id controller, double time) {
     if (YTKACETestSkipStart >= 0.0 && YTKACETestSkipEnd > YTKACETestSkipStart) {
-        if (time >= YTKACETestSkipStart && time < YTKACETestSkipEnd - 0.05) {
+        if (time < YTKACETestSkipStart) {
+            YTKACETestSkipArmed = YES;
+        }
+        if (YTKACETestSkipArmed && time >= YTKACETestSkipStart && time < YTKACETestSkipEnd - 0.05) {
             double destination = YTKACETestSkipEnd;
             YTKACETestSkipStart = -1.0;
             YTKACETestSkipEnd = -1.0;
+            YTKACETestSkipArmed = NO;
             YTKACESeekToTime(controller, destination);
             if (YTKACESponsorFeedbackEnabled()) {
                 AudioServicesPlaySystemSound(1057);

@@ -1004,11 +1004,15 @@ static UIViewController *YTKACEFindTopController(void) {
     if (self.isPlaying) {
         [self pausePreview];
     } else {
-        [self playPreview];
+        [self previewSkipTapped];
     }
 }
 
 - (void)playPreview {
+    if (!self.isPreviewing) {
+        [self previewSkipTapped];
+        return;
+    }
     self.isPlaying = YES;
     [self updatePlayPauseButtonUI];
     if (self.previewPlayer != nil) {
@@ -1032,8 +1036,8 @@ static UIViewController *YTKACEFindTopController(void) {
         [self.previewPlayPauseButton setTitle:YTKACELocalized(@"Pause") forState:UIControlStateNormal];
         [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal];
     } else {
-        [self.previewPlayPauseButton setTitle:YTKACELocalized(@"Play") forState:UIControlStateNormal];
-        [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
+        [self.previewPlayPauseButton setTitle:YTKACELocalized(@"Preview Cut") forState:UIControlStateNormal];
+        [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:@"scissors"] forState:UIControlStateNormal];
     }
 }
 
@@ -1235,11 +1239,11 @@ static UIViewController *YTKACEFindTopController(void) {
     }
     playBtn.layer.cornerRadius = 8.0;
     playBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [playBtn setTitle:YTKACELocalized(@"Play") forState:UIControlStateNormal];
-    [playBtn setTitleColor:YTKACETitleColor() forState:UIControlStateNormal];
-    playBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
-    [playBtn setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
-    playBtn.tintColor = YTKACETitleColor();
+    [playBtn setTitle:YTKACELocalized(@"Preview Cut") forState:UIControlStateNormal];
+    [playBtn setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
+    playBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
+    [playBtn setImage:[UIImage systemImageNamed:@"scissors"] forState:UIControlStateNormal];
+    playBtn.tintColor = YTKACEAccentColor();
     playBtn.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
     [playBtn addTarget:self action:@selector(togglePlaybackTapped) forControlEvents:UIControlEventTouchUpInside];
     self.previewPlayPauseButton = playBtn;
@@ -1316,9 +1320,12 @@ static UIViewController *YTKACEFindTopController(void) {
     }
     cutBtn.layer.cornerRadius = 8.0;
     cutBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [cutBtn setTitle:YTKACELocalized(@"✂ Cut") forState:UIControlStateNormal];
-    [cutBtn setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
-    cutBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
+    [cutBtn setTitle:YTKACELocalized(@"↺ Replay") forState:UIControlStateNormal];
+    [cutBtn setTitleColor:YTKACETitleColor() forState:UIControlStateNormal];
+    cutBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium];
+    [cutBtn setImage:[UIImage systemImageNamed:@"arrow.counterclockwise"] forState:UIControlStateNormal];
+    cutBtn.tintColor = YTKACETitleColor();
+    cutBtn.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
     [cutBtn addTarget:self action:@selector(previewSkipTapped) forControlEvents:UIControlEventTouchUpInside];
     self.previewCutButton = cutBtn;
     [controlStack addArrangedSubview:cutBtn];
@@ -2517,6 +2524,7 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
 
 - (void)previewSkipTapped {
     if (self.endTime <= self.startTime) {
+        AudioServicesPlaySystemSound(1520);
         YTKACEShowNotice(YTKACELocalized(@"End time must be after start time"));
         return;
     }
@@ -2524,77 +2532,121 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
     self.isPreviewing = YES;
 
     if (@available(iOS 15.0, *)) {
-        if (self.sheetPresentationController != nil) {
-            [self.sheetPresentationController animateChanges:^{
-                self.sheetPresentationController.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
+        UISheetPresentationController *sheet = self.navigationController.sheetPresentationController ?: self.sheetPresentationController;
+        if (sheet != nil) {
+            [sheet animateChanges:^{
+                sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
             }];
         }
     }
 
-    double previewStart = MAX(0.0, self.startTime - 2.0);
-    self.previewTargetEnd = self.endTime + 2.0;
+    double leadIn = 3.0;
+    double previewStart = MAX(0.0, self.startTime - leadIn);
+    double actualLeadIn = self.startTime - previewStart;
+    double leadOut = 2.5;
+    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    double targetEnd = self.endTime + leadOut;
+    if (dur > 0.0 && targetEnd > dur) {
+        targetEnd = dur;
+    }
+    self.previewTargetEnd = targetEnd;
 
-    YTKACESetTestSkip(self.startTime, self.endTime);
+    // Disarm any old test skip
+    YTKACESetTestSkip(-1.0, -1.0);
+
+    // 1. Seek players to previewStart
     YTKACESponsorSeek(previewStart);
-    YTKACEPlayYouTubePlayer();
-
     if (self.previewPlayer != nil) {
         CMTime cm = CMTimeMakeWithSeconds(previewStart, 1000);
         [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+    }
+
+    // 2. Start playback
+    YTKACEPlayYouTubePlayer();
+    if (self.previewPlayer != nil) {
         [self.previewPlayer play];
     }
     self.isPlaying = YES;
     [self updatePlayPauseButtonUI];
-    self.previewStatusLabel.text = YTKACELocalized(@"Testing cut preview (2s before → 2s after)...");
 
-    YTKACEShowNotice(YTKACELocalized(@"Previewing skip cut..."));
+    NSString *initialStatus = [NSString stringWithFormat:@"%@ (%.1fs %@)...",
+        YTKACELocalized(@"Playing before cut"), actualLeadIn, YTKACELocalized(@"before")];
+    self.previewStatusLabel.text = initialStatus;
+    YTKACEShowNotice([NSString stringWithFormat:@"%@: %@ ➔ %@",
+        YTKACELocalized(@"Previewing skip cut"),
+        YTKACEFormatSponsorTime(previewStart),
+        YTKACEFormatSponsorTime(self.startTime)]);
 
-    __block BOOL hasSeekedToStart = NO;
-    __block BOOL hasCutOccurred = NO;
+    __block BOOL armedForCut = NO;
+    __block BOOL cutExecuted = NO;
     __block NSTimeInterval startTimeInterval = [NSDate timeIntervalSinceReferenceDate];
 
     __weak YTKACESponsorSubmitController *weakSelf = self;
-    self.previewTimer = [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer * _Nonnull timer) {
+    self.previewTimer = [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer * _Nonnull timer) {
         YTKACESponsorSubmitController *strongSelf = weakSelf;
-        if (!strongSelf) {
+        if (!strongSelf || !strongSelf.isPreviewing) {
             [timer invalidate];
             return;
         }
-        NSTimeInterval elapsedRealTime = [NSDate timeIntervalSinceReferenceDate] - startTimeInterval;
+        NSTimeInterval elapsed = [NSDate timeIntervalSinceReferenceDate] - startTimeInterval;
         double current = YTKACESponsorCurrentTime();
-
         if (strongSelf.previewPlayer != nil) {
             double pTime = CMTimeGetSeconds(strongSelf.previewPlayer.currentTime);
-            if (pTime >= strongSelf.startTime && pTime < strongSelf.endTime) {
-                CMTime jumpEnd = CMTimeMakeWithSeconds(strongSelf.endTime, 1000);
-                [strongSelf.previewPlayer seekToTime:jumpEnd toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-            }
+            if (pTime > 0.0) current = pTime;
         }
 
-        if (!hasSeekedToStart) {
-            if (fabs(current - previewStart) <= 1.0 || (current >= previewStart && current < strongSelf.startTime)) {
-                hasSeekedToStart = YES;
-            } else if (elapsedRealTime > 3.0) {
-                hasSeekedToStart = YES;
+        // Phase 1: Wait until player has confirmed seeked before startTime
+        if (!armedForCut) {
+            if (current < strongSelf.startTime || (fabs(current - previewStart) <= 1.0) || elapsed > 2.0) {
+                armedForCut = YES;
+                YTKACESetTestSkip(strongSelf.startTime, strongSelf.endTime);
             } else {
                 return;
             }
         }
 
-        if (!hasCutOccurred) {
-            if (current >= strongSelf.endTime) {
-                hasCutOccurred = YES;
+        // Phase 2: Detect cut moment!
+        if (armedForCut && !cutExecuted) {
+            if (current >= strongSelf.startTime - 0.06) {
+                cutExecuted = YES;
+                YTKACESetTestSkip(-1.0, -1.0);
+
+                double dest = strongSelf.endTime;
+                YTKACESponsorSeek(dest);
+                if (strongSelf.previewPlayer != nil) {
+                    CMTime cmDest = CMTimeMakeWithSeconds(dest, 1000);
+                    [strongSelf.previewPlayer seekToTime:cmDest toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+                    [strongSelf.previewPlayer play];
+                }
+                YTKACEPlayYouTubePlayer();
+
+                AudioServicesPlaySystemSound(1057);
+                UINotificationFeedbackGenerator *feedback = [UINotificationFeedbackGenerator new];
+                [feedback notificationOccurred:UINotificationFeedbackTypeSuccess];
+
+                strongSelf.previewStatusLabel.text = [NSString stringWithFormat:@"✂ %@: %@ ➔ %@",
+                    YTKACELocalized(@"Skipped"),
+                    YTKACEFormatSponsorTime(strongSelf.startTime),
+                    YTKACEFormatSponsorTime(strongSelf.endTime)];
+                return;
             }
         }
 
-        if (hasCutOccurred && (current >= strongSelf.previewTargetEnd || (strongSelf.videoDuration > 0.0 && current >= strongSelf.videoDuration))) {
-            [strongSelf stopPreviewTimer];
-            YTKACESetTestSkip(-1.0, -1.0);
-            [strongSelf pausePreview];
-            strongSelf.previewStatusLabel.text = YTKACELocalized(@"Cut preview verified ✓");
-            AudioServicesPlaySystemSound(1519);
-            YTKACEShowNotice(YTKACELocalized(@"Cut preview complete"));
-        } else if (elapsedRealTime > 15.0) {
+        // Phase 3: Post-cut playback until targetEnd!
+        if (cutExecuted) {
+            if (current >= strongSelf.previewTargetEnd || (dur > 0.0 && current >= dur)) {
+                [strongSelf stopPreviewTimer];
+                YTKACESetTestSkip(-1.0, -1.0);
+                [strongSelf pausePreview];
+                strongSelf.previewStatusLabel.text = YTKACELocalized(@"Cut preview verified ✓");
+                AudioServicesPlaySystemSound(1519);
+                YTKACEShowNotice(YTKACELocalized(@"Cut preview verified ✓"));
+                return;
+            }
+        }
+
+        // Safety timeout
+        if (elapsed > 15.0) {
             [strongSelf stopPreviewTimer];
             YTKACESetTestSkip(-1.0, -1.0);
             [strongSelf pausePreview];
