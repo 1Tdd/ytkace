@@ -61,6 +61,17 @@ NSInteger YTKACESponsorCategoryBehavior(NSString *category) {
         return [legacy respondsToSelector:@selector(integerValue)] &&
             [legacy integerValue] == 1 ? 1 : 0;
     }
+    if ([category isEqualToString:@"selfpromo"] ||
+        [category isEqualToString:@"interaction"] ||
+        [category isEqualToString:@"intro"] ||
+        [category isEqualToString:@"outro"] ||
+        [category isEqualToString:@"preview"] ||
+        [category isEqualToString:@"music_offtopic"]) {
+        return 0;
+    }
+    if ([category isEqualToString:@"poi_highlight"]) {
+        return 1;
+    }
     return 2;
 }
 

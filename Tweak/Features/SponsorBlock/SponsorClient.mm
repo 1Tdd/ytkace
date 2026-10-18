@@ -271,8 +271,23 @@
     }
 
     NSString *resolvedAction = actionType;
-    if (resolvedAction.length == 0) {
-        resolvedAction = [category isEqualToString:@"poi_highlight"] ? @"poi" : @"skip";
+    BOOL isPOI = [category isEqualToString:@"poi_highlight"] || [resolvedAction isEqualToString:@"poi"];
+    if (isPOI) {
+        resolvedAction = @"poi";
+    } else if (resolvedAction.length == 0) {
+        resolvedAction = @"skip";
+    }
+
+    // Server compatibility: music_offtopic only accepts 'skip' (not mute or full)
+    if ([category isEqualToString:@"music_offtopic"] && ![resolvedAction isEqualToString:@"skip"]) {
+        resolvedAction = @"skip";
+    }
+
+    // Server compatibility: 'full' is only supported for sponsor and selfpromo
+    if ([resolvedAction isEqualToString:@"full"] &&
+        ![category isEqualToString:@"sponsor"] &&
+        ![category isEqualToString:@"selfpromo"]) {
+        resolvedAction = @"skip";
     }
 
     NSURL *url = [NSURL URLWithString:@"https://sponsor.ajay.app/api/skipSegments"];
@@ -293,8 +308,9 @@
 
     BOOL isFullVideo = [resolvedAction isEqualToString:@"full"];
     double resolvedStart = start;
-    double resolvedEnd = end;
-    if (duration > 0.0 && !isFullVideo) {
+    // poi_highlight requires segment to be [start, start] (point of interest)
+    double resolvedEnd = isPOI ? start : end;
+    if (duration > 0.0 && !isFullVideo && !isPOI) {
         if (resolvedEnd > duration) resolvedEnd = duration;
         if (resolvedStart > duration) resolvedStart = duration;
     }
@@ -356,9 +372,15 @@
         } else if (statusCode == 409) {
             message = YTKACELocalized(@"Segment has already been submitted before.");
         } else if (statusCode == 403) {
-            message = bodyString.length > 0
-                ? bodyString
-                : YTKACELocalized(@"Submission forbidden or category locked.");
+            if ([bodyString containsString:@"already been submitted"] || [bodyString containsString:@"locked"]) {
+                message = [NSString stringWithFormat:@"%@: %@",
+                           YTKACELocalized(@"This category is locked or already completed for this video"),
+                           YTKACESponsorCategoryTitle(category)];
+            } else {
+                message = bodyString.length > 0
+                    ? bodyString
+                    : YTKACELocalized(@"Submission forbidden or category locked.");
+            }
         } else if (statusCode == 429) {
             message = YTKACELocalized(@"Too many submissions. Please wait a moment.");
         } else if (statusCode == 400) {

@@ -1856,6 +1856,57 @@ static UIViewController *YTKACEFindTopController(void) {
     return card;
 }
 
+- (void)presentCategoryPicker {
+    AudioServicesPlaySystemSound(1519);
+    UIAlertController *sheet = [UIAlertController
+        alertControllerWithTitle:YTKACELocalized(@"Select Category")
+        message:YTKACELocalized(@"Choose a SponsorBlock category:")
+        preferredStyle:UIAlertControllerStyleActionSheet];
+
+    NSArray *definitions = YTKACESponsorCategoryDefinitions();
+    for (NSDictionary *def in definitions) {
+        NSString *catID = def[@"id"];
+        NSString *catTitle = def[@"title"];
+        NSString *catDesc = def[@"description"];
+        BOOL isSelected = [catID isEqualToString:self.selectedCategory];
+
+        NSString *actionTitle = isSelected
+            ? [NSString stringWithFormat:@"✓ %@", catTitle]
+            : catTitle;
+
+        if (catDesc.length > 0) {
+            actionTitle = [actionTitle stringByAppendingFormat:@" (%@)", catDesc];
+        }
+
+        UIAlertAction *action = [UIAlertAction
+            actionWithTitle:actionTitle
+                      style:UIAlertActionStyleDefault
+                    handler:^(__unused UIAlertAction *act) {
+            self.selectedCategory = catID;
+            if ([self.actionType isEqualToString:@"full"] &&
+                ![catID isEqualToString:@"sponsor"] &&
+                ![catID isEqualToString:@"selfpromo"]) {
+                self.actionType = @"skip";
+            }
+            if ([self.actionType isEqualToString:@"mute"] &&
+                [catID isEqualToString:@"music_offtopic"]) {
+                self.actionType = @"skip";
+            }
+            AudioServicesPlaySystemSound(1519);
+            [self updateCategorySelection];
+        }];
+        [sheet addAction:action];
+    }
+
+    [sheet addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
+                                             style:UIAlertActionStyleCancel
+                                           handler:nil]];
+
+    sheet.popoverPresentationController.sourceView = self.view;
+    sheet.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2.0, self.view.bounds.size.height / 2.0, 1, 1);
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
 - (UIView *)buildCategoryCard {
     UIView *card = [self buildCardView];
 
@@ -1866,28 +1917,33 @@ static UIViewController *YTKACEFindTopController(void) {
     header.text = YTKACELocalized(@"CATEGORY");
     [card addSubview:header];
 
-    UIScrollView *catScroll = [UIScrollView new];
-    catScroll.translatesAutoresizingMaskIntoConstraints = NO;
-    catScroll.showsHorizontalScrollIndicator = NO;
-    [card addSubview:catScroll];
+    UIButton *pickerBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    pickerBtn.translatesAutoresizingMaskIntoConstraints = NO;
+    [pickerBtn setTitle:YTKACELocalized(@"Choose List ▾") forState:UIControlStateNormal];
+    [pickerBtn setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
+    pickerBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+    [pickerBtn addTarget:self action:@selector(presentCategoryPicker) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:pickerBtn];
 
-    UIStackView *catStack = [UIStackView new];
-    catStack.translatesAutoresizingMaskIntoConstraints = NO;
-    catStack.axis = UILayoutConstraintAxisHorizontal;
-    catStack.spacing = 8.0;
-    catStack.alignment = UIStackViewAlignmentCenter;
-    [catScroll addSubview:catStack];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [catStack.topAnchor constraintEqualToAnchor:catScroll.contentLayoutGuide.topAnchor],
-        [catStack.bottomAnchor constraintEqualToAnchor:catScroll.contentLayoutGuide.bottomAnchor],
-        [catStack.leadingAnchor constraintEqualToAnchor:catScroll.contentLayoutGuide.leadingAnchor constant:14.0],
-        [catStack.trailingAnchor constraintEqualToAnchor:catScroll.contentLayoutGuide.trailingAnchor constant:-14.0],
-        [catStack.heightAnchor constraintEqualToAnchor:catScroll.frameLayoutGuide.heightAnchor]
-    ]];
+    UIStackView *gridStack = [UIStackView new];
+    gridStack.translatesAutoresizingMaskIntoConstraints = NO;
+    gridStack.axis = UILayoutConstraintAxisVertical;
+    gridStack.spacing = 6.0;
+    gridStack.distribution = UIStackViewDistributionFillEqually;
+    [card addSubview:gridStack];
 
     NSArray *definitions = YTKACESponsorCategoryDefinitions();
+    UIStackView *currentRowStack = nil;
     for (NSUInteger i = 0; i < definitions.count; i++) {
+        if (i % 3 == 0) {
+            currentRowStack = [UIStackView new];
+            currentRowStack.translatesAutoresizingMaskIntoConstraints = NO;
+            currentRowStack.axis = UILayoutConstraintAxisHorizontal;
+            currentRowStack.spacing = 6.0;
+            currentRowStack.distribution = UIStackViewDistributionFillEqually;
+            [gridStack addArrangedSubview:currentRowStack];
+        }
+
         NSDictionary *def = definitions[i];
         NSString *catID = def[@"id"];
         NSString *catTitle = def[@"title"];
@@ -1895,7 +1951,7 @@ static UIViewController *YTKACEFindTopController(void) {
 
         UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
         btn.translatesAutoresizingMaskIntoConstraints = NO;
-        btn.layer.cornerRadius = 16.0;
+        btn.layer.cornerRadius = 10.0;
         btn.layer.cornerCurve = kCACornerCurveContinuous;
         btn.layer.borderWidth = 0.5;
         if (YTKACELiquidGlassAvailable()) {
@@ -1913,41 +1969,44 @@ static UIViewController *YTKACEFindTopController(void) {
             btn.layer.borderColor = UIColor.clearColor.CGColor;
             btn.backgroundColor = YTKACEButtonBgColor();
         }
-        btn.contentEdgeInsets = UIEdgeInsetsMake(6, 12, 6, 12);
         btn.tag = (NSInteger)i;
 
-        // Custom chip view with colored dot and label
+        // Custom chip content with dot + label
         UIStackView *chipContent = [UIStackView new];
         chipContent.userInteractionEnabled = NO;
         chipContent.axis = UILayoutConstraintAxisHorizontal;
-        chipContent.spacing = 6.0;
+        chipContent.spacing = 5.0;
         chipContent.alignment = UIStackViewAlignmentCenter;
         chipContent.translatesAutoresizingMaskIntoConstraints = NO;
         [btn addSubview:chipContent];
 
         UIView *dot = [UIView new];
         dot.backgroundColor = color;
-        dot.layer.cornerRadius = 5.0;
+        dot.layer.cornerRadius = 4.0;
+        dot.layer.masksToBounds = YES;
         dot.translatesAutoresizingMaskIntoConstraints = NO;
-        [dot.widthAnchor constraintEqualToConstant:10.0].active = YES;
-        [dot.heightAnchor constraintEqualToConstant:10.0].active = YES;
+        [dot.widthAnchor constraintEqualToConstant:8.0].active = YES;
+        [dot.heightAnchor constraintEqualToConstant:8.0].active = YES;
         [chipContent addArrangedSubview:dot];
 
         UILabel *label = [UILabel new];
         label.text = catTitle;
-        label.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
+        label.font = [UIFont systemFontOfSize:11.5 weight:UIFontWeightMedium];
         label.textColor = YTKACETitleColor();
+        label.adjustsFontSizeToFitWidth = YES;
+        label.minimumScaleFactor = 0.70;
+        label.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
         [chipContent addArrangedSubview:label];
 
         [NSLayoutConstraint activateConstraints:@[
-            [chipContent.centerXAnchor constraintEqualToAnchor:btn.centerXAnchor],
+            [chipContent.leadingAnchor constraintEqualToAnchor:btn.leadingAnchor constant:6.0],
+            [chipContent.trailingAnchor constraintEqualToAnchor:btn.trailingAnchor constant:-6.0],
             [chipContent.centerYAnchor constraintEqualToAnchor:btn.centerYAnchor],
-            [btn.heightAnchor constraintEqualToConstant:32.0],
-            [btn.widthAnchor constraintGreaterThanOrEqualToAnchor:chipContent.widthAnchor constant:24.0]
+            [btn.heightAnchor constraintEqualToConstant:32.0]
         ]];
 
         [btn addTarget:self action:@selector(categorySelected:) forControlEvents:UIControlEventTouchUpInside];
-        [catStack addArrangedSubview:btn];
+        [currentRowStack addArrangedSubview:btn];
         [self.categoryButtons addObject:btn];
     }
 
@@ -1980,12 +2039,15 @@ static UIViewController *YTKACEFindTopController(void) {
         [header.topAnchor constraintEqualToAnchor:card.topAnchor constant:10.0],
         [header.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
 
-        [catScroll.topAnchor constraintEqualToAnchor:header.bottomAnchor constant:8.0],
-        [catScroll.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
-        [catScroll.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
-        [catScroll.heightAnchor constraintEqualToConstant:36.0],
+        [pickerBtn.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
+        [pickerBtn.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
+        [pickerBtn.heightAnchor constraintEqualToConstant:24.0],
 
-        [self.categoryDescLabel.topAnchor constraintEqualToAnchor:catScroll.bottomAnchor constant:8.0],
+        [gridStack.topAnchor constraintEqualToAnchor:header.bottomAnchor constant:8.0],
+        [gridStack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
+        [gridStack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
+
+        [self.categoryDescLabel.topAnchor constraintEqualToAnchor:gridStack.bottomAnchor constant:8.0],
         [self.categoryDescLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
         [self.categoryDescLabel.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
 
@@ -2007,7 +2069,13 @@ static UIViewController *YTKACEFindTopController(void) {
             self.selectedCategory = @"sponsor";
         }
     } else if (sender.selectedSegmentIndex == 1) {
-        self.actionType = @"mute";
+        if ([self.selectedCategory isEqualToString:@"music_offtopic"]) {
+            self.actionType = @"skip";
+            sender.selectedSegmentIndex = 0;
+            YTKACEShowNotice(YTKACELocalized(@"Non-Music section only supports Skip"));
+        } else {
+            self.actionType = @"mute";
+        }
     } else {
         self.actionType = @"skip";
     }
@@ -2025,7 +2093,10 @@ static UIViewController *YTKACEFindTopController(void) {
             ![newCat isEqualToString:@"sponsor"] &&
             ![newCat isEqualToString:@"selfpromo"]) {
             self.actionType = @"skip";
-            self.actionSegmentedControl.selectedSegmentIndex = 0;
+        }
+        if ([self.actionType isEqualToString:@"mute"] &&
+            [newCat isEqualToString:@"music_offtopic"]) {
+            self.actionType = @"skip";
         }
         AudioServicesPlaySystemSound(1519);
         [self updateCategorySelection];
@@ -2034,7 +2105,7 @@ static UIViewController *YTKACEFindTopController(void) {
 
 - (void)updateCategorySelection {
     NSArray *definitions = YTKACESponsorCategoryDefinitions();
-    for (NSUInteger i = 0; i < self.categoryButtons.count; i++) {
+    for (NSUInteger i = 0; i < self.categoryButtons.count && i < definitions.count; i++) {
         UIButton *btn = self.categoryButtons[i];
         NSString *catID = definitions[i][@"id"];
         BOOL isSelected = [catID isEqualToString:self.selectedCategory];
@@ -2044,6 +2115,7 @@ static UIViewController *YTKACEFindTopController(void) {
             btn.layer.borderWidth = 1.5;
             btn.backgroundColor = [catColor colorWithAlphaComponent:0.25];
         } else {
+            btn.layer.borderWidth = 0.5;
             if (YTKACELiquidGlassAvailable()) {
                 btn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
                     return traits.userInterfaceStyle == UIUserInterfaceStyleDark
@@ -2055,7 +2127,6 @@ static UIViewController *YTKACEFindTopController(void) {
                         ? [UIColor colorWithWhite:1.0 alpha:0.12]
                         : [UIColor colorWithWhite:0.0 alpha:0.08];
                 }].CGColor;
-                btn.layer.borderWidth = 0.5;
             } else {
                 btn.layer.borderColor = UIColor.clearColor.CGColor;
                 btn.layer.borderWidth = 0.0;
@@ -2071,14 +2142,37 @@ static UIViewController *YTKACEFindTopController(void) {
     }
     self.categoryDescLabel.text = YTKACESponsorCategoryDescription(self.selectedCategory);
     self.submitButton.backgroundColor = YTKACESponsorCategoryColor(self.selectedCategory);
+
     BOOL isPOI = [self.selectedCategory isEqualToString:@"poi_highlight"];
     BOOL supportsFull = [self.selectedCategory isEqualToString:@"sponsor"] ||
                         [self.selectedCategory isEqualToString:@"selfpromo"];
-    if (self.actionSegmentedControl.numberOfSegments >= 3) {
-        [self.actionSegmentedControl setEnabled:supportsFull forSegmentAtIndex:2];
+    BOOL supportsMute = ![self.selectedCategory isEqualToString:@"music_offtopic"] && !isPOI;
+
+    if (isPOI) {
+        self.actionType = @"poi";
+        self.actionSegmentedControl.enabled = NO;
+        self.actionSegmentedControl.alpha = 0.4;
+    } else {
+        self.actionSegmentedControl.enabled = YES;
+        self.actionSegmentedControl.alpha = 1.0;
+        if (self.actionSegmentedControl.numberOfSegments >= 3) {
+            [self.actionSegmentedControl setEnabled:supportsMute forSegmentAtIndex:1];
+            [self.actionSegmentedControl setEnabled:supportsFull forSegmentAtIndex:2];
+        }
+        if ([self.actionType isEqualToString:@"full"] && !supportsFull) {
+            self.actionType = @"skip";
+            self.actionSegmentedControl.selectedSegmentIndex = 0;
+        } else if ([self.actionType isEqualToString:@"mute"] && !supportsMute) {
+            self.actionType = @"skip";
+            self.actionSegmentedControl.selectedSegmentIndex = 0;
+        } else if ([self.actionType isEqualToString:@"full"]) {
+            self.actionSegmentedControl.selectedSegmentIndex = 2;
+        } else if ([self.actionType isEqualToString:@"mute"]) {
+            self.actionSegmentedControl.selectedSegmentIndex = 1;
+        } else {
+            self.actionSegmentedControl.selectedSegmentIndex = 0;
+        }
     }
-    self.actionSegmentedControl.enabled = !isPOI;
-    self.actionSegmentedControl.alpha = isPOI ? 0.4 : 1.0;
     [self updateTimeLabels];
 }
 
@@ -2539,10 +2633,19 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
     [self.submitButton setTitle:@"" forState:UIControlStateNormal];
 
     NSString *actionType = isPOI ? @"poi" : (self.actionType.length > 0 ? self.actionType : @"skip");
+    if ([self.selectedCategory isEqualToString:@"music_offtopic"]) {
+        actionType = @"skip";
+    }
+    if ([actionType isEqualToString:@"full"] &&
+        ![self.selectedCategory isEqualToString:@"sponsor"] &&
+        ![self.selectedCategory isEqualToString:@"selfpromo"]) {
+        actionType = @"skip";
+    }
+
     double duration = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
     double submitStart = isFull ? 0.0 : self.startTime;
-    double submitEnd = isFull ? 0.0 : self.endTime;
-    if (duration > 0.0 && !isFull) {
+    double submitEnd = isFull ? 0.0 : (isPOI ? submitStart : self.endTime);
+    if (duration > 0.0 && !isFull && !isPOI) {
         if (submitEnd > duration) submitEnd = duration;
         if (submitStart > duration) submitStart = duration;
     }
@@ -2573,6 +2676,12 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
             YTKACESponsorFetchUserInfo(nil);
 
             [YTKACESponsorSubmitCoordinator.sharedCoordinator clearDraft];
+
+            // If this category was set to Disabled (2) in user preferences, automatically enable it!
+            if (YTKACESponsorCategoryBehavior(strongSelf.selectedCategory) == 2) {
+                NSInteger newBehavior = [strongSelf.selectedCategory isEqualToString:@"poi_highlight"] ? 1 : 0;
+                YTKACESetPreferenceObject(YTKACESponsorBehaviorKey(strongSelf.selectedCategory), @(newBehavior));
+            }
 
             NSDictionary *submittedSeg = @{
                 @"start": @(submitStart),
