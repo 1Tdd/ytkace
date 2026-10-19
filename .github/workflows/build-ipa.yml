@@ -117,7 +117,9 @@ jobs:
           else
             output="YTKACE_${tweak_version}_YouTube_${youtube_version}.ipa"
           fi
-          bash Scripts/sideload-repack.sh YouTube.ipa deb-root/var/jb/Library/MobileSubstrate/DynamicLibraries/YTKACE.dylib "$output"
+          resource_bundle="$(find deb-root -type d -name YTKACE.bundle -print -quit)"
+          test -n "$resource_bundle"
+          bash Scripts/sideload-repack.sh YouTube.ipa deb-root/var/jb/Library/MobileSubstrate/DynamicLibraries/YTKACE.dylib "$output" "$resource_bundle"
           bash Tools/verify-artifacts.sh deb-root/var/jb/Library/MobileSubstrate/DynamicLibraries/YTKACE.dylib "$output"
           echo "ipa=$output" >> "$GITHUB_OUTPUT"
 

@@ -37,6 +37,9 @@ if [[ $# -eq 2 ]]; then
   test -n "$APP"
   test ! -e "$APP/Frameworks/CydiaSubstrate.framework"
   test -f "$APP/Frameworks/YTKACE.dylib"
+  test -f "$APP/YTKACE.bundle/Licenses/COPYING.x264"
+  test -f "$APP/YTKACE.bundle/Licenses/COPYING.LAME"
+  test -f "$APP/YTKACE.bundle/Licenses/COPYING.GPLv2"
 
   EXECUTABLE="$(
     python3 - "$APP/Info.plist" <<'PY'

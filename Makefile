@@ -123,6 +123,8 @@ include $(THEOS_MAKE_PATH)/library.mk
 after-all::
 	@mkdir -p "$(THEOS_PROJECT_DIR)/dist"
 	@cp "$(THEOS_OBJ_DIR)/YTKACE.dylib" "$(THEOS_PROJECT_DIR)/dist/YTKACE.dylib"
+	@mkdir -p "$(THEOS_PROJECT_DIR)/Resources/YTKACE.bundle/Licenses"
+	@cp "$(THEOS_PROJECT_DIR)"/Vendor/FFmpeg/COPYING* "$(THEOS_PROJECT_DIR)/THIRD_PARTY_NOTICES.md" "$(THEOS_PROJECT_DIR)/Resources/YTKACE.bundle/Licenses/"
 
 after-stage::
 	@mkdir -p "$(THEOS_STAGING_DIR)/Library/MobileSubstrate/DynamicLibraries" "$(THEOS_STAGING_DIR)/Library/Application Support"

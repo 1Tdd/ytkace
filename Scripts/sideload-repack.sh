@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "usage: sideload-repack.sh input.ipa YTKACE.dylib [output.ipa]" >&2
+if [[ $# -lt 2 || $# -gt 4 ]]; then
+  echo "usage: sideload-repack.sh input.ipa YTKACE.dylib [output.ipa] [YTKACE.bundle]" >&2
   exit 2
 fi
 
@@ -10,6 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INPUT="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 DYLIB="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
 OUTPUT="${3:-$PWD/YTKACE_YouTube.ipa}"
+RESOURCE_BUNDLE="${4:-$ROOT/Resources/YTKACE.bundle}"
 OUTPUT="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$OUTPUT")"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -19,6 +20,7 @@ command -v zip >/dev/null 2>&1
 command -v python3 >/dev/null 2>&1
 test -f "$INPUT"
 test -f "$DYLIB"
+test -d "$RESOURCE_BUNDLE"
 
 unzip -q "$INPUT" -d "$WORK"
 APP="$(find "$WORK/Payload" -mindepth 1 -maxdepth 1 -type d -name '*.app' -print -quit)"
@@ -50,7 +52,7 @@ python3 "$ROOT/Tools/macho_inject.py" "$MAIN" \
 
 mkdir -p "$APP/Frameworks"
 cp "$DYLIB" "$APP/Frameworks/YTKACE.dylib"
-cp -R "$ROOT/Resources/YTKACE.bundle" "$APP/YTKACE.bundle"
+cp -R "$RESOURCE_BUNDLE" "$APP/YTKACE.bundle"
 
 bash "$ROOT/Scripts/sign-bundle.sh" "$APP"
 
