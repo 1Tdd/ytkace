@@ -67,6 +67,13 @@ int main(void) {
 
         assert([HookParent classValue] == 10);
         assert(YTKACEInstallClassHook(@"HookParent", @"classValue", (IMP)classFirst, &classFirstOriginal));
+        if ([HookParent classValue] != 15) {
+            IMP installed = method_getImplementation(class_getClassMethod([HookParent class], @selector(classValue)));
+            fprintf(stderr, "Class dispatch returned %ld, direct implementation returned %ld, installed=%p expected=%p.\n",
+                (long)[HookParent classValue],
+                (long)((NSInteger (*)(id, SEL))installed)([HookParent class], @selector(classValue)),
+                (void *)installed, (void *)classFirst);
+        }
         assert([HookParent classValue] == 15);
         assert(YTKACEInstallClassHook(@"HookParent", @"classValue", (IMP)classSecond, &classSecondOriginal));
         if ([HookParent classValue] != 30) {
