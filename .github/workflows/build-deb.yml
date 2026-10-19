@@ -31,11 +31,16 @@ jobs:
       THEOS: ${{ github.workspace }}/.theos
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache@v4
+        id: theos
         with:
           path: ${{ github.workspace }}/.theos
           key: roothide-theos-${{ runner.os }}-v1
-          fail-on-cache-miss: true
+      - name: Setup Theos
+        if: steps.theos.outputs.cache-hit != 'true'
+        run: bash -c "$(curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/cache@v4
         id: media
         with:

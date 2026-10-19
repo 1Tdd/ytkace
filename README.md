@@ -50,6 +50,8 @@ Fork the repository, enable Actions, open the **IPA** workflow and provide a dir
 
 To build both IPAs in one run, fill in the second URL field as well: the workflow takes an iOS 16 base (21.33.6) and an optional iOS 17+ base (21.41.5), and uploads them as separate artifacts. Leaving the second field empty builds a single IPA.
 
+Actions builds and caches FFmpeg, x264 and LAME for the conversion options. For a local iOS build with Theos, run `bash Scripts/build-ffmpeg.sh` before `make package`; this also installs the required media headers and static libraries. See [download options](docs/DOWNLOAD_MENUS.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## Settings
 
 Open the YTKACE tab and tap the gear, or open YouTube Settings and choose YTKACE.
