@@ -14,6 +14,10 @@ on:
         default: "https://www.dropbox.com/scl/fi/a937ul1u0s72xri2e2m3i/com.google.ios.youtube-21.41.5-eeveedecrypter.ipa?rlkey=ycya2apwz7fs1x1w3ua8y0mcu&st=nyvrtfpy&dl=1"
         type: string
 
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
