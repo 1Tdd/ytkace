@@ -1109,14 +1109,14 @@ BOOL YTKACEPlaybackTemplateReady(void) {
     return NSClassFromString(@"YTPlayerService") != Nil;
 }
 
-void YTKACEResolvePlayerResponse(NSString *videoID,
-                                 YTKACEPlayerReloadCompletion completion) {
+static void YTKACEResolvePlayerResponseUsingCache(NSString *videoID, BOOL useCache,
+                                                YTKACEPlayerReloadCompletion completion) {
     if (videoID.length == 0) {
         completion(nil, [NSError errorWithDomain:@"YTKACEPlayerResolve" code:1
             userInfo:@{NSLocalizedDescriptionKey: @"No video identifier."}]);
         return;
     }
-    id cached = YTKACECachedPlayerResponse(videoID);
+    id cached = useCache ? YTKACECachedPlayerResponse(videoID) : nil;
     if (cached != nil) {
         YTKACEDownloadLog(@"resolve", @"cached video=%@", videoID);
         completion(cached, nil);
@@ -1189,7 +1189,7 @@ void YTKACEResolvePlayerResponse(NSString *videoID,
             NSSelectorFromString(@"makePlayerRequest:responseBlock:errorBlock:"),
             request,
             ^(id receivedResponse, __unused id cacheContext) {
-                id playerResponse = YTKACEHLSOriginalResponse(videoID) ?: receivedResponse;
+                id playerResponse = useCache ? (YTKACEHLSOriginalResponse(videoID) ?: receivedResponse) : receivedResponse;
                 NSString *resolved = nil;
                 id details = YTKACEGetValue(playerResponse, @[@"videoDetails"]);
                 id value = YTKACEGetValue(details, @[@"videoId", @"videoID"]);
@@ -1218,6 +1218,14 @@ void YTKACEResolvePlayerResponse(NSString *videoID,
                 completion(nil, error);
             });
     });
+}
+
+void YTKACEResolvePlayerResponse(NSString *videoID, YTKACEPlayerReloadCompletion completion) {
+    YTKACEResolvePlayerResponseUsingCache(videoID, YES, completion);
+}
+
+void YTKACEResolveFreshPlayerResponse(NSString *videoID, YTKACEPlayerReloadCompletion completion) {
+    YTKACEResolvePlayerResponseUsingCache(videoID, NO, completion);
 }
 
 void YTKACEReloadPlayer(NSString * _Nullable videoID,

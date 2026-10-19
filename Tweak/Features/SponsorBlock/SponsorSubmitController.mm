@@ -2,6 +2,7 @@
 #import "SponsorClient.h"
 #import "SponsorPreferences.h"
 #import "SponsorHooks.h"
+#include "SponsorPreview.h"
 #import "../../YTKACE.h"
 #import "../../Runtime/Preferences.h"
 #import "../../Runtime/Localization.h"
@@ -800,6 +801,15 @@ static UIViewController *YTKACEFindTopController(void) {
 
 @end
 
+typedef NS_ENUM(NSInteger, YTKACESponsorPreviewRequest) {
+    YTKACESponsorPreviewRequestNone,
+    YTKACESponsorPreviewRequestSeek,
+    YTKACESponsorPreviewRequestPlay,
+    YTKACESponsorPreviewRequestCut
+};
+
+static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
+
 @interface YTKACESponsorSubmitController ()
 @property(nonatomic, strong) UIScrollView *scrollView;
 @property(nonatomic, strong) UIView *contentView;
@@ -819,9 +829,21 @@ static UIViewController *YTKACEFindTopController(void) {
 @property(nonatomic, strong) UIButton *previewSeekEndButton;
 @property(nonatomic, strong) UIButton *previewCutButton;
 @property(nonatomic, assign) BOOL isPlaying;
-@property(nonatomic, strong) NSTimer *previewTimer;
-@property(nonatomic, assign) BOOL isPreviewing;
-@property(nonatomic, assign) double previewTargetEnd;
+@property(nonatomic, strong) AVURLAsset *previewVideoAsset;
+@property(nonatomic, strong) AVURLAsset *previewAudioAsset;
+@property(nonatomic, strong) id previewTimeObserver;
+@property(nonatomic, strong) id previewBoundaryObserver;
+@property(nonatomic, strong) NSTimer *previewWatchdog;
+@property(nonatomic, assign) BOOL previewVisible;
+@property(nonatomic, assign) BOOL previewLoading;
+@property(nonatomic, assign) BOOL previewTriedFreshResponse;
+@property(nonatomic, assign) BOOL previewSeeking;
+@property(nonatomic, assign) NSUInteger previewLoadGeneration;
+@property(nonatomic, assign) NSUInteger previewSeekGeneration;
+@property(nonatomic, assign) YTKACESponsorPreviewRequest pendingPreviewRequest;
+@property(nonatomic, assign) double previewSeekTime;
+@property(nonatomic, assign) double previewLastMediaTime;
+@property(nonatomic, assign) CFTimeInterval previewLastProgress;
 @property(nonatomic, strong) UILabel *startTimeLabel;
 @property(nonatomic, strong) UILabel *startSecLabel;
 @property(nonatomic, strong) UILabel *endTimeLabel;
@@ -835,9 +857,29 @@ static UIViewController *YTKACEFindTopController(void) {
 @property(nonatomic, strong) UIButton *submitButton;
 @property(nonatomic, strong) UIActivityIndicatorView *spinner;
 @property(nonatomic, strong) NSMutableArray<UIButton *> *categoryButtons;
+- (double)currentPreviewTime;
+- (void)setupPreviewPlayer;
+- (void)loadPreviewResponse:(id)response generation:(NSUInteger)generation;
+- (void)installPreviewItem:(AVPlayerItem *)item;
+- (void)tearDownPreviewPlayer;
+- (void)previewFailed;
+- (void)requestPreviewAt:(double)time play:(BOOL)play;
+- (void)performPendingPreviewRequest;
+- (void)seekPreviewTo:(double)time completion:(dispatch_block_t)completion;
+- (void)playPreviewIfRequested;
+- (void)updatePreviewPlayback;
+- (void)playPreview;
+- (void)pausePreview;
+- (void)updatePlayPauseButtonUI;
+- (void)stopCutPreview;
+- (void)beginCutPreview;
+- (void)handleCutPreviewAction:(YTKACESponsorPreview::Action)action;
+- (void)finishCutPreview;
 @end
 
-@implementation YTKACESponsorSubmitController
+@implementation YTKACESponsorSubmitController {
+    YTKACESponsorPreview _cutPreview;
+}
 
 - (instancetype)init {
     self = [super initWithNibName:nil bundle:nil];
@@ -879,6 +921,10 @@ static UIViewController *YTKACEFindTopController(void) {
     [self buildUI];
     [self updateTimeLabels];
     [self updateCategorySelection];
+    self.previewSeekTime = self.startTime;
+    self.pendingPreviewRequest = YTKACESponsorPreviewRequestSeek;
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(previewAppWillResignActive:)
+        name:UIApplicationWillResignActiveNotification object:nil];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -900,6 +946,7 @@ static UIViewController *YTKACEFindTopController(void) {
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    self.previewVisible = YES;
     [self setupPreviewPlayer];
 }
 
@@ -915,91 +962,304 @@ static UIViewController *YTKACEFindTopController(void) {
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
-    [self stopPreviewTimer];
-    YTKACESetTestSkip(-1.0, -1.0);
-    if (self.previewPlayer != nil) {
-        [self.previewPlayer pause];
-    }
-}
-
-- (void)viewDidDisappear:(BOOL)animated {
-    [super viewDidDisappear:animated];
-    [self stopPreviewTimer];
-    YTKACESetTestSkip(-1.0, -1.0);
-    if (self.previewPlayer != nil) {
-        [self.previewPlayer pause];
-        self.previewPlayer = nil;
-    }
-    if (self.previewPlayerLayer != nil) {
-        [self.previewPlayerLayer removeFromSuperlayer];
-        self.previewPlayerLayer = nil;
-    }
+    self.previewVisible = NO;
+    self.previewSeekTime = [self currentPreviewTime];
+    [self tearDownPreviewPlayer];
+    self.pendingPreviewRequest = YTKACESponsorPreviewRequestSeek;
 }
 
 - (void)dealloc {
-    [_previewTimer invalidate];
-    _previewTimer = nil;
-    YTKACESetTestSkip(-1.0, -1.0);
-    [_previewPlayer pause];
-    _previewPlayer = nil;
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [self tearDownPreviewPlayer];
 }
 
 - (void)setupPreviewPlayer {
-    if (self.previewPlayer != nil || self.videoID.length == 0 || self.videoPreviewContainer == nil) return;
-
+    if (!self.previewVisible || self.previewLoading || self.previewPlayer != nil || self.videoID.length == 0) return;
+    self.previewLoading = YES;
+    self.previewStatusLabel.text = YTKACELocalized(@"Loading preview…");
+    NSUInteger generation = ++self.previewLoadGeneration;
     __weak YTKACESponsorSubmitController *weakSelf = self;
-    void (^configureWithResponse)(id playerResponse) = ^(id playerResponse) {
-        YTKACESponsorSubmitController *strongSelf = weakSelf;
-        if (!strongSelf || strongSelf.previewPlayer != nil) return;
-
-        YTKACEStreamOption *option = [YTKACEStreamResolver bestPiPVideoFromPlayerResponse:playerResponse];
-        if (option == nil || option.URL == nil) {
-            NSArray<YTKACEStreamOption *> *vOptions = [YTKACEStreamResolver videoOptionsFromPlayerResponse:playerResponse];
-            for (YTKACEStreamOption *opt in vOptions) {
-                if (opt.URL != nil && !opt.isAudioOnly) {
-                    option = opt;
-                    break;
-                }
-            }
-        }
-        if (option != nil && option.URL != nil) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                AVAudioSession *session = AVAudioSession.sharedInstance;
-                [session setCategory:AVAudioSessionCategoryPlayback error:nil];
-                [session setActive:YES error:nil];
-
-                AVPlayerItem *item = [AVPlayerItem playerItemWithURL:option.URL];
-                AVPlayer *player = [AVPlayer playerWithPlayerItem:item];
-                player.volume = 1.0;
-                player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-                strongSelf.previewPlayer = player;
-
-                AVPlayerLayer *layer = [AVPlayerLayer playerLayerWithPlayer:player];
-                layer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-                layer.frame = strongSelf.videoPreviewContainer.bounds;
-                strongSelf.previewPlayerLayer = layer;
-                if (strongSelf.fallbackThumbnailView != nil) {
-                    [strongSelf.videoPreviewContainer.layer insertSublayer:layer above:strongSelf.fallbackThumbnailView.layer];
-                } else {
-                    [strongSelf.videoPreviewContainer.layer addSublayer:layer];
-                }
-
-                double startSec = MAX(0.0, strongSelf.startTime);
-                CMTime seekTime = CMTimeMakeWithSeconds(startSec, 1000);
-                [player seekToTime:seekTime toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-            });
-        }
-    };
-
-    id cachedResponse = YTKACECachedPlayerResponse(self.videoID);
-    if (cachedResponse != nil) {
-        configureWithResponse(cachedResponse);
-    } else {
-        YTKACEResolvePlayerResponse(self.videoID, ^(id response, __unused NSError *error) {
-            if (response != nil) {
-                configureWithResponse(response);
-            }
+    void (^configure)(id) = ^(id response) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            YTKACESponsorSubmitController *controller = weakSelf;
+            if (!controller.previewVisible || controller.previewLoadGeneration != generation) return;
+            if (response == nil) [controller previewFailed];
+            else [controller loadPreviewResponse:response generation:generation];
         });
+    };
+    id cached = self.previewTriedFreshResponse ? nil : YTKACECachedPlayerResponse(self.videoID);
+    if (cached != nil) configure(cached);
+    else {
+        self.previewTriedFreshResponse = YES;
+        YTKACEResolveFreshPlayerResponse(self.videoID, ^(id response, __unused NSError *error) {
+            configure(response);
+        });
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(30 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        YTKACESponsorSubmitController *controller = weakSelf;
+        if (controller.previewLoadGeneration == generation && controller.previewLoading) [controller previewFailed];
+    });
+}
+
+- (void)loadPreviewResponse:(id)response generation:(NSUInteger)generation {
+    YTKACEStreamOption *video = [YTKACEStreamResolver bestPiPVideoFromPlayerResponse:response];
+    if (video.URL == nil) {
+        // Adaptive streams have separate audio. Never play a video-only URL on its own.
+        for (YTKACEStreamOption *option in [YTKACEStreamResolver videoOptionsFromPlayerResponse:response]) {
+            if (option.URL != nil && [option.mimeType containsString:@"video/mp4"] && option.height <= 720) {
+                video = option;
+                break;
+            }
+        }
+    }
+    YTKACEStreamOption *audio = nil;
+    if (video.isAdaptive) {
+        for (YTKACEStreamOption *option in [YTKACEStreamResolver audioOptionsFromPlayerResponse:response]) {
+            if (option.URL != nil && [option.mimeType containsString:@"mp4"]) { audio = option; break; }
+        }
+    }
+    if (video.URL == nil || (video.isAdaptive && audio.URL == nil)) { [self previewFailed]; return; }
+
+    AVURLAsset *videoAsset = [AVURLAsset URLAssetWithURL:video.URL options:nil];
+    AVURLAsset *audioAsset = audio.URL != nil ? [AVURLAsset URLAssetWithURL:audio.URL options:nil] : nil;
+    self.previewVideoAsset = videoAsset;
+    self.previewAudioAsset = audioAsset;
+    NSArray<NSString *> *keys = @[@"playable", @"tracks", @"duration"];
+    dispatch_group_t group = dispatch_group_create();
+    for (AVURLAsset *asset in audioAsset != nil ? @[videoAsset, audioAsset] : @[videoAsset]) {
+        dispatch_group_enter(group);
+        [asset loadValuesAsynchronouslyForKeys:keys completionHandler:^{ dispatch_group_leave(group); }];
+    }
+    __weak YTKACESponsorSubmitController *weakSelf = self;
+    dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+        YTKACESponsorSubmitController *controller = weakSelf;
+        if (!controller.previewVisible || controller.previewLoadGeneration != generation) return;
+        if (!videoAsset.playable || [videoAsset statusOfValueForKey:@"tracks" error:nil] != AVKeyValueStatusLoaded) {
+            [controller previewFailed]; return;
+        }
+        AVAsset *asset = videoAsset;
+        if (audioAsset != nil) {
+            AVAssetTrack *videoTrack = [videoAsset tracksWithMediaType:AVMediaTypeVideo].firstObject;
+            AVAssetTrack *audioTrack = [audioAsset tracksWithMediaType:AVMediaTypeAudio].firstObject;
+            CMTime duration = CMTimeMinimum(videoAsset.duration, audioAsset.duration);
+            if ([audioAsset statusOfValueForKey:@"tracks" error:nil] != AVKeyValueStatusLoaded ||
+                !audioAsset.playable || videoTrack == nil || audioTrack == nil ||
+                !CMTIME_IS_NUMERIC(duration) || CMTimeCompare(duration, kCMTimeZero) <= 0) {
+                [controller previewFailed]; return;
+            }
+            AVMutableComposition *composition = [AVMutableComposition composition];
+            AVMutableCompositionTrack *v = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+            AVMutableCompositionTrack *a = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:kCMPersistentTrackID_Invalid];
+            CMTimeRange range = CMTimeRangeMake(kCMTimeZero, duration);
+            if (![v insertTimeRange:range ofTrack:videoTrack atTime:kCMTimeZero error:nil] ||
+                ![a insertTimeRange:range ofTrack:audioTrack atTime:kCMTimeZero error:nil]) {
+                [controller previewFailed]; return;
+            }
+            v.preferredTransform = videoTrack.preferredTransform;
+            asset = composition;
+        }
+        [controller installPreviewItem:[AVPlayerItem playerItemWithAsset:asset]];
+    });
+}
+
+- (void)installPreviewItem:(AVPlayerItem *)item {
+    AVPlayer *player = [AVPlayer playerWithPlayerItem:item];
+    player.actionAtItemEnd = AVPlayerActionAtItemEndPause;
+    player.automaticallyWaitsToMinimizeStalling = YES;
+    player.allowsExternalPlayback = NO;
+    self.previewPlayer = player;
+    AVPlayerLayer *layer = [AVPlayerLayer playerLayerWithPlayer:player];
+    layer.videoGravity = AVLayerVideoGravityResizeAspect;
+    layer.frame = self.videoPreviewContainer.bounds;
+    self.previewPlayerLayer = layer;
+    [self.videoPreviewContainer.layer insertSublayer:layer above:self.fallbackThumbnailView.layer];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(previewDidReachEnd:)
+        name:AVPlayerItemDidPlayToEndTimeNotification object:item];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(previewItemFailed:)
+        name:AVPlayerItemFailedToPlayToEndTimeNotification object:item];
+    __weak YTKACESponsorSubmitController *weakSelf = self;
+    self.previewTimeObserver = [player addPeriodicTimeObserverForInterval:CMTimeMakeWithSeconds(0.05, 600)
+        queue:dispatch_get_main_queue() usingBlock:^(__unused CMTime time) { [weakSelf updatePreviewPlayback]; }];
+    self.previewLastProgress = CACurrentMediaTime();
+    self.previewLastMediaTime = -1.0;
+    self.previewWatchdog = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(__unused NSTimer *timer) {
+        YTKACESponsorSubmitController *controller = weakSelf;
+        if (controller.isPlaying && CACurrentMediaTime() - controller.previewLastProgress > 30.0) [controller previewFailed];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:self.previewWatchdog forMode:NSRunLoopCommonModes];
+    [item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew
+        context:YTKACESponsorPreviewItemContext];
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object
+                      change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void *)context {
+    if (context != YTKACESponsorPreviewItemContext) {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+        return;
+    }
+    __weak YTKACESponsorSubmitController *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        YTKACESponsorSubmitController *controller = weakSelf;
+        if (!controller.previewVisible || controller.previewPlayer.currentItem != object) return;
+        if (controller.previewPlayer.currentItem.status == AVPlayerItemStatusFailed) [controller previewFailed];
+        else if (controller.previewPlayer.currentItem.status == AVPlayerItemStatusReadyToPlay && controller.previewLoading) {
+            controller.previewLoading = NO;
+            [controller performPendingPreviewRequest];
+        }
+    });
+}
+
+- (void)tearDownPreviewPlayer {
+    ++self.previewLoadGeneration;
+    [self stopCutPreview];
+    self.previewLoading = NO;
+    [self.previewWatchdog invalidate];
+    self.previewWatchdog = nil;
+    if (self.previewTimeObserver != nil) [self.previewPlayer removeTimeObserver:self.previewTimeObserver];
+    self.previewTimeObserver = nil;
+    AVPlayerItem *item = self.previewPlayer.currentItem;
+    if (item != nil) {
+        [item removeObserver:self forKeyPath:@"status" context:YTKACESponsorPreviewItemContext];
+        [NSNotificationCenter.defaultCenter removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:item];
+        [NSNotificationCenter.defaultCenter removeObserver:self name:AVPlayerItemFailedToPlayToEndTimeNotification object:item];
+    }
+    [self.previewVideoAsset cancelLoading];
+    [self.previewAudioAsset cancelLoading];
+    self.previewVideoAsset = nil;
+    self.previewAudioAsset = nil;
+    self.previewPlayerLayer.player = nil;
+    [self.previewPlayerLayer removeFromSuperlayer];
+    self.previewPlayerLayer = nil;
+    [self.previewPlayer replaceCurrentItemWithPlayerItem:nil];
+    self.previewPlayer = nil;
+}
+
+- (void)previewFailed {
+    YTKACESponsorPreviewRequest request = self.pendingPreviewRequest;
+    BOOL retry = !self.previewTriedFreshResponse && self.previewVisible;
+    [self tearDownPreviewPlayer];
+    if (retry) {
+        self.previewTriedFreshResponse = YES;
+        self.pendingPreviewRequest = request;
+        [self setupPreviewPlayer];
+    } else {
+        self.previewStatusLabel.text = YTKACELocalized(@"Preview unavailable. Tap Play to retry.");
+    }
+}
+
+- (double)currentPreviewTime {
+    double time = self.previewPlayer.currentItem.status == AVPlayerItemStatusReadyToPlay && !self.previewSeeking
+        ? CMTimeGetSeconds(self.previewPlayer.currentTime) : self.previewSeekTime;
+    return isfinite(time) && time >= 0.0 ? time : MAX(0.0, self.previewSeekTime);
+}
+
+- (void)requestPreviewAt:(double)time play:(BOOL)play {
+    [self stopCutPreview];
+    double duration = self.videoDuration;
+    self.previewSeekTime = MAX(0.0, isfinite(time) ? time : 0.0);
+    if (duration > 0.0) self.previewSeekTime = MIN(self.previewSeekTime, MAX(0.0, duration - 0.05));
+    self.pendingPreviewRequest = play ? YTKACESponsorPreviewRequestPlay : YTKACESponsorPreviewRequestSeek;
+    [self performPendingPreviewRequest];
+}
+
+- (void)performPendingPreviewRequest {
+    if (!self.previewVisible) return;
+    if (self.previewPlayer.currentItem.status != AVPlayerItemStatusReadyToPlay || self.previewPlayer == nil) {
+        self.isPlaying = self.pendingPreviewRequest == YTKACESponsorPreviewRequestPlay ||
+            self.pendingPreviewRequest == YTKACESponsorPreviewRequestCut;
+        [self updatePlayPauseButtonUI];
+        [self setupPreviewPlayer]; return;
+    }
+    YTKACESponsorPreviewRequest request = self.pendingPreviewRequest;
+    self.pendingPreviewRequest = YTKACESponsorPreviewRequestNone;
+    if (request == YTKACESponsorPreviewRequestCut) { [self beginCutPreview]; return; }
+    self.isPlaying = request == YTKACESponsorPreviewRequestPlay;
+    [self updatePlayPauseButtonUI];
+    self.previewStatusLabel.text = YTKACELocalized(@"Seeking preview…");
+    __weak YTKACESponsorSubmitController *weakSelf = self;
+    [self seekPreviewTo:self.previewSeekTime completion:^{
+        YTKACESponsorSubmitController *controller = weakSelf;
+        controller.previewStatusLabel.text = YTKACELocalized(@"Preview paused");
+        [controller playPreviewIfRequested];
+    }];
+}
+
+- (void)seekPreviewTo:(double)time completion:(dispatch_block_t)completion {
+    NSUInteger generation = ++self.previewSeekGeneration;
+    AVPlayer *player = self.previewPlayer;
+    [player pause];
+    [player.currentItem cancelPendingSeeks];
+    self.previewSeekTime = time;
+    self.previewSeeking = YES;
+    self.previewLastProgress = CACurrentMediaTime();
+    __weak YTKACESponsorSubmitController *weakSelf = self;
+    [player seekToTime:CMTimeMakeWithSeconds(time, 60000) toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero
+        completionHandler:^(BOOL finished) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            YTKACESponsorSubmitController *controller = weakSelf;
+            if (!controller.previewVisible || controller.previewPlayer != player || controller.previewSeekGeneration != generation) return;
+            controller.previewSeeking = NO;
+            if (!finished) { [controller stopCutPreview]; return; }
+            if (completion != nil) completion();
+        });
+    }];
+}
+
+- (void)playPreviewIfRequested {
+    if (!self.isPlaying || self.previewSeeking || !self.previewVisible) return;
+    YTKACEPauseYouTubePlayer();
+    AVAudioSession *session = AVAudioSession.sharedInstance;
+    [session setCategory:AVAudioSessionCategoryPlayback error:nil];
+    [session setActive:YES error:nil];
+    self.previewPlayer.volume = 1.0;
+    self.previewLastProgress = CACurrentMediaTime();
+    [self.previewPlayer play];
+}
+
+- (void)updatePreviewPlayback {
+    if (!self.previewVisible || self.previewSeeking || !self.isPlaying) return;
+    double time = [self currentPreviewTime];
+    if (fabs(time - self.previewLastMediaTime) > 0.01) {
+        self.previewLastMediaTime = time;
+        self.previewLastProgress = CACurrentMediaTime();
+    }
+    for (int i = 0; i < 2; ++i) {
+        auto action = _cutPreview.advance(time);
+        if (action == YTKACESponsorPreview::Action::None) break;
+        [self handleCutPreviewAction:action];
+        if (self.previewSeeking || !self.isPlaying) return;
+    }
+    NSString *status = YTKACELocalized(@"Playing preview");
+    if (self.previewPlayer.timeControlStatus == AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate) status = YTKACELocalized(@"Buffering preview…");
+    else if (_cutPreview.phase() == YTKACESponsorPreview::Phase::BeforeSegment) status = YTKACELocalized(@"Playing before cut");
+    else if (_cutPreview.phase() == YTKACESponsorPreview::Phase::AfterSegment) status = YTKACELocalized(@"Playing after cut");
+    else if (_cutPreview.phase() == YTKACESponsorPreview::Phase::Muting) status = YTKACELocalized(@"Previewing muted segment");
+    self.previewStatusLabel.text = [NSString stringWithFormat:@"%@ · %@", status, YTKACEFormatSponsorTime(time)];
+}
+
+- (void)previewAppWillResignActive:(__unused NSNotification *)note { [self pausePreview]; }
+- (void)previewItemFailed:(NSNotification *)note {
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self previewItemFailed:note]; });
+        return;
+    }
+    if (note.object == self.previewPlayer.currentItem) [self previewFailed];
+}
+
+- (void)previewDidReachEnd:(NSNotification *)note {
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self previewDidReachEnd:note]; });
+        return;
+    }
+    if (note.object != self.previewPlayer.currentItem || self.previewSeeking) return;
+    double limit = _cutPreview.active() ? _cutPreview.targetEnd() : CMTimeGetSeconds(self.previewPlayer.currentItem.duration);
+    if (isfinite(limit) && [self currentPreviewTime] < limit - 0.2) return;
+    if (_cutPreview.phase() == YTKACESponsorPreview::Phase::AfterSegment ||
+        (_cutPreview.phase() == YTKACESponsorPreview::Phase::Muting && _cutPreview.end() >= _cutPreview.targetEnd())) {
+        [self finishCutPreview];
+    } else {
+        [self stopCutPreview];
+        self.previewStatusLabel.text = YTKACELocalized(@"Preview finished");
     }
 }
 
@@ -1007,23 +1267,20 @@ static UIViewController *YTKACEFindTopController(void) {
     if (self.isPlaying) {
         [self pausePreview];
     } else {
-        [self previewSkipTapped];
+        [self playPreview];
     }
 }
 
 - (void)playPreview {
-    if (!self.isPreviewing) {
-        [self previewSkipTapped];
-        return;
-    }
-    self.isPlaying = YES;
-    [self updatePlayPauseButtonUI];
-    if (self.previewPlayer != nil) {
-        YTKACEPauseYouTubePlayer();
-        self.previewPlayer.volume = 1.0;
-        [self.previewPlayer play];
+    if (_cutPreview.active() || self.previewSeeking) {
+        self.isPlaying = YES;
+        [self updatePlayPauseButtonUI];
+        [self updatePreviewPlayback];
+        [self playPreviewIfRequested];
     } else {
-        YTKACEPlayYouTubePlayer();
+        double time = [self currentPreviewTime];
+        if (self.videoDuration > 0.0 && time >= self.videoDuration - 0.1) time = self.startTime;
+        [self requestPreviewAt:time play:YES];
     }
 }
 
@@ -1033,7 +1290,9 @@ static UIViewController *YTKACEFindTopController(void) {
     if (self.previewPlayer != nil) {
         [self.previewPlayer pause];
     }
-    YTKACEPauseYouTubePlayer();
+    if (self.pendingPreviewRequest == YTKACESponsorPreviewRequestPlay || self.pendingPreviewRequest == YTKACESponsorPreviewRequestCut)
+        self.pendingPreviewRequest = YTKACESponsorPreviewRequestSeek;
+    self.previewStatusLabel.text = YTKACELocalized(@"Preview paused");
 }
 
 - (void)updatePlayPauseButtonUI {
@@ -1042,17 +1301,26 @@ static UIViewController *YTKACEFindTopController(void) {
         [self.previewPlayPauseButton setTitle:YTKACELocalized(@"Pause") forState:UIControlStateNormal];
         [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal];
     } else {
-        [self.previewPlayPauseButton setTitle:YTKACELocalized(@"Preview Cut") forState:UIControlStateNormal];
-        [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:@"scissors"] forState:UIControlStateNormal];
+        [self.previewPlayPauseButton setTitle:YTKACELocalized(@"Play") forState:UIControlStateNormal];
+        [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
     }
 }
 
-- (void)stopPreviewTimer {
-    if (self.previewTimer != nil) {
-        [self.previewTimer invalidate];
-        self.previewTimer = nil;
-    }
-    self.isPreviewing = NO;
+- (void)stopCutPreview {
+    BOOL wasActive = self.isPlaying || self.previewSeeking || _cutPreview.active();
+    _cutPreview.cancel();
+    ++self.previewSeekGeneration;
+    self.previewSeeking = NO;
+    self.isPlaying = NO;
+    self.pendingPreviewRequest = YTKACESponsorPreviewRequestNone;
+    [self.previewPlayer pause];
+    [self.previewPlayer.currentItem cancelPendingSeeks];
+    self.previewPlayer.muted = NO;
+    self.previewPlayer.currentItem.forwardPlaybackEndTime = kCMTimeInvalid;
+    if (self.previewBoundaryObserver != nil) [self.previewPlayer removeTimeObserver:self.previewBoundaryObserver];
+    self.previewBoundaryObserver = nil;
+    [self updatePlayPauseButtonUI];
+    if (wasActive) self.previewStatusLabel.text = YTKACELocalized(@"Preview paused");
 }
 
 - (void)setupScrollView {
@@ -1214,7 +1482,7 @@ static UIViewController *YTKACEFindTopController(void) {
     statusLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
     statusLabel.layer.cornerRadius = 6.0;
     statusLabel.layer.masksToBounds = YES;
-    statusLabel.text = YTKACELocalized(@"Tap ▶ to preview cut playback");
+    statusLabel.text = YTKACELocalized(@"Loading preview…");
     [previewContainer addSubview:statusLabel];
     self.previewStatusLabel = statusLabel;
 
@@ -1245,10 +1513,10 @@ static UIViewController *YTKACEFindTopController(void) {
     }
     playBtn.layer.cornerRadius = 8.0;
     playBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [playBtn setTitle:YTKACELocalized(@"Preview Cut") forState:UIControlStateNormal];
+    [playBtn setTitle:YTKACELocalized(@"Play") forState:UIControlStateNormal];
     [playBtn setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
     playBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
-    [playBtn setImage:[UIImage systemImageNamed:@"scissors"] forState:UIControlStateNormal];
+    [playBtn setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
     playBtn.tintColor = YTKACEAccentColor();
     playBtn.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
     [playBtn addTarget:self action:@selector(togglePlaybackTapped) forControlEvents:UIControlEventTouchUpInside];
@@ -1636,6 +1904,7 @@ static UIViewController *YTKACEFindTopController(void) {
             }
             [self updateTimeLabels];
             [self updateCategorySelection];
+            [self requestPreviewAt:self.startTime play:NO];
             AudioServicesPlaySystemSound(1519);
             NSString *msg = [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Selected chapter"), ch.title];
             YTKACEShowNotice(msg);
@@ -2190,8 +2459,19 @@ static UIViewController *YTKACEFindTopController(void) {
 }
 
 - (void)updateTimeLabels {
+    [self stopCutPreview];
     BOOL isFull = [self.actionType isEqualToString:@"full"];
     BOOL isPOI = [self.selectedCategory isEqualToString:@"poi_highlight"];
+    YTKACESponsorPreview check;
+    BOOL canPreviewCut = !isFull && !isPOI && check.begin(self.startTime, self.endTime, self.videoDuration, false);
+    BOOL isMute = [self.actionType isEqualToString:@"mute"];
+    for (UIButton *button in @[self.previewCutButton, self.previewSkipButton]) {
+        button.enabled = canPreviewCut;
+        button.alpha = canPreviewCut ? 1.0 : 0.4;
+        NSString *title = button == self.previewCutButton ? (isMute ? @"Mute" : @"Cut") : (isMute ? @"Preview Mute" : @"Preview Cut");
+        [button setTitle:YTKACELocalized(title) forState:UIControlStateNormal];
+        [button setImage:[UIImage systemImageNamed:isMute ? @"speaker.slash.fill" : @"scissors"] forState:UIControlStateNormal];
+    }
 
     if (self.previewTimeLabel != nil) {
         self.previewTimeLabel.text = [NSString stringWithFormat:@"%@ → %@",
@@ -2235,8 +2515,8 @@ static UIViewController *YTKACEFindTopController(void) {
         self.navigationItem.rightBarButtonItem.enabled = YES;
         self.submitButton.enabled = YES;
         self.submitButton.alpha = 1.0;
-        self.previewSkipButton.enabled = YES;
-        self.previewSkipButton.alpha = 1.0;
+        self.previewSkipButton.enabled = canPreviewCut;
+        self.previewSkipButton.alpha = canPreviewCut ? 1.0 : 0.4;
     } else {
         self.lengthBadgeView.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.18];
         self.lengthBadgeLabel.textColor = UIColor.systemRedColor;
@@ -2254,30 +2534,13 @@ static UIViewController *YTKACEFindTopController(void) {
         self.actionType = @"skip";
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
-    double now = YTKACESponsorCurrentTime();
-    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
-    if (dur <= 0.0) {
-        for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
-            if (ch.endTime > dur) dur = ch.endTime;
-        }
-        if (dur > 0.0) self.videoDuration = dur;
-    }
-    if (dur > 0.0 && now > dur) now = dur;
+    double now = [self currentPreviewTime];
+    if (self.videoDuration > 0.0) now = MIN(now, self.videoDuration);
     self.startTime = now;
-    if (self.endTime <= self.startTime) {
-        if (dur > self.startTime) {
-            self.endTime = dur;
-        } else {
-            self.endTime = self.startTime + 5.0;
-        }
-    }
+    if (self.endTime <= now) self.endTime = self.videoDuration > now ? MIN(now + 5.0, self.videoDuration) : now;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
-    if (self.previewPlayer != nil) {
-        double seekTarget = (dur > 0.0 && self.startTime >= dur) ? MAX(0.0, dur - 0.2) : self.startTime;
-        CMTime cm = CMTimeMakeWithSeconds(seekTarget, 1000);
-        [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-    }
+    [self requestPreviewAt:now play:NO];
 }
 
 - (void)setEndToNow {
@@ -2285,33 +2548,12 @@ static UIViewController *YTKACEFindTopController(void) {
         self.actionType = @"skip";
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
-    double now = YTKACESponsorCurrentTime();
-    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
-    if (dur <= 0.0) {
-        for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
-            if (ch.endTime > dur) dur = ch.endTime;
-        }
-        if (dur > 0.0) self.videoDuration = dur;
-    }
-    if (dur > 0.0) {
-        if (now <= 0.0 || (now < 1.0 && self.startTime >= 1.0) || now >= dur - 1.5 || now > dur) {
-            now = dur;
-        } else if (now <= self.startTime && dur > self.startTime) {
-            now = dur;
-        }
-    } else {
-        if (now <= self.startTime) {
-            now = self.startTime + 5.0;
-        }
-    }
+    double now = [self currentPreviewTime];
+    if (self.videoDuration > 0.0) now = MIN(now, self.videoDuration);
     self.endTime = now;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
-    if (self.previewPlayer != nil) {
-        double seekTarget = (dur > 0.0 && self.endTime >= dur) ? MAX(0.0, dur - 0.2) : self.endTime;
-        CMTime cm = CMTimeMakeWithSeconds(seekTarget, 1000);
-        [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-    }
+    [self requestPreviewAt:now play:NO];
 }
 
 - (void)setEndToDuration {
@@ -2333,56 +2575,15 @@ static UIViewController *YTKACEFindTopController(void) {
     }
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
-    [self stopPreviewTimer];
-    YTKACESetTestSkip(-1.0, -1.0);
-    double seekTarget = (dur > 0.2) ? (dur - 0.2) : dur;
-    if (seekTarget > 0.0) {
-        YTKACESponsorSeek(seekTarget);
-        if (self.previewPlayer != nil) {
-            CMTime cm = CMTimeMakeWithSeconds(seekTarget, 1000);
-            [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-        }
-    }
+    [self requestPreviewAt:self.endTime play:NO];
 }
 
 - (void)seekToStart {
-    [self stopPreviewTimer];
-    YTKACESetTestSkip(-1.0, -1.0);
-    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
-    double seekTarget = (dur > 0.0 && self.startTime >= dur) ? MAX(0.0, dur - 0.2) : self.startTime;
-    if (self.previewPlayer != nil) {
-        YTKACEPauseYouTubePlayer();
-        self.previewPlayer.volume = 1.0;
-        CMTime cm = CMTimeMakeWithSeconds(seekTarget, 1000);
-        [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-        [self.previewPlayer play];
-    } else {
-        YTKACESponsorSeek(seekTarget);
-        YTKACEPlayYouTubePlayer();
-    }
-    self.isPlaying = YES;
-    [self updatePlayPauseButtonUI];
-    self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Playing from Start"), YTKACEFormatSponsorTime(self.startTime)];
+    [self requestPreviewAt:self.startTime play:YES];
 }
 
 - (void)seekToEnd {
-    [self stopPreviewTimer];
-    YTKACESetTestSkip(-1.0, -1.0);
-    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
-    double seekTarget = (dur > 0.0 && self.endTime >= dur) ? MAX(0.0, dur - 0.2) : self.endTime;
-    if (self.previewPlayer != nil) {
-        YTKACEPauseYouTubePlayer();
-        self.previewPlayer.volume = 1.0;
-        CMTime cm = CMTimeMakeWithSeconds(seekTarget, 1000);
-        [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-        [self.previewPlayer play];
-    } else {
-        YTKACESponsorSeek(seekTarget);
-        YTKACEPlayYouTubePlayer();
-    }
-    self.isPlaying = YES;
-    [self updatePlayPauseButtonUI];
-    self.previewStatusLabel.text = [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Playing from End"), YTKACEFormatSponsorTime(self.endTime)];
+    [self requestPreviewAt:self.endTime play:YES];
 }
 
 - (void)stepStart:(UIButton *)sender {
@@ -2403,14 +2604,7 @@ static UIViewController *YTKACEFindTopController(void) {
     self.startTime = newStart;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
-    [self stopPreviewTimer];
-    YTKACESetTestSkip(-1.0, -1.0);
-    double seekTarget = (dur > 0.0 && self.startTime >= dur) ? MAX(0.0, dur - 0.2) : self.startTime;
-    YTKACESponsorSeek(seekTarget);
-    if (self.previewPlayer != nil) {
-        CMTime cm = CMTimeMakeWithSeconds(seekTarget, 1000);
-        [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-    }
+    [self requestPreviewAt:self.startTime play:NO];
 }
 
 - (void)stepEnd:(UIButton *)sender {
@@ -2431,14 +2625,7 @@ static UIViewController *YTKACEFindTopController(void) {
     self.endTime = newEnd;
     AudioServicesPlaySystemSound(1519);
     [self updateTimeLabels];
-    [self stopPreviewTimer];
-    YTKACESetTestSkip(-1.0, -1.0);
-    double seekTarget = (dur > 0.0 && self.endTime >= dur) ? MAX(0.0, dur - 0.2) : self.endTime;
-    YTKACESponsorSeek(seekTarget);
-    if (self.previewPlayer != nil) {
-        CMTime cm = CMTimeMakeWithSeconds(seekTarget, 1000);
-        [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-    }
+    [self requestPreviewAt:self.endTime play:NO];
 }
 
 static double YTKACEParseManualTimestamp(NSString *raw) {
@@ -2513,14 +2700,7 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
             }
             AudioServicesPlaySystemSound(1519);
             [strongSelf updateTimeLabels];
-            [strongSelf stopPreviewTimer];
-            YTKACESetTestSkip(-1.0, -1.0);
-            double seekTarget = (dur > 0.0 && parsed >= dur) ? MAX(0.0, dur - 0.2) : parsed;
-            YTKACESponsorSeek(seekTarget);
-            if (strongSelf.previewPlayer != nil) {
-                CMTime cm = CMTimeMakeWithSeconds(seekTarget, 1000);
-                [strongSelf.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-            }
+            [strongSelf requestPreviewAt:parsed play:NO];
         }
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -2535,139 +2715,73 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
 }
 
 - (void)previewSkipTapped {
-    if (self.endTime <= self.startTime) {
-        AudioServicesPlaySystemSound(1520);
+    if ([self.actionType isEqualToString:@"full"] || [self.selectedCategory isEqualToString:@"poi_highlight"]) return;
+    double duration = self.videoDuration;
+    YTKACESponsorPreview check;
+    if (!check.begin(self.startTime, self.endTime, duration, [self.actionType isEqualToString:@"mute"])) {
         YTKACEShowNotice(YTKACELocalized(@"End time must be after start time"));
         return;
     }
-    [self stopPreviewTimer];
-    self.isPreviewing = YES;
+    [self stopCutPreview];
+    self.previewSeekTime = check.leadIn();
+    self.pendingPreviewRequest = YTKACESponsorPreviewRequestCut;
+    [self performPendingPreviewRequest];
+}
 
-    if (@available(iOS 15.0, *)) {
-        UISheetPresentationController *sheet = self.navigationController.sheetPresentationController ?: self.sheetPresentationController;
-        if (sheet != nil) {
-            [sheet animateChanges:^{
-                sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
-            }];
-        }
-    }
-
-    double leadIn = 3.0;
-    double previewStart = MAX(0.0, self.startTime - leadIn);
-    double actualLeadIn = self.startTime - previewStart;
-    double leadOut = 2.5;
-    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
-    double targetEnd = self.endTime + leadOut;
-    if (dur > 0.0 && targetEnd > dur) {
-        targetEnd = dur;
-    }
-    self.previewTargetEnd = targetEnd;
-
-    // Disarm any old test skip
-    YTKACESetTestSkip(-1.0, -1.0);
-
-    AVAudioSession *session = AVAudioSession.sharedInstance;
-    [session setCategory:AVAudioSessionCategoryPlayback error:nil];
-    [session setActive:YES error:nil];
-
-    BOOL usePreviewPlayer = (self.previewPlayer != nil);
-    if (usePreviewPlayer) {
-        // Pause YouTube background player to eliminate double audio & desync!
-        YTKACEPauseYouTubePlayer();
-        self.previewPlayer.volume = 1.0;
-
-        CMTime cm = CMTimeMakeWithSeconds(previewStart, 1000);
-        [self.previewPlayer seekToTime:cm toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-        [self.previewPlayer play];
-    } else {
-        YTKACESponsorSeek(previewStart);
-        YTKACEPlayYouTubePlayer();
-    }
+- (void)beginCutPreview {
+    [self stopCutPreview];
+    double duration = self.videoDuration;
+    double itemDuration = CMTimeGetSeconds(self.previewPlayer.currentItem.duration);
+    if (isfinite(itemDuration) && itemDuration > 0.0) duration = duration > 0.0 ? MIN(duration, itemDuration) : itemDuration;
+    if (!_cutPreview.begin(self.startTime, self.endTime, duration, [self.actionType isEqualToString:@"mute"])) return;
     self.isPlaying = YES;
     [self updatePlayPauseButtonUI];
-
-    NSString *initialStatus = [NSString stringWithFormat:@"%@ (%.1fs %@)...",
-        YTKACELocalized(@"Playing before cut"), actualLeadIn, YTKACELocalized(@"before")];
-    self.previewStatusLabel.text = initialStatus;
-    YTKACEShowNotice([NSString stringWithFormat:@"%@: %@ ➔ %@",
-        YTKACELocalized(@"Previewing skip cut"),
-        YTKACEFormatSponsorTime(previewStart),
-        YTKACEFormatSponsorTime(self.startTime)]);
-
-    __block BOOL armedForCut = NO;
-    __block BOOL cutExecuted = NO;
-    __block NSTimeInterval startTimeInterval = [NSDate timeIntervalSinceReferenceDate];
-
+    self.previewStatusLabel.text = YTKACELocalized(@"Seeking preview…");
+    self.previewPlayer.currentItem.forwardPlaybackEndTime = CMTimeMakeWithSeconds(_cutPreview.targetEnd(), 60000);
+    NSMutableArray<NSValue *> *times = [NSMutableArray array];
+    double previous = -1.0;
+    for (double time : {_cutPreview.start(), _cutPreview.end(), _cutPreview.targetEnd()}) {
+        if (time > previous) [times addObject:[NSValue valueWithCMTime:CMTimeMakeWithSeconds(time, 60000)]];
+        previous = time;
+    }
     __weak YTKACESponsorSubmitController *weakSelf = self;
-    self.previewTimer = [NSTimer scheduledTimerWithTimeInterval:0.04 repeats:YES block:^(NSTimer * _Nonnull timer) {
-        YTKACESponsorSubmitController *strongSelf = weakSelf;
-        if (!strongSelf || !strongSelf.isPreviewing) {
-            [timer invalidate];
-            return;
-        }
-        NSTimeInterval elapsed = [NSDate timeIntervalSinceReferenceDate] - startTimeInterval;
-        double current = 0.0;
-        if (strongSelf.previewPlayer != nil) {
-            current = CMTimeGetSeconds(strongSelf.previewPlayer.currentTime);
-        } else {
-            current = YTKACESponsorCurrentTime();
-        }
-
-        // Phase 1: Wait until player has confirmed seeked before startTime
-        if (!armedForCut) {
-            if (current < strongSelf.startTime || (fabs(current - previewStart) <= 1.0) || elapsed > 1.5) {
-                armedForCut = YES;
-            } else {
-                return;
-            }
-        }
-
-        // Phase 2: Detect cut moment!
-        if (armedForCut && !cutExecuted) {
-            if (current >= strongSelf.startTime - 0.04) {
-                cutExecuted = YES;
-                double dest = strongSelf.endTime;
-
-                if (strongSelf.previewPlayer != nil) {
-                    CMTime cmDest = CMTimeMakeWithSeconds(dest, 1000);
-                    [strongSelf.previewPlayer seekToTime:cmDest toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-                    [strongSelf.previewPlayer play];
-                } else {
-                    YTKACESponsorSeek(dest);
-                    YTKACEPlayYouTubePlayer();
-                }
-
-                AudioServicesPlaySystemSound(1057);
-                UINotificationFeedbackGenerator *feedback = [UINotificationFeedbackGenerator new];
-                [feedback notificationOccurred:UINotificationFeedbackTypeSuccess];
-
-                strongSelf.previewStatusLabel.text = [NSString stringWithFormat:@"✂ %@: %@ ➔ %@",
-                    YTKACELocalized(@"Skipped"),
-                    YTKACEFormatSponsorTime(strongSelf.startTime),
-                    YTKACEFormatSponsorTime(strongSelf.endTime)];
-                return;
-            }
-        }
-
-        // Phase 3: Post-cut playback until targetEnd!
-        if (cutExecuted) {
-            if (current >= strongSelf.previewTargetEnd || (dur > 0.0 && current >= dur)) {
-                [strongSelf stopPreviewTimer];
-                [strongSelf pausePreview];
-                strongSelf.previewStatusLabel.text = YTKACELocalized(@"Cut preview verified ✓");
-                AudioServicesPlaySystemSound(1519);
-                YTKACEShowNotice(YTKACELocalized(@"Cut preview verified ✓"));
-                return;
-            }
-        }
-
-        // Safety timeout
-        if (elapsed > 20.0) {
-            [strongSelf stopPreviewTimer];
-            [strongSelf pausePreview];
-            strongSelf.previewStatusLabel.text = YTKACELocalized(@"Tap ▶ to preview cut playback");
-        }
+    self.previewBoundaryObserver = [self.previewPlayer addBoundaryTimeObserverForTimes:times
+        queue:dispatch_get_main_queue() usingBlock:^{ [weakSelf updatePreviewPlayback]; }];
+    [self seekPreviewTo:_cutPreview.leadIn() completion:^{
+        YTKACESponsorSubmitController *controller = weakSelf;
+        if (controller == nil) return;
+        controller->_cutPreview.seekCompleted(true);
+        // A segment at 0 must cut before any of its audio is played.
+        [controller updatePreviewPlayback];
+        [controller playPreviewIfRequested];
     }];
+}
+
+- (void)handleCutPreviewAction:(YTKACESponsorPreview::Action)action {
+    switch (action) {
+        case YTKACESponsorPreview::Action::SeekToEnd: {
+            self.previewStatusLabel.text = YTKACELocalized(@"Seeking preview…");
+            __weak YTKACESponsorSubmitController *weakSelf = self;
+            [self seekPreviewTo:_cutPreview.end() completion:^{
+                YTKACESponsorSubmitController *controller = weakSelf;
+                if (controller == nil) return;
+                auto next = controller->_cutPreview.seekCompleted(true);
+                [controller handleCutPreviewAction:next];
+                [controller updatePreviewPlayback];
+                [controller playPreviewIfRequested];
+            }];
+            break;
+        }
+        case YTKACESponsorPreview::Action::Mute: self.previewPlayer.muted = YES; break;
+        case YTKACESponsorPreview::Action::Unmute: self.previewPlayer.muted = NO; break;
+        case YTKACESponsorPreview::Action::Finish: [self finishCutPreview]; break;
+        case YTKACESponsorPreview::Action::None: break;
+    }
+}
+
+- (void)finishCutPreview {
+    [self stopCutPreview];
+    self.previewStatusLabel.text = YTKACELocalized(@"Preview finished");
 }
 
 - (void)cancelTapped {
@@ -2694,6 +2808,7 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
         return;
     }
 
+    [self stopCutPreview];
     self.submitButton.enabled = NO;
     self.navigationItem.rightBarButtonItem.enabled = NO;
     [self.spinner startAnimating];

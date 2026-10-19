@@ -1178,3 +1178,20 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Remove Live Streams" = "Rimuovi dirette streaming";
 "Hide live streams from the Shorts feed." = "Nasconde le dirette streaming dal feed degli Shorts.";
 
+/* SponsorBlock submission preview */
+"Play" = "Riproduci";
+"Pause" = "Pausa";
+"Cut" = "Taglio";
+"Mute" = "Silenzia";
+"Preview Cut" = "Anteprima taglio";
+"Preview Mute" = "Anteprima silenziamento";
+"Loading preview…" = "Caricamento anteprima…";
+"Seeking preview…" = "Posizionamento anteprima…";
+"Preview paused" = "Anteprima in pausa";
+"Playing preview" = "Riproduzione anteprima";
+"Playing before cut" = "Riproduzione prima del taglio";
+"Playing after cut" = "Riproduzione dopo il taglio";
+"Buffering preview…" = "Caricamento video…";
+"Previewing muted segment" = "Anteprima del segmento silenziato";
+"Preview finished" = "Anteprima terminata";
+"Preview unavailable. Tap Play to retry." = "Anteprima non disponibile. Tocca Riproduci per riprovare.";
