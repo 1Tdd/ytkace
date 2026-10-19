@@ -64,7 +64,7 @@ jobs:
 
       - uses: actions/cache/restore@v4
         with:
-          path: .theos
+          path: ${{ github.workspace }}/.theos
           key: roothide-theos-${{ runner.os }}-v1
           fail-on-cache-miss: true
 
