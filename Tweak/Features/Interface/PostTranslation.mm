@@ -84,7 +84,7 @@ NSString *YTKACETranslationResponse(NSData *data) {
 }
 - (NSString *)languageName:(NSString *)code {
     if ([code isEqual:@"auto"]) return YTKACELocalized(@"Detect language");
-    return [NSLocale.currentLocale localizedStringForIdentifier:code] ?: code;
+    return [NSLocale.currentLocale displayNameForKey:NSLocaleIdentifier value:code] ?: code;
 }
 - (NSArray<NSString *> *)languages {
     NSMutableOrderedSet *codes = [NSMutableOrderedSet orderedSetWithArray:
