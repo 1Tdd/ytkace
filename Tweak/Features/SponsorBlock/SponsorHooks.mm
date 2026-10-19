@@ -153,17 +153,24 @@ static NSNumber *YTKACESafeNumberForKey(id obj, NSString *key) {
     return nil;
 }
 
-static double YTKACEDoubleMessage(id receiver, NSArray<NSString *> *selectorNames) {
+static double YTKACEDoubleMessage(id receiver, NSArray<NSString *> *selectorNames, BOOL *resolved = nullptr) {
+    if (resolved != nullptr) *resolved = NO;
     if (receiver == nil) return 0.0;
     @try {
         for (NSString *selectorName in selectorNames) {
             SEL selector = NSSelectorFromString(selectorName);
             if ([receiver respondsToSelector:selector]) {
                 NSMethodSignature *sig = [receiver methodSignatureForSelector:selector];
-                if (sig != nil) {
+                if (sig != nil && sig.numberOfArguments == 2) {
                     const char *retType = [sig methodReturnType];
                     if (retType != NULL && (retType[0] == 'd' || retType[0] == 'f')) {
-                        return ((double (*)(id, SEL))objc_msgSend)(receiver, selector);
+                        double value = retType[0] == 'f'
+                            ? (double)((float (*)(id, SEL))objc_msgSend)(receiver, selector)
+                            : ((double (*)(id, SEL))objc_msgSend)(receiver, selector);
+                        if (isfinite(value) && value >= 0.0) {
+                            if (resolved != nullptr) *resolved = YES;
+                            return value;
+                        }
                     }
                 }
             }
@@ -861,15 +868,16 @@ NSString *YTKACESponsorCurrentVideoID(void) {
 double YTKACESponsorCurrentTime(void) {
     id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
     double time = 0.0;
+    BOOL resolved = NO;
     if (controller != nil) {
         time = YTKACEDoubleMessage(controller, @[
             @"currentVideoMediaTime",
             @"currentVideoTime",
             @"currentMediaTime",
             @"mediaTime"
-        ]);
+        ], &resolved);
     }
-    if (time <= 0.0 && YTKACELatestResolvedVideoTime > 0.0) {
+    if (!resolved && YTKACELatestResolvedVideoTime > 0.0) {
         time = YTKACELatestResolvedVideoTime;
     }
     return time;
@@ -1883,9 +1891,10 @@ static void YTKACESingleVideoTimeChanged(id receiver,
         );
     }
     double objTime = YTKACEDoubleMessage(videoTime, @[@"time"]);
-    double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"]);
-    double resolved = current > 0.0 ? current : objTime;
-    if (resolved > 0.0) {
+    BOOL hasCurrent = NO;
+    double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"], &hasCurrent);
+    double resolved = hasCurrent ? current : objTime;
+    if (isfinite(resolved) && resolved >= 0.0) {
         YTKACELatestResolvedVideoTime = resolved;
     }
     YTKACENotifyVideoTime(resolved);
@@ -1922,9 +1931,10 @@ static void YTKACEMutatedVideoTimeChanged(id receiver,
         );
     }
     double objTime = YTKACEDoubleMessage(videoTime, @[@"time"]);
-    double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"]);
-    double resolved = current > 0.0 ? current : objTime;
-    if (resolved > 0.0) {
+    BOOL hasCurrent = NO;
+    double current = YTKACEDoubleMessage(receiver, @[@"currentVideoMediaTime"], &hasCurrent);
+    double resolved = hasCurrent ? current : objTime;
+    if (isfinite(resolved) && resolved >= 0.0) {
         YTKACELatestResolvedVideoTime = resolved;
     }
     YTKACENotifyVideoTime(resolved);

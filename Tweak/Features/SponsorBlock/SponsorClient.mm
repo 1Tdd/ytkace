@@ -8,7 +8,6 @@
 @property(nonatomic, strong) NSCache<NSString *, NSArray *> *cache;
 @property(nonatomic, strong) NSURLSession *session;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<NSDictionary *> *> *localSubmissions;
-- (NSArray *)localSegmentsForVideoID:(NSString *)videoID;
 @end
 
 @implementation YTKACESponsorClient
@@ -231,7 +230,7 @@
     [self.cache removeAllObjects];
 }
 
-- (NSArray *)localSegmentsForVideoID:(NSString *)videoID {
+- (NSArray<NSDictionary *> *)localSegmentsForVideoID:(NSString *)videoID {
     @synchronized (self) { return [self.localSubmissions[videoID] copy] ?: @[]; }
 }
 
