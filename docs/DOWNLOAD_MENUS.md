@@ -22,6 +22,8 @@ The form exposes formats supported by YTKACE's current media engine. Audio
 export is M4A/AAC. MP3 conversion and the reference app's video encoding
 presets are not implemented. AV1 and VP9 options require hardware decoding
 support on the device.
+These codecs can be saved in Downloads or shared; Photos is offered for
+H.264, HEVC, and audio converted to a video with artwork.
 
 Other fixes included with the interface:
 

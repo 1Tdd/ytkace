@@ -49,6 +49,7 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
         _selectedSegments = [NSMutableSet set];
         _selectedAudio = [self preferredAudioIn:_audioOptions matching:nil];
         _selectedVideo = _videoOptions.firstObject;
+        for (YTKACEStreamOption *option in _videoOptions) if ([option.codecIdentifier isEqual:@"avc1"]) { _selectedVideo = option; break; }
         _selectedCodec = _selectedVideo.codecIdentifier ?: @"avc1";
         [self updateSponsorSegments:sponsorSegments];
         [self chooseDefaultCaption];
@@ -137,6 +138,8 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     NSString *title = self.metadata[@"title"] ?: self.videoTitle;
     self.heading = artist.length ? [NSString stringWithFormat:@"%@ — %@", artist, title] : title;
     __weak YTKACEDownloadOptionsController *weakSelf = self;
+    BOOL photosCompatible = self.isAudioOnly || [self.selectedCodec isEqual:@"avc1"] || [self.selectedCodec isEqual:@"hevc"];
+    if (!photosCompatible && self.destination == YTKACEDownloadDestinationPhotos) self.destination = YTKACEDownloadDestinationDownloads;
     NSMutableArray<YTKACEMediaAction *> *rows = [NSMutableArray array];
     NSArray *codecs = [self codecs];
     NSMutableArray *titles = [codecs mutableCopy];
@@ -230,12 +233,17 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     NSArray *destinations = @[YTKACELocalized(@"Downloads"), YTKACELocalized(@"Photos"), YTKACELocalized(@"Share Sheet")];
     NSMutableArray *saves = [NSMutableArray array];
     for (NSUInteger i = 0; i < destinations.count; ++i) {
-        [saves addObject:[self choice:[NSString stringWithFormat:@"download.destination.%lu", (unsigned long)i]
+        YTKACEMediaAction *save = [self choice:[NSString stringWithFormat:@"download.destination.%lu", (unsigned long)i]
             title:destinations[i] selected:self.destination == (NSInteger)i handler:^{
                 weakSelf.destination = (YTKACEDownloadDestination)i;
                 weakSelf.destinationManuallyChanged = YES;
                 [weakSelf rebuildForm];
-            }]];
+            }];
+        if (i == YTKACEDownloadDestinationPhotos && !photosCompatible) {
+            save.enabled = NO;
+            save.detail = YTKACELocalized(@"Choose H.264 or HEVC for Photos");
+        }
+        [saves addObject:save];
     }
     YTKACEMediaAction *destination = [YTKACEMediaAction group:@"download.destination" title:YTKACELocalized(@"Save in...") symbol:@"square.and.arrow.down" children:saves];
     destination.detail = destinations[self.destination];
@@ -278,9 +286,10 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     }
     [editor addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
     __weak YTKACEDownloadOptionsController *weakSelf = self;
+    __weak UIAlertController *weakEditor = editor;
     [editor addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Save") style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        NSString *title = [editor.textFields[0].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        NSString *artist = [editor.textFields[1].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSString *title = [weakEditor.textFields[0].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSString *artist = [weakEditor.textFields[1].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         weakSelf.metadata = @{@"title": title.length ? title : weakSelf.videoTitle, @"artist": artist ?: @""};
         [weakSelf rebuildForm];
     }]];
