@@ -40,6 +40,8 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     if (self) {
         _videoTitle = [title copy] ?: @"";
         _metadata = @{@"title": _videoTitle, @"artist": @""};
+        _encodingPreset = @"skip";
+        _audioFormat = @"m4a";
         _videoOptions = [videoOptions copy] ?: @[];
         _audioOptions = [audioOptions copy] ?: @[];
         _captionChoices = [captionChoices copy] ?: @[];
@@ -84,6 +86,8 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     YTKACEStreamOption *best = nil;
     for (YTKACEStreamOption *option in options) {
         if (previous && ![option.audioTrackKey isEqual:previous.audioTrackKey]) continue;
+        if (!self.isAudioOnly && best && [best.codecIdentifier isEqual:@"aac"] && ![option.codecIdentifier isEqual:@"aac"]) continue;
+        if (!self.isAudioOnly && [option.codecIdentifier isEqual:@"aac"] && ![best.codecIdentifier isEqual:@"aac"]) { best = option; continue; }
         if (best == nil || option.bitrate > best.bitrate) best = option;
     }
     if (best) return best;
@@ -118,7 +122,6 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     NSMutableArray *codecs = [NSMutableArray array];
     for (NSString *codec in @[@"avc1", @"av01", @"vp9", @"hevc"]) {
         if ([codec isEqual:@"av01"] && !VTIsHardwareDecodeSupported('av01')) continue;
-        if ([codec isEqual:@"vp9"] && !VTIsHardwareDecodeSupported('vp09')) continue;
         for (YTKACEStreamOption *option in self.videoOptions) {
             if ([option.codecIdentifier isEqual:codec]) { [codecs addObject:codec]; break; }
         }
@@ -139,7 +142,9 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     NSString *title = self.metadata[@"title"] ?: self.videoTitle;
     self.heading = artist.length ? [NSString stringWithFormat:@"%@ — %@", artist, title] : title;
     __weak YTKACEDownloadOptionsController *weakSelf = self;
-    BOOL photosCompatible = self.isAudioOnly || [self.selectedCodec isEqual:@"avc1"] || [self.selectedCodec isEqual:@"hevc"];
+    BOOL convertible = !self.isAudioOnly && ([self.selectedCodec isEqual:@"av01"] || [self.selectedCodec isEqual:@"vp9"]);
+    BOOL photosCompatible = self.isAudioOnly || [self.selectedCodec isEqual:@"avc1"] || [self.selectedCodec isEqual:@"hevc"] ||
+        (convertible && ![self.encodingPreset isEqual:@"skip"]);
     if (!photosCompatible && self.destination == YTKACEDownloadDestinationPhotos) self.destination = YTKACEDownloadDestinationDownloads;
     NSMutableArray<YTKACEMediaAction *> *rows = [NSMutableArray array];
     NSArray *codecs = [self codecs];
@@ -174,9 +179,34 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     NSString *size = [self sizeForVideo:self.isAudioOnly ? nil : self.selectedVideo audio:self.selectedAudio];
     quality.detail = selected ? (size.length ? [NSString stringWithFormat:@"%@ · %@", [self qualityTitle:selected], size] : [self qualityTitle:selected]) : YTKACELocalized(@"None available");
     [rows addObject:quality];
+    if (convertible) {
+        NSArray *values = @[@"skip", @"ultrafast", @"veryfast", @"medium"];
+        NSArray *names = @[YTKACELocalized(@"Skip conversion"), YTKACELocalized(@"Ultra fast"), YTKACELocalized(@"Very fast"), YTKACELocalized(@"Medium")];
+        NSArray *details = @[YTKACELocalized(@"Fastest · Can't save to Photos"), YTKACELocalized(@"Fast · Bigger size"), YTKACELocalized(@"Balanced"), YTKACELocalized(@"Slow · Smaller size")];
+        NSMutableArray *choices = [NSMutableArray array];
+        for (NSUInteger i = 0; i < values.count; i++) {
+            NSString *value = values[i];
+            YTKACEMediaAction *choice = [self choice:[@"download.preset." stringByAppendingString:value]
+                title:names[i] selected:[self.encodingPreset isEqual:value] handler:^{
+                    weakSelf.encodingPreset = value; [weakSelf rebuildForm];
+                }];
+            choice.detail = details[i]; [choices addObject:choice];
+        }
+        YTKACEMediaAction *preset = [YTKACEMediaAction group:@"download.preset" title:YTKACELocalized(@"Encoding preset") symbol:@"slider.horizontal.3" children:choices];
+        NSUInteger selectedPreset = [values indexOfObject:self.encodingPreset];
+        preset.detail = names[selectedPreset == NSNotFound ? 0 : selectedPreset];
+        [rows addObject:preset];
+    }
     if (self.isAudioOnly) {
-        YTKACEMediaAction *format = [YTKACEMediaAction action:@"download.format" title:YTKACELocalized(@"Format") symbol:@"music.note" handler:nil];
-        format.detail = @"m4a";
+        NSMutableArray *formats = [NSMutableArray array];
+        for (NSString *value in @[@"m4a", @"mp3"]) {
+            [formats addObject:[self choice:[@"download.format." stringByAppendingString:value]
+                title:value selected:[self.audioFormat isEqual:value] handler:^{
+                    weakSelf.audioFormat = value; [weakSelf rebuildForm];
+                }]];
+        }
+        YTKACEMediaAction *format = [YTKACEMediaAction group:@"download.format" title:YTKACELocalized(@"Format") symbol:@"music.note" children:formats];
+        format.detail = self.audioFormat;
         [rows addObject:format];
         YTKACEMediaAction *metadata = [YTKACEMediaAction action:@"download.metadata" title:YTKACELocalized(@"Edit metadata") symbol:@"square.and.pencil" handler:^{ [weakSelf editMetadata]; }];
         metadata.dismissesSheet = NO;
@@ -242,7 +272,7 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
             }];
         if (i == YTKACEDownloadDestinationPhotos && !photosCompatible) {
             save.enabled = NO;
-            save.detail = YTKACELocalized(@"Choose H.264 or HEVC for Photos");
+            save.detail = YTKACELocalized(@"Choose an encoding preset for Photos");
         }
         [saves addObject:save];
     }
@@ -251,7 +281,10 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     [rows addObject:destination];
     YTKACEMediaAction *download = [YTKACEMediaAction action:@"download.start" title:YTKACELocalized(@"Download") symbol:@"arrow.down.to.line" handler:^{ [weakSelf startDownload]; }];
     download.enabled = !self.submitted && self.selectedAudio != nil && (self.isAudioOnly || self.selectedVideo != nil);
-    download.detail = size;
+    // Source sizes do not predict the size of a re-encoded file.
+    download.detail = ((convertible && ![self.encodingPreset isEqual:@"skip"]) ||
+        [self.selectedAudio.codecIdentifier isEqual:@"opus"] || (self.isAudioOnly && [self.audioFormat isEqual:@"mp3"]))
+        ? [NSString stringWithFormat:YTKACELocalized(@"Download: %@ · Output size varies"), size.length ? size : @"—"] : size;
     download.dismissesSheet = NO;
     self.actionSections = @[rows, @[download]];
 }

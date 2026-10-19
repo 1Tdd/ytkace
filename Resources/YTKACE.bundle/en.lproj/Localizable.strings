@@ -1255,3 +1255,27 @@ Licensed under CC BY-NC-SA 4.0.";
 "Translate post" = "Translate post";
 "Choose H.264 or HEVC for Photos" = "Choose H.264 or HEVC for Photos";
 "%@ is not installed." = "%@ is not installed.";
+
+"Encoding preset" = "Encoding preset";
+
+"Skip conversion" = "Skip conversion";
+
+"Ultra fast" = "Ultra fast";
+
+"Very fast" = "Very fast";
+
+"Medium" = "Medium";
+
+"Fastest · Can't save to Photos" = "Fastest · Can't save to Photos";
+
+"Fast · Bigger size" = "Fast · Bigger size";
+
+"Balanced" = "Balanced";
+
+"Slow · Smaller size" = "Slow · Smaller size";
+
+"Choose an encoding preset for Photos" = "Choose an encoding preset for Photos";
+
+"Download: %@ · Output size varies" = "Download: %@ · Output size varies";
+
+"Conversion failed" = "Conversion failed";

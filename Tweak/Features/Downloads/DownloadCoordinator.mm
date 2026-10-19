@@ -53,6 +53,9 @@
 @property(nonatomic, assign) BOOL sharesFile;
 @property(nonatomic, assign) BOOL captionSelectionExplicit;
 @property(nonatomic, copy) NSDictionary<NSString *, NSString *> *metadata;
+@property(nonatomic, copy) NSString *encodingPreset;
+@property(nonatomic, copy) NSString *audioFormat;
+@property(nonatomic, assign) BOOL audioNormalized;
 @property(nonatomic, strong, nullable) NSURL *captionURL;
 @property(nonatomic, copy, nullable) NSString *captionLanguage;
 @property(nonatomic, copy, nullable) NSArray<NSDictionary *> *removedSegments;
@@ -340,6 +343,8 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         };
         YTKACEDownloadProgressView.sharedView.cancelHandler = ^(NSString *identifier) {
             YTKACEDownloadJob *job = weakSelf.activeJobs[identifier];
+            job.cancelled = YES;
+            YTKACEFFmpegCancelConversion(identifier);
             if (job != nil && job.sabrTask == nil && job.task == nil && job.directTask == nil) {
                 job.cancelled = YES;
                 [YTKACEDownloadProgressView.sharedView finishJob:identifier
@@ -350,6 +355,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
             }
             [job.sabrTask cancel];
             [job.directTask cancel];
+            [job.task cancel];
             YTKACEFFmpegCancelConversion(identifier);
         };
     }
@@ -768,7 +774,6 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         NSMutableSet *keys = [NSMutableSet set];
         for (NSArray *source in @[directs ?: @[], sabrs ?: @[]]) for (YTKACEStreamOption *option in source) {
             if (option.audioOnly || option.height <= 0) continue;
-            if ([option.codecIdentifier isEqual:@"vp9"] && !VTIsHardwareDecodeSupported('vp09')) continue;
             if ([option.codecIdentifier isEqual:@"av01"] && !VTIsHardwareDecodeSupported('av01')) continue;
             NSString *key = [NSString stringWithFormat:@"%@|%@|%ld", option.codecIdentifier, option.qualityLabel ?: @"", (long)option.height];
             if ([keys containsObject:key]) continue;
@@ -784,7 +789,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     NSArray<YTKACEStreamOption *> *(^mergeAudios)(NSArray *, NSArray *) = ^NSArray *(NSArray *directs, NSArray *sabrs) {
         NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSet];
         for (NSArray *source in @[directs ?: @[], sabrs ?: @[]]) for (YTKACEStreamOption *option in source) {
-            if (!option.audioOnly || !(option.itag == 139 || option.itag == 140 || option.itag == 141 || [option.mimeType containsString:@"mp4"])) continue;
+            if (!option.audioOnly || !([option.codecIdentifier isEqual:@"aac"] || [option.codecIdentifier isEqual:@"opus"])) continue;
             [merged addObject:option];
         }
         return [merged.array sortedArrayUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
@@ -850,6 +855,8 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         YTKACEDownloadJob *job = [YTKACEDownloadJob new];
         job.identifier = NSUUID.UUID.UUIDString;
         job.metadata = weakController.metadata;
+        job.encodingPreset = weakController.encodingPreset;
+        job.audioFormat = weakController.audioFormat;
         job.title = [weakSelf safeFilename:job.metadata[@"title"] ?: [YTKACEStreamResolver titleFromPlayerResponse:response]];
         job.author = job.metadata[@"artist"] ?: [YTKACEStreamResolver authorFromPlayerResponse:response];
         job.captionSelectionExplicit = YES;
@@ -1652,6 +1659,8 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     job.captionLanguage = old.captionLanguage;
     job.captionSelectionExplicit = old.captionSelectionExplicit;
     job.metadata = old.metadata;
+    job.encodingPreset = old.encodingPreset;
+    job.audioFormat = old.audioFormat;
     job.removedSegments = old.removedSegments;
     job.allSponsorSegments = old.allSponsorSegments;
     YTKACEDownloadLog(job.identifier, @"retry of %@", identifier);
@@ -1836,6 +1845,27 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 - (void)completeJob:(YTKACEDownloadJob *)job
            videoURL:(NSURL *)videoURL
            audioURL:(NSURL *)audioURL {
+    if (job.cancelled) {
+        [NSFileManager.defaultManager removeItemAtURL:audioURL.URLByDeletingLastPathComponent error:nil];
+        return;
+    }
+    if (!job.audioOnly && !job.audioNormalized && [job.audioOption.codecIdentifier isEqual:@"opus"]) {
+        NSURL *normalized = [audioURL.URLByDeletingLastPathComponent URLByAppendingPathComponent:@"normalized.m4a"];
+        [YTKACEDownloadProgressView.sharedView updateJob:job.identifier stage:YTKACELocalized(@"Converting")
+            progress:0 downloadedBytes:0 totalBytes:0];
+        [YTKACEFFmpegMuxer convertMediaURL:audioURL outputURL:normalized identifier:job.identifier
+            videoPreset:nil audioFormat:@"aac" audioBitrate:job.audioOption.bitrate metadata:job.metadata
+            progress:^(double fraction) {
+                if (!job.cancelled) [YTKACEDownloadProgressView.sharedView updateJob:job.identifier
+                    stage:YTKACELocalized(@"Converting") progress:fraction downloadedBytes:0 totalBytes:0];
+            } completion:^(NSError *error) {
+                if (error || job.cancelled) { [self failProcessingJob:job URL:audioURL error:error]; return; }
+                job.audioNormalized = YES;
+                [NSFileManager.defaultManager removeItemAtURL:audioURL error:nil];
+                [self completeJob:job videoURL:videoURL audioURL:normalized];
+            }];
+        return;
+    }
     if (job.audioOnly) {
         if (videoURL != nil) {
             [NSFileManager.defaultManager removeItemAtURL:videoURL error:nil];
@@ -1868,7 +1898,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
                 }
                 [NSFileManager.defaultManager removeItemAtURL:audioURL error:nil];
                 YTKACEDownloadLog(job.identifier, @"audio remux complete");
-                [self saveCompletedURL:output job:job extension:@"m4a"];
+                [self convertCompletedURL:output job:job];
             }];
         return;
     }
@@ -2169,9 +2199,41 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
     });
 }
 
+- (void)failProcessingJob:(YTKACEDownloadJob *)job URL:(NSURL *)URL error:(NSError *)error {
+    if (URL) [NSFileManager.defaultManager removeItemAtURL:URL.URLByDeletingLastPathComponent error:nil];
+    [YTKACEDownloadProgressView.sharedView finishJob:job.identifier success:NO
+        message:YTKACELocalized(job.cancelled ? @"Cancelled" : @"Failed")];
+    [self.activeJobs removeObjectForKey:job.identifier];
+    if (!job.cancelled && error) [self showAlertWithTitle:YTKACELocalized(@"Conversion failed")
+        message:[self failureMessageForError:error job:job]];
+}
+
+- (void)convertCompletedURL:(NSURL *)URL job:(YTKACEDownloadJob *)job {
+    BOOL convertVideo = !job.audioOnly && job.encodingPreset.length && ![job.encodingPreset isEqual:@"skip"] &&
+        ([job.videoOption.codecIdentifier isEqual:@"av01"] || [job.videoOption.codecIdentifier isEqual:@"vp9"]);
+    BOOL mp3 = job.audioOnly && [job.audioFormat isEqual:@"mp3"];
+    BOOL convertAudio = job.audioOnly && (mp3 || [job.audioOption.codecIdentifier isEqual:@"opus"]);
+    if (job.cancelled) { [self failProcessingJob:job URL:URL error:nil]; return; }
+    if (!convertVideo && !convertAudio) { [self saveCompletedURL:URL job:job extension:job.audioOnly ? @"m4a" : @"mp4"]; return; }
+    NSString *extension = mp3 ? @"mp3" : (job.audioOnly ? @"m4a" : @"mp4");
+    NSURL *output = [URL.URLByDeletingLastPathComponent URLByAppendingPathComponent:[@"converted" stringByAppendingPathExtension:extension]];
+    [YTKACEDownloadProgressView.sharedView updateJob:job.identifier stage:YTKACELocalized(@"Converting")
+        progress:0 downloadedBytes:0 totalBytes:0];
+    [YTKACEFFmpegMuxer convertMediaURL:URL outputURL:output identifier:job.identifier
+        videoPreset:convertVideo ? job.encodingPreset : nil audioFormat:mp3 ? @"mp3" : @"aac"
+        audioBitrate:job.audioOption.bitrate metadata:job.metadata progress:^(double fraction) {
+            if (!job.cancelled) [YTKACEDownloadProgressView.sharedView updateJob:job.identifier
+                stage:YTKACELocalized(@"Converting") progress:fraction downloadedBytes:0 totalBytes:0];
+        } completion:^(NSError *error) {
+            if (error || job.cancelled) { [self failProcessingJob:job URL:URL error:error]; return; }
+            [self saveCompletedURL:output job:job extension:extension];
+        }];
+}
+
 - (void)saveCompletedURL:(NSURL *)URL
                       job:(YTKACEDownloadJob *)job
                 extension:(NSString *)extension {
+    if (job.cancelled) { [NSFileManager.defaultManager removeItemAtURL:URL.URLByDeletingLastPathComponent error:nil]; return; }
     NSURL *destination = [self destinationForTitle:job.title
         category:job.category extension:extension];
     NSError *error = nil;
@@ -2276,10 +2338,19 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
     };
     if (job.audioOnly) {
         [self squareArtworkForJob:job then:^(NSData *artwork) {
-            [YTKACEFFmpegMuxer videoFromAudioURL:destination artworkData:artwork
-                outputURL:converted progress:report completion:^(NSError *error) {
-                handler(error == nil ? converted : destination);
-            }];
+            void (^makeVideo)(NSURL *) = ^(NSURL *audio) {
+                [YTKACEFFmpegMuxer videoFromAudioURL:audio artworkData:artwork
+                    outputURL:converted progress:report completion:^(NSError *error) {
+                        if (![audio isEqual:destination]) [NSFileManager.defaultManager removeItemAtURL:audio error:nil];
+                        handler(error == nil ? converted : destination);
+                    }];
+            };
+            if ([destination.pathExtension.lowercaseString isEqual:@"mp3"]) {
+                NSURL *aac = [converted.URLByDeletingPathExtension URLByAppendingPathExtension:@"m4a"];
+                [YTKACEFFmpegMuxer convertMediaURL:destination outputURL:aac identifier:job.identifier
+                    videoPreset:nil audioFormat:@"aac" audioBitrate:160000 metadata:job.metadata progress:report
+                    completion:^(NSError *error) { if (error) handler(destination); else makeVideo(aac); }];
+            } else makeVideo(destination);
         }];
         return;
     }
@@ -2401,7 +2472,7 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
             [NSFileManager.defaultManager removeItemAtURL:videoURL error:nil];
             [NSFileManager.defaultManager removeItemAtURL:audioURL error:nil];
             YTKACEDownloadLog(job.identifier, @"merge complete");
-            [weakSelf saveCompletedURL:output job:job extension:@"mp4"];
+            [weakSelf convertCompletedURL:output job:job];
         }];
 }
 

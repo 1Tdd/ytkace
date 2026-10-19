@@ -29,6 +29,7 @@ YTKACE_FILES = \
 	Tweak/Features/Downloads/SABRDownloader.mm \
 	Tweak/Features/Downloads/DirectDownloader.mm \
 	Tweak/Features/Downloads/FFmpegMuxer.mm \
+	Tweak/Features/Downloads/MediaConversion.cpp \
 	Tweak/Features/Downloads/YTKACEBackupManager.mm \
 	Tweak/Features/Downloads/YTKACEMediaImporter.mm \
 	Tweak/Features/Downloads/MediaArtwork.mm \
@@ -110,6 +111,9 @@ YTKACE_LDFLAGS += $(THEOS_PROJECT_DIR)/Vendor/FFmpeg/lib/libavformat.a
 YTKACE_LDFLAGS += $(THEOS_PROJECT_DIR)/Vendor/FFmpeg/lib/libavcodec.a
 YTKACE_LDFLAGS += $(THEOS_PROJECT_DIR)/Vendor/FFmpeg/lib/libavutil.a
 YTKACE_LDFLAGS += $(THEOS_PROJECT_DIR)/Vendor/FFmpeg/lib/libswscale.a
+YTKACE_LDFLAGS += $(THEOS_PROJECT_DIR)/Vendor/FFmpeg/lib/libswresample.a
+YTKACE_LDFLAGS += $(THEOS_PROJECT_DIR)/Vendor/FFmpeg/lib/libx264.a
+YTKACE_LDFLAGS += $(THEOS_PROJECT_DIR)/Vendor/FFmpeg/lib/libmp3lame.a
 YTKACE_INSTALL_PATH = /Library/MobileSubstrate/DynamicLibraries
 
 include $(THEOS_MAKE_PATH)/library.mk

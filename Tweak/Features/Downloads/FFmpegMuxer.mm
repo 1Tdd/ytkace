@@ -1,4 +1,5 @@
 #import "FFmpegMuxer.h"
+#include "MediaConversion.h"
 #include "../SponsorBlock/SponsorTimeline.h"
 #include <limits>
 #import <copyfile.h>
@@ -348,7 +349,9 @@ static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL,
     NSString *stage = @"Open audio";
     int result = YTKACEOpenInput(audioURL, AVMEDIA_TYPE_AUDIO, &audio, &audioIndex);
     if (result < 0) goto cleanup;
-    result = avformat_alloc_output_context2(&output, NULL, "mp4",
+    audioInput = audio->streams[audioIndex];
+    result = avformat_alloc_output_context2(&output, NULL,
+        audioInput->codecpar->codec_id == AV_CODEC_ID_OPUS ? "matroska" : "mp4",
         outputURL.fileSystemRepresentation);
     stage = @"Create output";
     if (result < 0 || output == NULL) {
@@ -360,7 +363,6 @@ static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL,
         NSString *value = metadata[key];
         if ([value isKindOfClass:NSString.class]) av_dict_set(&output->metadata, key.UTF8String, value.UTF8String, 0);
     }
-    audioInput = audio->streams[audioIndex];
     audioOutput = avformat_new_stream(output, NULL);
     stage = @"Create track";
     if (audioOutput == NULL) {
@@ -716,6 +718,35 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
 }
 
 @implementation YTKACEFFmpegMuxer
+
++ (void)convertMediaURL:(NSURL *)inputURL outputURL:(NSURL *)outputURL
+             identifier:(NSString *)identifier videoPreset:(NSString *)videoPreset
+            audioFormat:(NSString *)audioFormat audioBitrate:(NSInteger)audioBitrate
+               metadata:(NSDictionary<NSString *, NSString *> *)metadata
+               progress:(YTKACEFFmpegProgress)progress completion:(YTKACEFFmpegCompletion)completion {
+    static dispatch_queue_t queue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ queue = dispatch_queue_create("com.ytkace.conversion", DISPATCH_QUEUE_SERIAL); });
+    dispatch_async(queue, ^{
+        YTKACEMediaConversion::Options options;
+        options.videoPreset = videoPreset.UTF8String ?: "";
+        options.audioFormat = audioFormat.UTF8String ?: "aac";
+        options.audioBitrate = (int)MIN(MAX(audioBitrate, 32000), 320000);
+        for (NSString *key in metadata) options.metadata[key.UTF8String] = metadata[key].UTF8String ?: "";
+        std::string message;
+        int result = YTKACEMediaConversion::convert(inputURL.fileSystemRepresentation,
+            outputURL.fileSystemRepresentation, options, [identifier]() {
+                @synchronized (YTKACECancelledConversions()) {
+                    return (bool)[YTKACECancelledConversions() containsObject:identifier];
+                }
+            }, [progress](double fraction) {
+                if (progress) dispatch_async(dispatch_get_main_queue(), ^{ progress(fraction); });
+            }, message);
+        NSError *error = result < 0 ? [NSError errorWithDomain:@"YTKACEFFmpeg" code:result
+            userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithUTF8String:message.c_str()] ?: @"Conversion failed"}] : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
+    });
+}
 
 + (void)remuxAudioURL:(NSURL *)audioURL
             outputURL:(NSURL *)outputURL
@@ -1110,6 +1141,26 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
                completion:(YTKACEFFmpegCompletion)completion {
     if (artworkData.length == 0 || mediaURL == nil) {
         completion(YTKACEFFmpegError(AVERROR(EINVAL), @"Read artwork"));
+        return;
+    }
+    if ([mediaURL.pathExtension.lowercaseString isEqual:@"mp3"]) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            NSURL *temporary = [mediaURL.URLByDeletingLastPathComponent URLByAppendingPathComponent:
+                [NSString stringWithFormat:@".%@-artwork.mp3", NSUUID.UUID.UUIDString]];
+            const auto *bytes = static_cast<const unsigned char *>(artworkData.bytes);
+            std::vector<unsigned char> jpeg(bytes, bytes + artworkData.length);
+            std::string message;
+            int result = YTKACEMediaConversion::embedMP3Artwork(mediaURL.fileSystemRepresentation,
+                temporary.fileSystemRepresentation, jpeg, message);
+            NSError *error = result < 0 ? YTKACEFFmpegError(result, @"Embed MP3 artwork") : nil;
+            if (!error) {
+                copyfile(mediaURL.fileSystemRepresentation, temporary.fileSystemRepresentation, NULL, COPYFILE_XATTR);
+                [NSFileManager.defaultManager replaceItemAtURL:mediaURL withItemAtURL:temporary
+                    backupItemName:nil options:0 resultingItemURL:nil error:&error];
+            }
+            [NSFileManager.defaultManager removeItemAtURL:temporary error:nil];
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
+        });
         return;
     }
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:mediaURL options:nil];

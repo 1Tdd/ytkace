@@ -153,7 +153,7 @@ static id YTKACEFindExpandableText(id node, NSUInteger depth) {
 }
 
 static NSString *YTKACENodeText(id node, NSUInteger depth) {
-    if (node == nil || depth > 4) return nil;
+    if (node == nil || depth > 12) return nil;
     id attributed = YTKACENodeValue(node, @"attributedText");
     NSString *text = [attributed isKindOfClass:NSAttributedString.class] ? [attributed string] : nil;
     if (text.length != 0) return text;
@@ -167,14 +167,47 @@ static NSString *YTKACENodeText(id node, NSUInteger depth) {
 @interface YTKACEPostCopyHandler : NSObject <UIGestureRecognizerDelegate>
 @end
 
+static BOOL YTKACEIsPostNode(id node) {
+    if (!node) return NO;
+    NSMutableArray *pending = [NSMutableArray arrayWithObject:node];
+    NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    for (NSUInteger i = 0; i < pending.count && i < 256; ++i) {
+        id item = pending[i];
+        if ([seen containsObject:item]) continue;
+        [seen addObject:item];
+        id identifier = YTKACENodeValue(item, @"accessibilityIdentifier");
+        NSString *token = [NSString stringWithFormat:@"%@ %@", NSStringFromClass([item class]),
+            [identifier isKindOfClass:NSString.class] ? identifier : @""].lowercaseString;
+        if ([token containsString:@"community"] || [token containsString:@"backstage"] ||
+            [token containsString:@"post_node"] || [token containsString:@"post_renderer"] ||
+            [token containsString:@"post_text"] || [token containsString:@"post_attachment"]) return YES;
+        for (NSString *key in @[@"postId", @"postID", @"backstagePostId"]) {
+            id value = YTKACENodeValue(item, key);
+            if ([value isKindOfClass:NSString.class] && [value length]) return YES;
+        }
+        for (NSString *key in @[@"entry", @"elementRenderer", @"communityPostRenderer", @"backstagePostRenderer", @"postRenderer", @"model"]) {
+            id child = YTKACENodeValue(item, key);
+            if (child && child != item && pending.count < 256) [pending addObject:child];
+        }
+        id children = YTKACENodeValue(item, @"subnodes");
+        if ([children isKindOfClass:NSArray.class]) for (id child in children) {
+            if (pending.count >= 256) break;
+            [pending addObject:child];
+        }
+    }
+    return NO;
+}
+
 static UIView *YTKACEPostCellForGesture(UIGestureRecognizer *gesture) {
-    UIView *cell = [gesture.view hitTest:[gesture locationInView:gesture.view] withEvent:nil];
-    while (cell && ![NSStringFromClass(cell.class) isEqual:@"_ASCollectionViewCell"]) cell = cell.superview;
-    id node = YTKACENodeValue(cell, @"node");
-    NSString *identifier = YTKACENodeValue(node, @"accessibilityIdentifier");
-    NSString *token = [NSString stringWithFormat:@"%@ %@", NSStringFromClass([node class]) ?: @"", identifier ?: @""].lowercaseString;
-    if ([token containsString:@"community"] || [token containsString:@"backstage"] ||
-        [token containsString:@"post_node"] || [NSStringFromClass([node class]) isEqual:@"YTCommentNode"]) return cell;
+    // Photos can be nested collection cells. Continue to the enclosing post.
+    UIView *hit = [gesture.view hitTest:[gesture locationInView:gesture.view] withEvent:nil];
+    UIView *candidate = nil;
+    for (UIView *view = hit; view && view != gesture.view; view = view.superview) {
+        if (![view isKindOfClass:UICollectionViewCell.class] && ![view isKindOfClass:UITableViewCell.class]) continue;
+        id node = YTKACENodeValue(view, @"node") ?: YTKACENodeValue(view, @"keepalive_node");
+        if (YTKACEIsPostNode(node)) candidate = view;
+    }
+    if (candidate) return candidate;
     return nil;
 }
 
@@ -183,24 +216,29 @@ static UIView *YTKACEPostCellForGesture(UIGestureRecognizer *gesture) {
     (void)gesture;
     return ![other isKindOfClass:UILongPressGestureRecognizer.class];
 }
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
+    // Let the post menu take priority over native text selection/image holds.
+    return [other isKindOfClass:UILongPressGestureRecognizer.class] && YTKACEPostCellForGesture(gesture) != nil;
+}
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
     if (!YTKACEMasterEnabled() || !(YTKACEFeatureEnabled(YTKACEPostCopyTextKey) || YTKACEFeatureEnabled(YTKACEPostImageSaveKey))) return NO;
     UIView *cell = YTKACEPostCellForGesture(gesture);
-    if (!cell || [cell.nextResponder isKindOfClass:UITextView.class]) return NO;
+    if (!cell) return NO;
     return YES;
 }
 - (void)pressed:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
     UIView *cell = YTKACEPostCellForGesture(gesture);
-    id node = YTKACENodeValue(cell, @"node");
+    id node = YTKACENodeValue(cell, @"node") ?: YTKACENodeValue(cell, @"keepalive_node");
     if (!cell || !node) return;
     id textNode = YTKACEFindExpandableText(node, 0);
-    NSString *text = YTKACENodeText(textNode, 0);
+    NSString *text = YTKACENodeText(textNode ?: node, 0);
     NSURL *imageURL = nil;
     UIView *hit = [gesture.view hitTest:[gesture locationInView:gesture.view] withEvent:nil];
     for (UIView *view = hit; view && view != cell; view = view.superview) {
-        id imageNode = YTKACENodeValue(view, @"keepalive_node");
+        id imageNode = YTKACENodeValue(view, @"keepalive_node") ?: YTKACENodeValue(view, @"node");
         id URL = YTKACENodeValue(imageNode, @"URL");
+        if ([URL isKindOfClass:NSString.class]) URL = [NSURL URLWithString:URL];
         if ([URL isKindOfClass:NSURL.class] && CGRectGetWidth(view.bounds) >= 100) { imageURL = URL; break; }
     }
     [[UIImpactFeedbackGenerator.alloc initWithStyle:UIImpactFeedbackStyleMedium] impactOccurred];

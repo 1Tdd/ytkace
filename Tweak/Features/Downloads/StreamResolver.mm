@@ -298,7 +298,9 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
     for (YTKACEStreamOption *option in [self optionsFromPlayerResponse:playerResponse]) {
         if (option.height <= 0) option.height = YTKACEQualityHeight(option.qualityLabel);
         if (option.height <= 0) option.height = YTKACEHeightForItag(option.itag);
-        if (YTKACEVideoRejectReason(option) != nil) continue;
+        if (option.audioOnly || option.itag <= 0 || option.height <= 0 ||
+            !([option.mimeType containsString:@"mp4"] || [option.mimeType containsString:@"webm"])) continue;
+        if ([option.codecIdentifier isEqual:@"av01"] && !VTIsHardwareDecodeSupported('av01')) continue;
         if (option.qualityLabel.length == 0) option.qualityLabel = [NSString stringWithFormat:@"%ldp", (long)option.height];
         NSString *key = [NSString stringWithFormat:@"%@|%@|%ld", option.codecIdentifier, option.qualityLabel, (long)option.height];
         YTKACEStreamOption *previous = formats[key];
@@ -315,8 +317,7 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
 + (NSArray<YTKACEStreamOption *> *)downloadAudioOptionsFromPlayerResponse:(id)playerResponse {
     NSMutableOrderedSet *formats = [NSMutableOrderedSet orderedSet];
     for (YTKACEStreamOption *option in [self optionsFromPlayerResponse:playerResponse]) {
-        if (!option.audioOnly || !([option.mimeType containsString:@"mp4"] ||
-            option.itag == 139 || option.itag == 140 || option.itag == 141)) continue;
+        if (!option.audioOnly || !([option.codecIdentifier isEqual:@"aac"] || [option.codecIdentifier isEqual:@"opus"])) continue;
         [formats addObject:option];
     }
     return [formats.array sortedArrayUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {

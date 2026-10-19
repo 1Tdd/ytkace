@@ -4,7 +4,11 @@ YTKACE source is licensed under MIT. The following components and services have 
 
 ## FFmpeg
 
-YTKACE statically links FFmpeg 8.1.2 for local media processing. It is built from the official release tarball by `Scripts/build-ffmpeg.sh`, without `--enable-gpl` and without `--enable-nonfree`, so the result is LGPL only. Licence texts ship in the repository at `Vendor/FFmpeg/COPYING.LGPLv2.1` and `COPYING.LGPLv3`. See https://ffmpeg.org/legal.html.
+YTKACE statically links FFmpeg 8.1.2 for local media processing. `Scripts/build-ffmpeg.sh` builds the official release with `--enable-gpl`, x264, and LAME; `--enable-nonfree` is not used. The resulting media libraries include GPL components. The script includes the LGPL and GPL licence texts in `Vendor/FFmpeg`. See https://ffmpeg.org/legal.html.
+
+## x264 and LAME
+
+Video conversion uses x264 revision `31e19f92f00c7003fa115047ce50978bc98c3a0d` from https://github.com/mirror/x264 (GPLv2 or later). The Ultra fast, Very fast, and Medium choices use its actual `ultrafast`, `veryfast`, and `medium` presets at CRF 20. MP3 encoding uses LAME 3.100 from https://lame.sourceforge.io/ (LGPL). Sources are pinned by the build script; their licence texts accompany the generated media libraries.
 
 ## SponsorBlock and DeArrow
 

@@ -12,6 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Media test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg pkg-config libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
       - name: Test
         run: python3 -m unittest discover -s Tests -v
       - name: Hook runtime test
@@ -20,8 +24,34 @@ jobs:
           sudo apt-get install -y -qq libgnustep-base-dev clang
           bash Tests/run_hooking_test.sh
 
-  build:
+  media:
     needs: test
+    runs-on: ubuntu-latest
+    env:
+      THEOS: ${{ github.workspace }}/.theos
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.theos
+          key: roothide-theos-${{ runner.os }}-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache@v4
+        id: media
+        with:
+          path: Vendor/FFmpeg
+          key: media-ios-arm64-${{ hashFiles('Scripts/build-ffmpeg.sh') }}
+      - name: Build media libraries
+        if: steps.media.outputs.cache-hit != 'true'
+        run: bash Scripts/build-ffmpeg.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: media-libraries
+          path: Vendor/FFmpeg
+          if-no-files-found: error
+
+  build:
+    needs: [test, media]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -36,6 +66,11 @@ jobs:
       CI: true
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: media-libraries
+          path: Vendor/FFmpeg
 
       - name: Cache Theos
         id: cache-theos
@@ -53,6 +88,8 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
+          mkdir -p Resources/YTKACE.bundle/Licenses
+          cp Vendor/FFmpeg/COPYING* THIRD_PARTY_NOTICES.md Resources/YTKACE.bundle/Licenses/
           make clean
           if ! make package FINALPACKAGE=1 \
             THEOS_PACKAGE_SCHEME="${{ matrix.scheme }}" \

@@ -30,6 +30,8 @@ typedef void (^YTKACEDownloadOptionsCompletion)(
 @property(nonatomic, assign) BOOL isAudioOnly;
 @property(nonatomic, assign) double duration;
 @property(nonatomic, copy) NSDictionary<NSString *, NSString *> *metadata;
+@property(nonatomic, copy) NSString *encodingPreset;
+@property(nonatomic, copy) NSString *audioFormat;
 @property(nonatomic, copy) YTKACEDownloadOptionsCompletion completion;
 
 - (instancetype)initWithTitle:(NSString *)title

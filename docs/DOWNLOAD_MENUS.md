@@ -20,12 +20,24 @@ The implementation follows the supplied screenshots and the reference app's
 observed menu capabilities. It uses UIKit and SF Symbols; no reference-app
 implementation or bundled assets are included.
 
-The form exposes formats supported by YTKACE's current media engine. Audio
-export is M4A/AAC. MP3 conversion and the reference app's video encoding
-presets are not implemented. AV1 and VP9 options require hardware decoding
-support on the device.
-These codecs can be saved in Downloads or shared; Photos is offered for
-H.264, HEVC, and audio converted to a video with artwork.
+AV1 and VP9 have an Encoding preset section: Skip conversion preserves the
+source codec; Ultra fast, Very fast, and Medium convert to H.264 using the
+corresponding x264 presets at CRF 20. Converted video can be sent to Photos.
+AV1 currently requires hardware decoding support. VP9 can also be decoded
+in software. HDR conversion is rejected with an explicit error rather than
+silently producing incorrect colours; its source can be kept with Skip conversion.
+
+Audio export offers M4A/AAC and MP3. AAC and Opus source bitrates are retained
+in the quality list. Opus is converted to the requested output format; video
+downloads use AAC audio. MP3 export includes title/artist metadata and cover
+art. Audio sent to Photos becomes a video with artwork. Source download sizes
+are shown separately from the variable size after re-encoding.
+
+Conversion runs on a serial queue, reports progress, and supports cancellation.
+SponsorBlock cuts are applied before video/MP3 conversion; captions are adjusted
+to the resulting cut timeline. Retry retains the chosen preset and audio format.
+The Community menu opens from a hold on either text or a photo, including nested
+image cells; ordinary comments are excluded from post detection.
 
 Other fixes included with the interface:
 
