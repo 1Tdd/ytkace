@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import "StreamResolver.h"
+#import "../../UI/MediaActionSheet.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -18,7 +19,7 @@ typedef void (^YTKACEDownloadOptionsCompletion)(
     BOOL isAudioOnly
 );
 
-@interface YTKACEDownloadOptionsController : UIViewController
+@interface YTKACEDownloadOptionsController : YTKACEMediaActionSheet
 
 @property(nonatomic, copy) NSString *videoTitle;
 @property(nonatomic, copy) NSArray<YTKACEStreamOption *> *videoOptions;
@@ -26,6 +27,8 @@ typedef void (^YTKACEDownloadOptionsCompletion)(
 @property(nonatomic, copy) NSArray<NSDictionary *> *captionChoices;
 @property(nonatomic, copy) NSArray<NSDictionary *> *sponsorSegments;
 @property(nonatomic, assign) BOOL isAudioOnly;
+@property(nonatomic, assign) double duration;
+@property(nonatomic, copy) NSDictionary<NSString *, NSString *> *metadata;
 @property(nonatomic, copy) YTKACEDownloadOptionsCompletion completion;
 
 - (instancetype)initWithTitle:(NSString *)title

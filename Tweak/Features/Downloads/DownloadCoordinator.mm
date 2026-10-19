@@ -16,6 +16,8 @@
 #import "../../Settings/YTKACERootOptionsController.h"
 #import "../../UI/Assets.h"
 #import "../../UI/Notice.h"
+#import "../../UI/MediaActionSheet.h"
+#import "../../UI/MediaExport.h"
 #import "DownloadOptionsSheet.h"
 #import "../SponsorBlock/SponsorClient.h"
 #import "../SponsorBlock/SponsorPreferences.h"
@@ -49,6 +51,8 @@
 @property(nonatomic, strong, nullable) NSURL *savedURL;
 @property(nonatomic, assign) BOOL savesToPhotos;
 @property(nonatomic, assign) BOOL sharesFile;
+@property(nonatomic, assign) BOOL captionSelectionExplicit;
+@property(nonatomic, copy) NSDictionary<NSString *, NSString *> *metadata;
 @property(nonatomic, strong, nullable) NSURL *captionURL;
 @property(nonatomic, copy, nullable) NSString *captionLanguage;
 @property(nonatomic, copy, nullable) NSArray<NSDictionary *> *removedSegments;
@@ -756,73 +760,44 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     NSString *videoTitle = [YTKACEStreamResolver titleFromPlayerResponse:self.playerResponse] ?: @"";
 
     // 1. Resolve SABR options first (always available and comprehensive)
-    NSArray<YTKACEStreamOption *> *sabrVideos = [YTKACEStreamResolver videoOptionsFromPlayerResponse:self.playerResponse];
-    NSArray<YTKACEStreamOption *> *sabrAudios = [YTKACEStreamResolver audioOptionsFromPlayerResponse:self.playerResponse];
+    NSArray<YTKACEStreamOption *> *sabrVideos = [YTKACEStreamResolver downloadVideoOptionsFromPlayerResponse:self.playerResponse];
+    NSArray<YTKACEStreamOption *> *sabrAudios = [YTKACEStreamResolver downloadAudioOptionsFromPlayerResponse:self.playerResponse];
 
-    // Helper to merge direct options + sabr options
-    NSArray<YTKACEStreamOption *> *(^mergeVideos)(NSArray<YTKACEStreamOption *> *, NSArray<YTKACEStreamOption *> *) =
-        ^NSArray<YTKACEStreamOption *> *(NSArray<YTKACEStreamOption *> *directs, NSArray<YTKACEStreamOption *> *sabrs) {
-            NSMutableArray<YTKACEStreamOption *> *merged = [NSMutableArray array];
-            NSMutableSet<NSNumber *> *heights = [NSMutableSet set];
-            if (directs.count > 0) {
-                NSArray<NSString *> *codecOrder = @[@"H.264", @"VP9", @"AV1"];
-                BOOL vp9 = VTIsHardwareDecodeSupported('vp09');
-                BOOL av1 = VTIsHardwareDecodeSupported('av01');
-                for (YTKACEStreamOption *opt in directs) {
-                    if (opt.audioOnly || opt.height <= 0) continue;
-                    NSString *codec = [YTKACEDirectDownloader codecNameForOption:opt];
-                    if ([codec isEqualToString:@"VP9"] && !vp9) continue;
-                    if ([codec isEqualToString:@"AV1"] && !av1) continue;
-                    [merged addObject:opt];
-                    [heights addObject:@(opt.height)];
-                }
-                [merged sortUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
-                    if (a.height != b.height) return a.height > b.height ? NSOrderedAscending : NSOrderedDescending;
-                    NSUInteger leftCodec = [codecOrder indexOfObject:[YTKACEDirectDownloader codecNameForOption:a]];
-                    NSUInteger rightCodec = [codecOrder indexOfObject:[YTKACEDirectDownloader codecNameForOption:b]];
-                    return leftCodec == rightCodec ? NSOrderedSame : (leftCodec < rightCodec ? NSOrderedAscending : NSOrderedDescending);
-                }];
-            }
-            for (YTKACEStreamOption *opt in sabrs) {
-                if (![heights containsObject:@(opt.height)]) {
-                    [merged addObject:opt];
-                    [heights addObject:@(opt.height)];
-                }
-            }
-            [merged sortUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
-                if (a.height != b.height) return a.height > b.height ? NSOrderedAscending : NSOrderedDescending;
-                return a.bitrate == b.bitrate ? NSOrderedSame : (a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending);
-            }];
-            return merged;
-        };
+    NSArray<YTKACEStreamOption *> *(^mergeVideos)(NSArray *, NSArray *) = ^NSArray *(NSArray *directs, NSArray *sabrs) {
+        NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSet];
+        NSMutableSet *keys = [NSMutableSet set];
+        for (NSArray *source in @[directs ?: @[], sabrs ?: @[]]) for (YTKACEStreamOption *option in source) {
+            if (option.audioOnly || option.height <= 0) continue;
+            if ([option.codecIdentifier isEqual:@"vp9"] && !VTIsHardwareDecodeSupported('vp09')) continue;
+            if ([option.codecIdentifier isEqual:@"av01"] && !VTIsHardwareDecodeSupported('av01')) continue;
+            NSString *key = [NSString stringWithFormat:@"%@|%@|%ld", option.codecIdentifier, option.qualityLabel ?: @"", (long)option.height];
+            if ([keys containsObject:key]) continue;
+            [keys addObject:key]; [merged addObject:option];
+        }
+        return [merged.array sortedArrayUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
+            if (a.height != b.height) return a.height > b.height ? NSOrderedAscending : NSOrderedDescending;
+            NSComparisonResult codec = [a.codecIdentifier compare:b.codecIdentifier];
+            if (codec != NSOrderedSame) return codec;
+            return a.bitrate == b.bitrate ? NSOrderedSame : (a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending);
+        }];
+    };
+    NSArray<YTKACEStreamOption *> *(^mergeAudios)(NSArray *, NSArray *) = ^NSArray *(NSArray *directs, NSArray *sabrs) {
+        NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSet];
+        for (NSArray *source in @[directs ?: @[], sabrs ?: @[]]) for (YTKACEStreamOption *option in source) {
+            if (!option.audioOnly || !(option.itag == 139 || option.itag == 140 || option.itag == 141 || [option.mimeType containsString:@"mp4"])) continue;
+            [merged addObject:option];
+        }
+        return [merged.array sortedArrayUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
+            if (a.defaultAudio != b.defaultAudio) return a.defaultAudio ? NSOrderedAscending : NSOrderedDescending;
+            NSComparisonResult track = [a.audioTrackKey compare:b.audioTrackKey];
+            if (track != NSOrderedSame) return track;
+            return a.bitrate == b.bitrate ? NSOrderedSame : (a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending);
+        }];
+    };
 
-    NSArray<YTKACEStreamOption *> *(^mergeAudios)(NSArray<YTKACEStreamOption *> *, NSArray<YTKACEStreamOption *> *) =
-        ^NSArray<YTKACEStreamOption *> *(NSArray<YTKACEStreamOption *> *directs, NSArray<YTKACEStreamOption *> *sabrs) {
-            NSMutableArray<YTKACEStreamOption *> *merged = [NSMutableArray array];
-            NSMutableSet<NSString *> *languages = [NSMutableSet set];
-            if (directs.count > 0) {
-                for (YTKACEStreamOption *opt in directs) {
-                    if (!opt.audioOnly) continue;
-                    [merged addObject:opt];
-                    if (opt.languageLabel.length > 0) [languages addObject:opt.languageLabel.lowercaseString];
-                }
-                [merged sortUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
-                    if (a.isDefaultAudio != b.isDefaultAudio) return a.isDefaultAudio ? NSOrderedAscending : NSOrderedDescending;
-                    return a.bitrate == b.bitrate ? NSOrderedSame : (a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending);
-                }];
-            }
-            for (YTKACEStreamOption *opt in sabrs) {
-                NSString *lang = opt.languageLabel.lowercaseString ?: @"";
-                if (merged.count == 0 || (lang.length > 0 && ![languages containsObject:lang])) {
-                    [merged addObject:opt];
-                    if (lang.length > 0) [languages addObject:lang];
-                }
-            }
-            return merged;
-        };
-
-    NSArray<YTKACEStreamOption *> *videoOptions = mergeVideos(self.directOptions, sabrVideos);
-    NSArray<YTKACEStreamOption *> *audioOptions = mergeAudios(self.directOptions, sabrAudios);
+    NSArray *cachedDirectOptions = [videoID isEqualToString:self.directOptionsVideoID] ? self.directOptions : @[];
+    NSArray<YTKACEStreamOption *> *videoOptions = mergeVideos(cachedDirectOptions, sabrVideos);
+    NSArray<YTKACEStreamOption *> *audioOptions = mergeAudios(cachedDirectOptions, sabrAudios);
 
     // Captions: Always query available caption choices so they can be picked in the options sheet
     NSArray<NSDictionary *> *captions = YTKACECaptionChoicesForResponse(self.playerResponse);
@@ -874,8 +849,10 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         id response = capturedResponse;
         YTKACEDownloadJob *job = [YTKACEDownloadJob new];
         job.identifier = NSUUID.UUID.UUIDString;
-        job.title = [weakSelf safeFilename:[YTKACEStreamResolver titleFromPlayerResponse:response]];
-        job.author = [YTKACEStreamResolver authorFromPlayerResponse:response];
+        job.metadata = weakController.metadata;
+        job.title = [weakSelf safeFilename:job.metadata[@"title"] ?: [YTKACEStreamResolver titleFromPlayerResponse:response]];
+        job.author = job.metadata[@"artist"] ?: [YTKACEStreamResolver authorFromPlayerResponse:response];
+        job.captionSelectionExplicit = YES;
         job.videoID = capturedVideoID;
         job.thumbnailURL = [YTKACEStreamResolver thumbnailURLFromPlayerResponse:response];
         job.category = finalAudioOnly ? @"Audio" : @"Video";
@@ -889,7 +866,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
                                   (selectedAudio == nil || selectedAudio.URL != nil);
         job.useDirect = YTKACEDirectDownloadsEnabled() && !weakSelf.forceSABRNext && optionHasDirectURL;
         weakSelf.forceSABRNext = NO;
-        if (!job.useDirect && weakSelf.directOptions.count != 0 &&
+        if (!job.useDirect && cachedDirectOptions.count != 0 &&
             ![weakSelf prepareSABRFallbackForJob:job]) {
             // prepareSABRFallbackForJob prepares SABR fallback when switching from direct
         }
@@ -911,9 +888,11 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
             audioOnly:audioOnly
            completion:comp];
     weakController = controller;
+    controller.metadata = @{@"title": videoTitle, @"artist": [YTKACEStreamResolver authorFromPlayerResponse:capturedResponse] ?: @""};
+    controller.duration = [self durationForResponse:capturedResponse];
 
     UIViewController *top = [self topViewController];
-    [top presentViewController:controller animated:NO completion:^{
+    [top presentViewController:controller animated:YES completion:^{
         if (YTKACESponsorBlockEnabled() && videoID.length > 0) {
             [YTKACESponsorClient.sharedClient segmentsForVideoID:videoID
                 categories:allCategories
@@ -923,7 +902,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         }
         if (controller.captionChoices.count == 0 && videoID.length > 0) {
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-                id resp = weakSelf.playerResponse ?: YTKACECachedPlayerResponse(videoID);
+                id resp = capturedResponse ?: YTKACECachedPlayerResponse(videoID);
                 NSArray<NSDictionary *> *asyncCaptions = YTKACECaptionChoicesForResponse(resp);
                 if (asyncCaptions.count > 0) {
                     dispatch_async(dispatch_get_main_queue(), ^{
@@ -935,8 +914,9 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         if (YTKACEDirectDownloadsEnabled() && videoID.length > 0 &&
             (![videoID isEqualToString:weakSelf.directOptionsVideoID] || weakSelf.directOptions == nil)) {
             weakSelf.directOptionsVideoID = videoID;
+            weakSelf.directOptions = nil;
             [YTKACEDirectDownloader fetchOptionsForVideoID:videoID completion:^(NSArray *options) {
-                weakSelf.directOptions = options;
+                if ([weakSelf.directOptionsVideoID isEqualToString:videoID]) weakSelf.directOptions = options;
                 NSArray<YTKACEStreamOption *> *v = mergeVideos(options, sabrVideos);
                 NSArray<YTKACEStreamOption *> *a = mergeAudios(options, sabrAudios);
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -963,33 +943,148 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     }
     self.downloadSourceView = anchor;
 
+    [self presentMediaMenuForResponse:self.playerResponse sourceView:anchor shorts:NO];
+}
+
+- (double)durationForResponse:(id)response {
+    id data = response;
+    for (NSString *name in @[@"playerData", @"videoDetails"]) {
+        SEL selector = NSSelectorFromString(name);
+        NSMethodSignature *signature = [data methodSignatureForSelector:selector];
+        if ([data respondsToSelector:selector] && signature.numberOfArguments == 2 && signature.methodReturnType[0] == '@') {
+            id nested = ((id (*)(id, SEL))objc_msgSend)(data, selector);
+            if (nested) data = nested;
+        }
+    }
+    for (NSString *name in @[@"lengthSeconds", @"durationSeconds"]) {
+        NSMethodSignature *signature = [data methodSignatureForSelector:NSSelectorFromString(name)];
+        if (!signature || signature.numberOfArguments != 2) continue;
+        double value = 0;
+        @try {
+            id number = [data valueForKey:name];
+            if ([number respondsToSelector:@selector(doubleValue)]) value = [number doubleValue];
+        } @catch (__unused NSException *exception) {}
+        if (isfinite(value) && value > 0) return value;
+    }
+    return 0;
+}
+
+- (void)thumbnailAction:(NSInteger)action response:(id)response sourceView:(UIView *)sourceView {
+    NSURL *URL = [YTKACEStreamResolver thumbnailURLFromPlayerResponse:response];
+    if (!URL) { YTKACEShowNotice(YTKACELocalized(@"No thumbnail is available.")); return; }
+    YTKACELoadImage(URL, nil, ^(NSData *data, NSError *error) {
+        if (!data) { YTKACEShowNotice(error.localizedDescription); return; }
+        if (action == 0) YTKACESavePhotoData(@[data], ^(BOOL success, NSError *saveError) {
+            YTKACEShowNotice(success ? YTKACELocalized(@"Image saved") : saveError.localizedDescription);
+        });
+        else if (action == 1) YTKACEPreviewImage(data, YTKACEMediaPresenter(sourceView));
+        else { UIPasteboard.generalPasteboard.image = [UIImage imageWithData:data]; YTKACEShowNotice(YTKACELocalized(@"Image copied")); }
+    });
+}
+
+- (NSString *)captionTime:(double)seconds {
+    long long total = llround(MAX(0, seconds) * 1000);
+    return [NSString stringWithFormat:@"%02lld:%02lld:%02lld,%03lld", total / 3600000, total / 60000 % 60, total / 1000 % 60, total % 1000];
+}
+
+- (void)exportCaption:(NSDictionary *)choice response:(id)response copyText:(BOOL)copyText sourceView:(UIView *)sourceView {
+    YTKACEFetchCuesForURL(choice[@"url"], ^(NSArray<NSDictionary *> *cues) {
+        NSMutableString *result = [NSMutableString string];
+        NSUInteger index = 0;
+        for (NSDictionary *cue in cues) {
+            NSString *text = cue[@"text"];
+            double start = [cue[@"start"] doubleValue], end = [cue[@"end"] doubleValue];
+            if (![text isKindOfClass:NSString.class] || !text.length || !isfinite(start) || !isfinite(end) || end <= start || start < 0 || end > 1e9) continue;
+            if (copyText) [result appendFormat:@"%@%@", result.length ? @"\n" : @"", text];
+            else [result appendFormat:@"%lu\n%@ --> %@\n%@\n\n", (unsigned long)++index, [self captionTime:start], [self captionTime:end], text];
+        }
+        if (!result.length) { YTKACEShowNotice(YTKACELocalized(@"No transcript found")); return; }
+        if (copyText) { UIPasteboard.generalPasteboard.string = result; YTKACEShowNotice(YTKACELocalized(@"Transcript copied")); }
+        else {
+            NSString *name = [self safeFilename:[YTKACEStreamResolver titleFromPlayerResponse:response]];
+            NSString *language = [self safeFilename:choice[@"language"] ?: @"captions"];
+            YTKACEShareTextFile(result, [NSString stringWithFormat:@"%@.%@.srt", name, language], YTKACEMediaPresenter(sourceView), sourceView);
+        }
+    });
+}
+
+- (void)presentMediaMenuForResponse:(id)response sourceView:(UIView *)sourceView shorts:(BOOL)shorts {
+    YTKACEMediaActionSheet *sheet = [YTKACEMediaActionSheet new];
+    sheet.heading = [NSString stringWithFormat:@"%@ — %@", [YTKACEStreamResolver authorFromPlayerResponse:response], [YTKACEStreamResolver titleFromPlayerResponse:response]];
     __weak YTKACEDownloadCoordinator *weakSelf = self;
-    UIImage *chevron = [self menuIcon:@"chevron.right"];
-    NSArray *actions = @[
-        [self sheetAction:YTKACELocalized(@"Download Video") icon:@"play"
-            secondary:chevron handler:^{
-                [weakSelf presentDownloadOptionsSheetWithAudioOnly:NO sourceView:anchor];
-            }],
-        [self sheetAction:YTKACELocalized(@"Download Audio") icon:@"music.note"
-            secondary:chevron handler:^{
-                [weakSelf presentDownloadOptionsSheetWithAudioOnly:YES sourceView:anchor];
-            }],
-        [self sheetAction:YTKACELocalized(@"Play in External Player") icon:@"play.circle"
-            secondary:chevron handler:^{ [weakSelf showExternalPlayerMenuFromView:anchor]; }],
-        [self sheetAction:YTKACELocalized(@"Save Image") icon:@"photo"
-            secondary:nil handler:^{ [weakSelf saveThumbnail]; }],
-        [self sheetAction:YTKACELocalized(@"Copy Information") icon:@"doc.on.doc"
-            secondary:chevron handler:^{
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                    (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                        [weakSelf showCopyInformationMenuFromView:anchor];
-                    });
-            }]
-    ];
-    [self presentNativeSheetWithTitle:
-        [YTKACEStreamResolver authorFromPlayerResponse:self.playerResponse]
-        subtitle:[YTKACEStreamResolver titleFromPlayerResponse:self.playerResponse]
-        sourceView:anchor actions:actions];
+    NSMutableArray *rows = [NSMutableArray arrayWithObject:[YTKACEMediaAction action:@"media.download" title:YTKACELocalized(@"Download") symbol:@"play.rectangle" handler:^{
+        weakSelf.playerResponse = response;
+        [weakSelf presentDownloadOptionsSheetWithAudioOnly:NO sourceView:sourceView];
+    }]];
+    NSArray *imageTitles = @[YTKACELocalized(@"Save thumbnail"), YTKACELocalized(@"Show thumbnail"), YTKACELocalized(@"Copy thumbnail")];
+    NSMutableArray *images = [NSMutableArray array];
+    for (NSUInteger i = 0; i < imageTitles.count; ++i) [images addObject:[YTKACEMediaAction action:[NSString stringWithFormat:@"media.thumbnail.%lu", (unsigned long)i]
+        title:imageTitles[i] symbol:@[@"photo.badge.arrow.down", @"photo", @"doc.on.doc"][i] handler:^{ [weakSelf thumbnailAction:i response:response sourceView:sourceView]; }]];
+    [rows addObject:[YTKACEMediaAction group:@"media.thumbnail" title:YTKACELocalized(@"Save Image") symbol:@"photo" children:images]];
+    NSArray *choices = YTKACECaptionChoicesForResponse(response) ?: @[];
+    NSMutableArray *captions = [NSMutableArray array], *transcripts = [NSMutableArray array];
+    for (NSDictionary *choice in choices) {
+        NSString *language = choice[@"language"] ?: @"", *title = choice[@"label"] ?: language;
+        [captions addObject:[YTKACEMediaAction action:[@"media.save.caption." stringByAppendingString:language] title:title symbol:@"captions.bubble" handler:^{
+            [weakSelf exportCaption:choice response:response copyText:NO sourceView:sourceView];
+        }]];
+        [transcripts addObject:[YTKACEMediaAction action:[@"media.copy.transcript." stringByAppendingString:language] title:title symbol:@"captions.bubble" handler:^{
+            [weakSelf exportCaption:choice response:response copyText:YES sourceView:sourceView];
+        }]];
+    }
+    YTKACEMediaAction *saveCaptions = [YTKACEMediaAction group:@"media.captions" title:YTKACELocalized(@"Save captions") symbol:@"captions.bubble" children:captions];
+    saveCaptions.enabled = captions.count > 0;
+    if (!captions.count) saveCaptions.detail = YTKACELocalized(@"None available");
+    [rows addObject:saveCaptions];
+    NSString *videoID = [YTKACEStreamResolver videoIDFromPlayerResponse:response];
+    double time = 0;
+    for (UIResponder *responder = sourceView; responder; responder = responder.nextResponder) {
+        double candidate = [self mediaTimeFromObject:responder];
+        if (isfinite(candidate) && candidate > 0) { time = candidate; break; }
+    }
+    NSMutableArray *copy = [NSMutableArray array];
+    NSArray *copyTitles = @[YTKACELocalized(@"Copy channel name"), YTKACELocalized(@"Copy Title"), YTKACELocalized(@"Copy Description"), YTKACELocalized(@"Copy link with timestamp")];
+    NSArray *values = @[[YTKACEStreamResolver authorFromPlayerResponse:response] ?: @"", [YTKACEStreamResolver titleFromPlayerResponse:response] ?: @"",
+        [YTKACEStreamResolver descriptionFromPlayerResponse:response] ?: @"", videoID.length ? [NSString stringWithFormat:@"https://www.youtube.com/watch?v=%@&t=%lld", videoID, (long long)MAX(0, floor(time))] : @""];
+    for (NSUInteger i = 0; i < copyTitles.count; ++i) {
+        YTKACEMediaAction *action = [YTKACEMediaAction action:[NSString stringWithFormat:@"media.copy.%lu", (unsigned long)i] title:copyTitles[i] symbol:@"doc.on.doc" handler:^{
+            UIPasteboard.generalPasteboard.string = values[i]; YTKACEShowNotice(YTKACELocalized(@"Copied"));
+        }];
+        action.enabled = [values[i] length] > 0;
+        [copy addObject:action];
+    }
+    YTKACEMediaAction *transcript = [YTKACEMediaAction group:@"media.transcripts" title:YTKACELocalized(@"Copy transcript") symbol:@"doc.on.doc" children:transcripts];
+    transcript.enabled = transcripts.count > 0;
+    [copy addObject:transcript];
+    [rows addObject:[YTKACEMediaAction group:@"media.copy" title:YTKACELocalized(@"Copy Information") symbol:@"doc.on.doc" children:copy]];
+    YTKACEStreamOption *stream = [YTKACEStreamResolver bestPiPVideoFromPlayerResponse:response];
+    NSMutableArray *players = [NSMutableArray array];
+    if (stream.URL) {
+        [players addObject:[YTKACEMediaAction action:@"media.player.system" title:YTKACELocalized(@"System Player") symbol:@"play.circle" handler:^{
+            weakSelf.playerResponse = response; [weakSelf playInSystemPlayer:stream.URL sourceView:sourceView];
+        }]];
+        for (NSString *name in @[@"Infuse", @"VLC"]) {
+            [players addObject:[YTKACEMediaAction action:[@"media.player." stringByAppendingString:name] title:name symbol:@"play.tv" handler:^{
+                NSURLComponents *URL = [NSURLComponents componentsWithString:[name isEqual:@"Infuse"] ? @"infuse://x-callback-url/play" : @"vlc-x-callback://x-callback-url/stream"];
+                URL.queryItems = @[[NSURLQueryItem queryItemWithName:@"url" value:stream.URL.absoluteString]];
+                [UIApplication.sharedApplication openURL:URL.URL options:@{} completionHandler:^(BOOL success) {
+                    if (!success) YTKACEShowNotice([NSString stringWithFormat:YTKACELocalized(@"%@ is not installed."), name]);
+                }];
+            }]];
+        }
+    }
+    YTKACEMediaAction *external = [YTKACEMediaAction group:@"media.players" title:YTKACELocalized(@"Play in External Player") symbol:@"play.circle" children:players];
+    external.enabled = players.count > 0;
+    [rows addObject:external];
+    if (shorts) {
+        [rows addObject:[YTKACEMediaAction action:@"media.shorts.fullscreen" title:YTKACELocalized(@"Fullscreen") symbol:@"arrow.up.left.and.arrow.down.right" handler:^{ [weakSelf toggleShortsFullscreenFromView:sourceView]; }]];
+        BOOL autoSkip = YTKACEFeatureEnabled(@"autoSkipShorts");
+        YTKACEMediaAction *skip = [YTKACEMediaAction action:@"media.shorts.autoskip" title:YTKACELocalized(@"Auto-Skip") symbol:@"forward.end" handler:^{ YTKACESetPreference(@"autoSkipShorts", !autoSkip); }];
+        skip.selected = autoSkip;
+        [rows addObject:skip];
+    }
+    sheet.actionSections = @[rows];
+    [[self topViewController] presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)showCompactNotice:(NSString *)message {
@@ -1280,38 +1375,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     }
     self.playerResponse = response;
     self.downloadSourceView = sourceView;
-    __weak YTKACEDownloadCoordinator *weakSelf = self;
-    UIImage *chevron = [self menuIcon:@"chevron.right"];
-    BOOL autoSkip = YTKACEFeatureEnabled(@"autoSkipShorts");
-    UIViewController *shortsController = [self shortsControllerFromView:sourceView];
-    BOOL fullscreen = shortsController != nil
-        ? [objc_getAssociatedObject(shortsController, YTKACEShortsFullscreenKey) boolValue]
-        : YTKACEShortsGlobalFullscreen;
-    NSString *fullscreenTitle = fullscreen ? YTKACELocalized(@"Exit Fullscreen") : YTKACELocalized(@"Fullscreen");
-    NSString *fullscreenIcon = fullscreen
-        ? @"arrow.down.right.and.arrow.up.left"
-        : @"arrow.up.left.and.arrow.down.right";
-    NSArray *actions = @[
-        [self sheetAction:YTKACELocalized(@"Download Video") icon:@"play"
-            secondary:chevron handler:^{
-                [weakSelf presentDownloadOptionsSheetWithAudioOnly:NO sourceView:sourceView];
-            }],
-        [self sheetAction:YTKACELocalized(@"Download Audio") icon:@"music.note"
-            secondary:chevron handler:^{
-                [weakSelf presentDownloadOptionsSheetWithAudioOnly:YES sourceView:sourceView];
-            }],
-        [self sheetAction:fullscreenTitle icon:fullscreenIcon
-            secondary:chevron handler:^{
-                [weakSelf toggleShortsFullscreenFromView:sourceView];
-            }],
-        [self sheetAction:YTKACELocalized(@"Auto-Skip") icon:@"forward.end.fill"
-            secondary:[self menuIcon:autoSkip ? @"checkmark.square" : @"square"]
-            handler:^{ YTKACESetPreference(@"autoSkipShorts", !autoSkip); }]
-    ];
-    [self presentNativeSheetWithTitle:
-        [YTKACEStreamResolver authorFromPlayerResponse:self.playerResponse]
-        subtitle:[YTKACEStreamResolver titleFromPlayerResponse:self.playerResponse]
-        sourceView:sourceView actions:actions];
+    [self presentMediaMenuForResponse:response sourceView:sourceView shorts:YES];
 }
 
 - (NSString *)activeReelVideoIDFromView:(UIView *)sourceView {
@@ -1692,6 +1756,8 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     job.useDirect = old.useDirect;
     job.captionURL = old.captionURL;
     job.captionLanguage = old.captionLanguage;
+    job.captionSelectionExplicit = old.captionSelectionExplicit;
+    job.metadata = old.metadata;
     job.removedSegments = old.removedSegments;
     job.allSponsorSegments = old.allSponsorSegments;
     YTKACEDownloadLog(job.identifier, @"retry of %@", identifier);
@@ -1700,7 +1766,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 
 - (void)chooseCaptionsForJob:(YTKACEDownloadJob *)job
                         then:(dispatch_block_t)handler {
-    if (job.audioOnly || job.captionURL != nil ||
+    if (job.captionSelectionExplicit || job.audioOnly || job.captionURL != nil ||
         !YTKACEFeatureEnabled(@"YTKACE.Preference.Downloads.Subtitles")) {
         handler();
         return;
@@ -1888,6 +1954,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         YTKACEDownloadLog(job.identifier, @"audio remux start");
         [YTKACEFFmpegMuxer remuxAudioURL:audioURL outputURL:output
             removedSegments:job.removedSegments
+            metadata:job.metadata
             appliedCuts:^(NSArray<NSDictionary *> *cuts) { job.removedSegments = cuts; }
             completion:^(NSError *remuxError) {
                 if (remuxError != nil) {
@@ -2152,6 +2219,7 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
         return;
     }
     if (job.captionURL == nil) {
+        if (job.captionSelectionExplicit) { handler(); return; }
         if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Downloads.Subtitles")) {
             handler();
             return;

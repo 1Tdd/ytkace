@@ -14,6 +14,8 @@ YTKACE_FILES = \
 	Tweak/UI/Assets.mm \
 	Tweak/UI/Notice.mm \
 	Tweak/UI/OverlayButtonHost.mm \
+	Tweak/UI/MediaActionSheet.mm \
+	Tweak/UI/MediaExport.mm \
 	Tweak/Features/Ads/AdsHooks.mm \
 	Tweak/Features/Ads/PromoHooks.mm \
 	Tweak/Features/SponsorBlock/SponsorClient.mm \
@@ -23,6 +25,7 @@ YTKACE_FILES = \
 	Tweak/Features/SponsorBlock/SponsorThumbnailBadge.mm \
 	Tweak/Features/SponsorBlock/DeArrow.mm \
 	Tweak/Features/Downloads/StreamResolver.mm \
+	Tweak/Features/Downloads/StreamOption.mm \
 	Tweak/Features/Downloads/SABRDownloader.mm \
 	Tweak/Features/Downloads/DirectDownloader.mm \
 	Tweak/Features/Downloads/FFmpegMuxer.mm \
@@ -83,6 +86,7 @@ YTKACE_FILES = \
 	Tweak/Features/Interface/CopyCommentHooks.mm \
 	Tweak/Features/Interface/ProfilePictureViewer.mm \
 	Tweak/Features/Interface/PostImageSaver.mm \
+	Tweak/Features/Interface/CommunityPostMenu.mm \
 	Tweak/Features/Interface/NativeShareHooks.mm \
 	Tweak/Features/Interface/NavigationVisibility.mm \
 	Tweak/Settings/SettingsEntry.mm \

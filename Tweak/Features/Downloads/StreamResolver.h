@@ -21,12 +21,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, strong) id rawFormat;
 - (BOOL)isEqual:(id)object;
 - (NSUInteger)hash;
+- (NSString *)codecIdentifier;
+- (NSString *)audioTrackKey;
 @end
 
 @interface YTKACEStreamResolver : NSObject
 + (NSArray<YTKACEStreamOption *> *)optionsFromPlayerResponse:(id)playerResponse;
 + (NSArray<YTKACEStreamOption *> *)videoOptionsFromPlayerResponse:(id)playerResponse;
 + (NSArray<YTKACEStreamOption *> *)audioOptionsFromPlayerResponse:(id)playerResponse;
++ (NSArray<YTKACEStreamOption *> *)downloadVideoOptionsFromPlayerResponse:(id)playerResponse;
++ (NSArray<YTKACEStreamOption *> *)downloadAudioOptionsFromPlayerResponse:(id)playerResponse;
 + (nullable YTKACEStreamOption *)bestVideoFromPlayerResponse:(id)playerResponse;
 + (nullable YTKACEStreamOption *)bestPiPVideoFromPlayerResponse:(id)playerResponse;
 + (nullable YTKACEStreamOption *)bestAudioFromPlayerResponse:(id)playerResponse;

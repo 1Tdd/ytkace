@@ -10,25 +10,6 @@
 #import <stdlib.h>
 #import <string.h>
 
-@implementation YTKACEStreamOption
-
-- (BOOL)isEqual:(id)object {
-    if (self == object) return YES;
-    if (![object isKindOfClass:[YTKACEStreamOption class]]) return NO;
-    YTKACEStreamOption *other = (YTKACEStreamOption *)object;
-    if (self.itag > 0 && other.itag > 0 && self.itag == other.itag) return YES;
-    return self.height == other.height &&
-           self.audioOnly == other.audioOnly &&
-           (self.qualityLabel == other.qualityLabel || [self.qualityLabel isEqualToString:other.qualityLabel]) &&
-           (self.languageLabel == other.languageLabel || [self.languageLabel isEqualToString:other.languageLabel]);
-}
-
-- (NSUInteger)hash {
-    return (NSUInteger)self.itag ^ (NSUInteger)self.height ^ (NSUInteger)self.audioOnly;
-}
-
-@end
-
 static NSInteger YTKACEHeightForItag(NSInteger itag) {
     switch (itag) {
         case 160: case 278: case 394: return 144;
@@ -310,6 +291,40 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
         }
     }
     return result;
+}
+
++ (NSArray<YTKACEStreamOption *> *)downloadVideoOptionsFromPlayerResponse:(id)playerResponse {
+    NSMutableDictionary<NSString *, YTKACEStreamOption *> *formats = [NSMutableDictionary dictionary];
+    for (YTKACEStreamOption *option in [self optionsFromPlayerResponse:playerResponse]) {
+        if (option.height <= 0) option.height = YTKACEQualityHeight(option.qualityLabel);
+        if (option.height <= 0) option.height = YTKACEHeightForItag(option.itag);
+        if (YTKACEVideoRejectReason(option) != nil) continue;
+        if (option.qualityLabel.length == 0) option.qualityLabel = [NSString stringWithFormat:@"%ldp", (long)option.height];
+        NSString *key = [NSString stringWithFormat:@"%@|%@|%ld", option.codecIdentifier, option.qualityLabel, (long)option.height];
+        YTKACEStreamOption *previous = formats[key];
+        if (!previous || option.bitrate > previous.bitrate) formats[key] = option;
+    }
+    return [formats.allValues sortedArrayUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
+        if (a.height != b.height) return a.height > b.height ? NSOrderedAscending : NSOrderedDescending;
+        NSComparisonResult codec = [a.codecIdentifier compare:b.codecIdentifier];
+        if (codec != NSOrderedSame) return codec;
+        return a.bitrate == b.bitrate ? NSOrderedSame : (a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending);
+    }];
+}
+
++ (NSArray<YTKACEStreamOption *> *)downloadAudioOptionsFromPlayerResponse:(id)playerResponse {
+    NSMutableOrderedSet *formats = [NSMutableOrderedSet orderedSet];
+    for (YTKACEStreamOption *option in [self optionsFromPlayerResponse:playerResponse]) {
+        if (!option.audioOnly || !([option.mimeType containsString:@"mp4"] ||
+            option.itag == 139 || option.itag == 140 || option.itag == 141)) continue;
+        [formats addObject:option];
+    }
+    return [formats.array sortedArrayUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
+        if (a.defaultAudio != b.defaultAudio) return a.defaultAudio ? NSOrderedAscending : NSOrderedDescending;
+        NSComparisonResult track = [a.audioTrackKey compare:b.audioTrackKey];
+        if (track != NSOrderedSame) return track;
+        return a.bitrate == b.bitrate ? NSOrderedSame : (a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending);
+    }];
 }
 
 + (NSArray<YTKACEStreamOption *> *)videoOptionsFromPlayerResponse:(id)playerResponse {

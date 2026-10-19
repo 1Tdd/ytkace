@@ -336,7 +336,8 @@ cleanup:
 
 static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL,
                                  NSArray<NSDictionary *> *removedSegments,
-                                 NSArray *__autoreleasing *appliedCuts = nullptr) {
+                                 NSArray *__autoreleasing *appliedCuts = nullptr,
+                                 NSDictionary<NSString *, NSString *> *metadata = nil) {
     AVFormatContext *audio = NULL;
     AVFormatContext *output = NULL;
     AVPacket *packet = NULL;
@@ -353,6 +354,11 @@ static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL,
     if (result < 0 || output == NULL) {
         if (result >= 0) result = AVERROR_UNKNOWN;
         goto cleanup;
+    }
+    av_dict_copy(&output->metadata, audio->metadata, 0);
+    for (NSString *key in @[@"title", @"artist"]) {
+        NSString *value = metadata[key];
+        if ([value isKindOfClass:NSString.class]) av_dict_set(&output->metadata, key.UTF8String, value.UTF8String, 0);
     }
     audioInput = audio->streams[audioIndex];
     audioOutput = avformat_new_stream(output, NULL);
@@ -729,11 +735,20 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
       removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
           appliedCuts:(void (^ _Nullable)(NSArray<NSDictionary *> *cuts))handler
            completion:(YTKACEFFmpegCompletion)completion {
+    [self remuxAudioURL:audioURL outputURL:outputURL removedSegments:removedSegments metadata:nil appliedCuts:handler completion:completion];
+}
+
++ (void)remuxAudioURL:(NSURL *)audioURL
+            outputURL:(NSURL *)outputURL
+      removedSegments:(NSArray<NSDictionary *> *)removedSegments
+             metadata:(NSDictionary<NSString *, NSString *> *)metadata
+          appliedCuts:(void (^)(NSArray<NSDictionary *> *cuts))handler
+           completion:(YTKACEFFmpegCompletion)completion {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         [NSFileManager.defaultManager removeItemAtURL:outputURL error:nil];
         av_log_set_level(AV_LOG_ERROR);
         NSArray *applied = nil;
-        NSError *error = YTKACERemuxAudio(audioURL, outputURL, removedSegments, &applied);
+        NSError *error = YTKACERemuxAudio(audioURL, outputURL, removedSegments, &applied, metadata);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error == nil && handler != nil) handler(applied ?: @[]);
             completion(error);
