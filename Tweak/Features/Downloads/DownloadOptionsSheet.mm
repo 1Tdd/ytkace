@@ -27,6 +27,7 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
 @property(nonatomic, assign) BOOL submitted;
 @property(nonatomic, assign) BOOL captionManuallyChanged;
 @property(nonatomic, strong) NSMutableSet<NSString *> *selectedSegments;
+@property(nonatomic, copy, readwrite) NSArray<NSDictionary *> *allSponsorSegments;
 @end
 
 @implementation YTKACEDownloadOptionsController
@@ -310,6 +311,7 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     if (self.isViewLoaded) [self rebuildForm];
 }
 - (void)updateSponsorSegments:(NSArray *)segments {
+    self.allSponsorSegments = [segments copy] ?: @[];
     NSMutableArray *valid = [NSMutableArray array];
     NSMutableSet *selection = [NSMutableSet set];
     for (NSDictionary *segment in segments) {

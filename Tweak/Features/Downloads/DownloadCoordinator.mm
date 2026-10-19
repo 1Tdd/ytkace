@@ -875,7 +875,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
             job.captionLanguage = selectedCaption[@"language"];
         }
         job.removedSegments = removedSegments;
-        job.allSponsorSegments = weakController.sponsorSegments;
+        job.allSponsorSegments = weakController.allSponsorSegments;
         [weakSelf launchJob:job];
     };
 
@@ -1987,27 +1987,34 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 
 - (BOOL)prepareSABRFallbackForJob:(YTKACEDownloadJob *)job {
     NSArray<YTKACEStreamOption *> *audios =
-        [YTKACEStreamResolver audioOptionsFromPlayerResponse:job.playerResponse];
+        [YTKACEStreamResolver downloadAudioOptionsFromPlayerResponse:job.playerResponse];
     YTKACEStreamOption *audio = nil;
     for (YTKACEStreamOption *option in audios) {
-        if ([option.languageLabel isEqualToString:job.audioOption.languageLabel]) {
+        if ([option isEqual:job.audioOption]) {
             audio = option;
             break;
         }
+        if ([option.audioTrackKey isEqual:job.audioOption.audioTrackKey] ||
+            (option.languageLabel.length && [option.languageLabel isEqual:job.audioOption.languageLabel])) {
+            if (!audio || labs(option.bitrate - job.audioOption.bitrate) < labs(audio.bitrate - job.audioOption.bitrate)) audio = option;
+        }
     }
-    audio = audio ?: audios.firstObject;
+    if (!audio && (!job.audioOption || job.audioOption.defaultAudio)) {
+        for (YTKACEStreamOption *option in audios) if (option.defaultAudio) { audio = option; break; }
+    }
     if (audio == nil) return NO;
     YTKACEStreamOption *video = nil;
     if (!job.audioOnly) {
         NSArray<YTKACEStreamOption *> *videos =
-            [YTKACEStreamResolver videoOptionsFromPlayerResponse:job.playerResponse];
+            [YTKACEStreamResolver downloadVideoOptionsFromPlayerResponse:job.playerResponse];
         for (YTKACEStreamOption *option in videos) {
-            if (option.height <= job.videoOption.height) {
+            if ([option isEqual:job.videoOption]) {
                 video = option;
                 break;
             }
+            if ([option.codecIdentifier isEqual:job.videoOption.codecIdentifier] &&
+                option.height <= job.videoOption.height && (!video || option.height > video.height)) video = option;
         }
-        video = video ?: videos.lastObject;
         if (video == nil) return NO;
     }
     job.audioOption = audio;

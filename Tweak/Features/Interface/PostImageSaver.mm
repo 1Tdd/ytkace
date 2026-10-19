@@ -179,8 +179,8 @@ static UIView *YTKACEPostCellForGesture(UIGestureRecognizer *gesture) {
 
 @implementation YTKACEPostCopyHandler
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
-    (void)gesture; (void)other;
-    return YES;
+    (void)gesture;
+    return ![other isKindOfClass:UILongPressGestureRecognizer.class];
 }
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
     if (!YTKACEMasterEnabled() || !(YTKACEFeatureEnabled(YTKACEPostCopyTextKey) || YTKACEFeatureEnabled(YTKACEPostImageSaveKey))) return NO;
@@ -195,8 +195,15 @@ static UIView *YTKACEPostCellForGesture(UIGestureRecognizer *gesture) {
     if (!cell || !node) return;
     id textNode = YTKACEFindExpandableText(node, 0);
     NSString *text = YTKACENodeText(textNode, 0);
+    NSURL *imageURL = nil;
+    UIView *hit = [gesture.view hitTest:[gesture locationInView:gesture.view] withEvent:nil];
+    for (UIView *view = hit; view && view != cell; view = view.superview) {
+        id imageNode = YTKACENodeValue(view, @"keepalive_node");
+        id URL = YTKACENodeValue(imageNode, @"URL");
+        if ([URL isKindOfClass:NSURL.class] && CGRectGetWidth(view.bounds) >= 100) { imageURL = URL; break; }
+    }
     [[UIImpactFeedbackGenerator.alloc initWithStyle:UIImpactFeedbackStyleMedium] impactOccurred];
-    YTKACEPresentCommunityPostMenu(cell, node, text, nil);
+    YTKACEPresentCommunityPostMenu(cell, node, text, imageURL);
 }
 @end
 

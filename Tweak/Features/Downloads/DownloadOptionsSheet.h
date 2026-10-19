@@ -26,6 +26,7 @@ typedef void (^YTKACEDownloadOptionsCompletion)(
 @property(nonatomic, copy) NSArray<YTKACEStreamOption *> *audioOptions;
 @property(nonatomic, copy) NSArray<NSDictionary *> *captionChoices;
 @property(nonatomic, copy) NSArray<NSDictionary *> *sponsorSegments;
+@property(nonatomic, copy, readonly) NSArray<NSDictionary *> *allSponsorSegments;
 @property(nonatomic, assign) BOOL isAudioOnly;
 @property(nonatomic, assign) double duration;
 @property(nonatomic, copy) NSDictionary<NSString *, NSString *> *metadata;
