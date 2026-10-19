@@ -12,6 +12,10 @@ TOOLCHAIN="$THEOS/toolchain/linux/iphone/bin"
 if [[ ! -x "$TOOLCHAIN/clang" ]] || ! "$TOOLCHAIN/clang" --version >/dev/null 2>&1; then
     TOOLCHAIN="$(dirname "$(xcrun -sdk iphoneos -f clang)")"
 fi
+# LLVM's archive tools handle Mach-O on Linux without cctools' missing
+# aarch64-prefixed ranlib helper.
+ARCHIVER="$(command -v llvm-ar || printf '%s' "$TOOLCHAIN/ar")"
+INDEXER="$(command -v llvm-ranlib || printf '%s' "$TOOLCHAIN/ranlib")"
 VERSION="${FFMPEG_VERSION:-8.1.2}"
 MINOS="${FFMPEG_MIN_IOS:-15.0}"
 BUILD="$ROOT/.build/ffmpeg"
@@ -25,16 +29,16 @@ export PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"
 mkdir -p "$BUILD" "$OUTPUT/lib"
 mkdir -p "$DEPS"
 if [[ ! -f "$BUILD/lame-3.100.tar.gz" ]]; then
-    curl -L --fail https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz -o "$BUILD/lame-3.100.tar.gz"
+    curl -L --fail --retry 3 --retry-all-errors https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz -o "$BUILD/lame-3.100.tar.gz"
 fi
 echo "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e  $BUILD/lame-3.100.tar.gz" | shasum -a 256 -c -
 if [[ ! -d "$BUILD/lame-3.100" ]]; then tar -xf "$BUILD/lame-3.100.tar.gz" -C "$BUILD"; fi
 if [[ ! -f "$BUILD/x264-$X264_REV.tar.gz" ]]; then
-    curl -L --fail "https://codeload.github.com/mirror/x264/tar.gz/$X264_REV" -o "$BUILD/x264-$X264_REV.tar.gz"
+    curl -L --fail --retry 3 --retry-all-errors "https://codeload.github.com/mirror/x264/tar.gz/$X264_REV" -o "$BUILD/x264-$X264_REV.tar.gz"
 fi
 if [[ ! -d "$BUILD/x264-$X264_REV" ]]; then tar -xf "$BUILD/x264-$X264_REV.tar.gz" -C "$BUILD"; fi
 (
-    export CC="$TOOLCHAIN/clang" AR="$TOOLCHAIN/ar" RANLIB="$TOOLCHAIN/ranlib"
+    export CC="$TOOLCHAIN/clang" AR="$ARCHIVER" RANLIB="$INDEXER"
     export CFLAGS="-target arm64-apple-ios$MINOS -isysroot $SDK -miphoneos-version-min=$MINOS -fPIC -O2"
     export LDFLAGS="$CFLAGS"
     cd "$BUILD/lame-3.100"
@@ -46,7 +50,7 @@ if [[ ! -d "$BUILD/x264-$X264_REV" ]]; then tar -xf "$BUILD/x264-$X264_REV.tar.g
     make -j"$JOBS"; make install
 )
 if [[ ! -f "$BUILD/ffmpeg-$VERSION.tar.xz" ]]; then
-    curl -L --fail "https://ffmpeg.org/releases/ffmpeg-$VERSION.tar.xz" \
+    curl -L --fail --retry 3 --retry-all-errors "https://ffmpeg.org/releases/ffmpeg-$VERSION.tar.xz" \
         -o "$BUILD/ffmpeg-$VERSION.tar.xz"
 fi
 if [[ ! -d "$SOURCE" ]]; then
@@ -69,8 +73,8 @@ build_arch() {
         --sysroot="$SDK" \
         --cc="$TOOLCHAIN/clang" \
         --cxx="$TOOLCHAIN/clang++" \
-        --ar="$TOOLCHAIN/ar" \
-        --ranlib="$TOOLCHAIN/ranlib" \
+        --ar="$ARCHIVER" \
+        --ranlib="$INDEXER" \
         --nm="$TOOLCHAIN/nm" \
         --strip="$TOOLCHAIN/strip" \
         --extra-cflags="-target $target -miphoneos-version-min=$MINOS -fPIC -fvisibility=hidden -I$DEPS/include" \
