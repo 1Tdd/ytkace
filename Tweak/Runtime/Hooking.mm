@@ -1,4 +1,7 @@
 #import "Hooking.h"
+#if defined(YTKACE_HOOK_TEST)
+#include <cstdio>
+#endif
 
 #if !defined(YTKACE_HOOK_TEST)
 #import <mach-o/dyld.h>
@@ -79,6 +82,12 @@ static BOOL YTKACEInstallHook(NSString *className,
         if (originalStorage != NULL) *originalStorage = original;
 
         BOOL added = class_addMethod(targetClass, selector, replacement, types);
+#if defined(YTKACE_HOOK_TEST)
+        if (classMethod) fprintf(stderr, "Hook %s %s: class=%p meta=%p old=%p replacement=%p added=%d method=%p\n",
+            class_getName(cls), sel_getName(selector), (void *)cls, (void *)targetClass,
+            (void *)original, (void *)replacement, (int)added,
+            (void *)method_getImplementation(class_getInstanceMethod(targetClass, selector)));
+#endif
         if (!added) {
             Method directMethod = class_getInstanceMethod(targetClass, selector);
             if (directMethod == NULL) {
