@@ -88,6 +88,7 @@ YTKACE_FILES = \
 	Tweak/Features/Interface/ProfilePictureViewer.mm \
 	Tweak/Features/Interface/PostImageSaver.mm \
 	Tweak/Features/Interface/CommunityPostMenu.mm \
+	Tweak/Features/Interface/PostTranslation.mm \
 	Tweak/Features/Interface/NativeShareHooks.mm \
 	Tweak/Features/Interface/NavigationVisibility.mm \
 	Tweak/Settings/SettingsEntry.mm \

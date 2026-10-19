@@ -51,3 +51,7 @@ The tab bar selection lens uses UIKit's private `_UILiquidLensView`. How to crea
 ## Apple frameworks
 
 YTKACE uses UIKit, AVFoundation and SF Symbols supplied by iOS. SF Symbols artwork is requested at runtime and is not included as a redistributed asset pack.
+
+## Post translation
+
+The in-app post translator sends user-selected text to Google's online translation service. Its UIKit panel, request handling, response parsing, and Unicode chunking are implemented in YTKACE. It does not include implementation or resources from the reference IPA.

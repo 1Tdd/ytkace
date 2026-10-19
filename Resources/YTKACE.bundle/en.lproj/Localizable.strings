@@ -1279,3 +1279,23 @@ Licensed under CC BY-NC-SA 4.0.";
 "Download: %@ · Output size varies" = "Download: %@ · Output size varies";
 
 "Conversion failed" = "Conversion failed";
+
+"Copy translation" = "Copy translation";
+
+"Detect language" = "Detect language";
+
+"This text is too long to translate." = "This text is too long to translate.";
+
+"Translating..." = "Translating...";
+
+"The translator is busy. Try again in a few minutes." = "The translator is busy. Try again in a few minutes.";
+
+"Translation unavailable. Tap to retry." = "Translation unavailable. Tap to retry.";
+
+"Original text" = "Original text";
+
+"Translation" = "Translation";
+
+"From" = "From";
+
+"To" = "To";

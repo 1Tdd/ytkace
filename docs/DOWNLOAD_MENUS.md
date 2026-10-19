@@ -39,6 +39,12 @@ to the resulting cut timeline. Retry retains the chosen preset and audio format.
 The Community menu opens from a hold on either text or a photo, including nested
 image cells; ordinary comments are excluded from post detection.
 
+Translate post opens an in-app panel with source/target language selectors,
+original text, selectable translated text, and a Copy button. It calls Google's
+online translation service directly; no browser or external app is opened.
+Long posts are split at Unicode-safe boundaries, stale requests are cancelled
+on language changes/dismissal, and failures can be retried inside the panel.
+
 Other fixes included with the interface:
 
 - Stream identity includes the audio track, so dubbed tracks with the same

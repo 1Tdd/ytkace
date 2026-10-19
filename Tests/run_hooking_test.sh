@@ -20,3 +20,10 @@ clang++ $(gnustep-config --objc-flags) \
   "$ROOT/Tests/player_mute_test.mm" \
   -o "$OUTPUT/player-mute-test" $(gnustep-config --base-libs)
 "$OUTPUT/player-mute-test"
+
+clang++ $(gnustep-config --objc-flags) \
+  -I"$OBJC_RUNTIME/include" -L"$OBJC_RUNTIME" -std=c++17 \
+  -DYTKACE_TRANSLATION_TEST \
+  "$ROOT/Tweak/Features/Interface/PostTranslation.mm" "$ROOT/Tests/post_translation_test.mm" \
+  -o "$OUTPUT/post-translation-test" $(gnustep-config --base-libs)
+"$OUTPUT/post-translation-test"

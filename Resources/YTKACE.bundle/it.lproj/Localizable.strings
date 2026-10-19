@@ -1258,3 +1258,23 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Download: %@ · Output size varies" = "Download: %@ · Dimensione finale variabile";
 
 "Conversion failed" = "Conversione non riuscita";
+
+"Copy translation" = "Copia traduzione";
+
+"Detect language" = "Rileva lingua";
+
+"This text is too long to translate." = "Questo testo è troppo lungo da tradurre.";
+
+"Translating..." = "Traduzione in corso...";
+
+"The translator is busy. Try again in a few minutes." = "Il traduttore è occupato. Riprova tra qualche minuto.";
+
+"Translation unavailable. Tap to retry." = "Traduzione non disponibile. Tocca per riprovare.";
+
+"Original text" = "Testo originale";
+
+"Translation" = "Traduzione";
+
+"From" = "Da";
+
+"To" = "A";

@@ -1,4 +1,5 @@
 #import "CommunityPostMenu.h"
+#import "PostTranslation.h"
 #import "../../UI/MediaActionSheet.h"
 #import "../../UI/MediaExport.h"
 #import "../../UI/Notice.h"
@@ -119,11 +120,7 @@ static NSURL *YTKACEPostLink(id node) {
             YTKACEShowNotice(YTKACELocalized(@"Text copied"));
         }]];
         [rows addObject:[YTKACEMediaAction action:@"post.translate" title:YTKACELocalized(@"Translate post") symbol:@"character.bubble" handler:^{
-            NSURLComponents *URL = [NSURLComponents componentsWithString:@"https://translate.google.com/"];
-            URL.queryItems = @[[NSURLQueryItem queryItemWithName:@"sl" value:@"auto"],
-                [NSURLQueryItem queryItemWithName:@"tl" value:[NSLocale.preferredLanguages.firstObject componentsSeparatedByString:@"-"].firstObject ?: @"en"],
-                [NSURLQueryItem queryItemWithName:@"text" value:weakSelf.postText], [NSURLQueryItem queryItemWithName:@"op" value:@"translate"]];
-            [UIApplication.sharedApplication openURL:URL.URL options:@{} completionHandler:nil];
+            YTKACEPresentPostTranslation(weakSelf.postText, weakSelf.anchor);
         }]];
     }
     if (self.postSnapshot && YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) {
