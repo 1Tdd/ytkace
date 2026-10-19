@@ -39,7 +39,7 @@ jobs:
           default_ios16 = "https://www.dropbox.com/scl/fi/1m7rq3lpkg3mfsone2299/com.google.ios.youtube-21.33.6-eeveedecrypter.ipa?rlkey=b2nsvre89881puprynwkfau8q&st=4fkh7ry8&dl=1"
           default_ios17 = "https://www.dropbox.com/scl/fi/a937ul1u0s72xri2e2m3i/com.google.ios.youtube-21.41.5-eeveedecrypter.ipa?rlkey=ycya2apwz7fs1x1w3ua8y0mcu&st=nyvrtfpy&dl=1"
           url16 = os.environ.get("IPA_URL") or default_ios16
-          url17 = os.environ.get("IPA_URL_IOS17") or default_ios17
+          url17 = os.environ.get("IPA_URL_IOS17", default_ios17)
           targets = [{"label": "ios16", "url": url16.strip()}]
           if url17.strip():
               targets.append({"label": "ios17", "url": url17.strip()})
@@ -48,7 +48,7 @@ jobs:
 
   package:
     needs: [build, plan]
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -62,10 +62,17 @@ jobs:
           path: packages
           merge-multiple: true
 
-      - uses: levibostian/action-hide-sensitive-inputs@v1
+      - uses: actions/cache/restore@v4
+        with:
+          path: .theos
+          key: roothide-theos-${{ runner.os }}-v1
+          fail-on-cache-miss: true
 
-      - name: Setup
-        run: brew install ldid dpkg
+      - name: Find signing tool
+        run: |
+          ldid="$(find "$PWD/.theos" -type f -path '*/linux/*' -name ldid -executable -print -quit)"
+          test -n "$ldid"
+          echo "LDID=$ldid" >> "$GITHUB_ENV"
 
       - name: YouTube
         env:
@@ -90,7 +97,6 @@ jobs:
         run: |
           mkdir deb-root
           dpkg-deb -x packages/*.deb deb-root
-          export LDID="$(brew --prefix)/bin/ldid"
           tweak_version="$(awk '/^Version:/ {print $2}' control)"
           youtube_version="$(python3 - <<'PY'
           import plistlib

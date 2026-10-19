@@ -4,6 +4,7 @@
 #import "SponsorPreferences.h"
 #import "../../YTKACE.h"
 #import "../../Runtime/Hooking.h"
+#import "../../Runtime/PlayerMute.h"
 #import "../../Runtime/Preferences.h"
 #import "../../UI/Notice.h"
 #import "../../Runtime/Localization.h"
@@ -108,19 +109,16 @@ static void YTKACEUpdateSponsorMute(id controller, BOOL mute) {
     if (controller == nil) return;
     YTKACESponsorMuteLease *lease = objc_getAssociatedObject(controller, YTKACESponsorMuteLeaseKey);
     if (mute && lease == nil) {
-        id target = controller;
-        SEL getMuted = NSSelectorFromString(@"isMuted"), setMuted = NSSelectorFromString(@"setMuted:");
-        if (![target respondsToSelector:getMuted] || ![target respondsToSelector:setMuted]) target = YTKACEObjectMessage(controller, @"player");
-        if (![target respondsToSelector:getMuted] || ![target respondsToSelector:setMuted]) return;
+        id target = YTKACEPlayerMuteTarget(controller);
+        if (target == nil) return;
         lease = [YTKACESponsorMuteLease new];
         lease.target = target;
-        lease.originalMuted = ((BOOL (*)(id, SEL))objc_msgSend)(target, getMuted);
+        lease.originalMuted = YTKACEReadPlayerMuted(target);
         objc_setAssociatedObject(controller, YTKACESponsorMuteLeaseKey, lease, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        ((void (*)(id, SEL, BOOL))objc_msgSend)(target, setMuted, YES);
+        YTKACESetPlayerMuted(target, YES);
     } else if (!mute && lease != nil) {
         id target = lease.target;
-        SEL setMuted = NSSelectorFromString(@"setMuted:");
-        if ([target respondsToSelector:setMuted]) ((void (*)(id, SEL, BOOL))objc_msgSend)(target, setMuted, lease.originalMuted);
+        YTKACESetPlayerMuted(target, lease.originalMuted);
         objc_setAssociatedObject(controller, YTKACESponsorMuteLeaseKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 }

@@ -1,26 +1,44 @@
 #import "Hooking.h"
 
+#if !defined(YTKACE_HOOK_TEST)
 #import <mach-o/dyld.h>
 #import <mach-o/getsect.h>
 #import <string.h>
 #import "../Features/Downloads/DownloadLog.h"
+#endif
 
 static NSObject *YTKACEHookLock(void) {
-    static NSObject *lock;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        lock = [NSObject new];
-    });
+    static NSObject *lock = [NSObject new];
     return lock;
 }
 
 static NSMutableSet<NSString *> *YTKACEHookKeys(void) {
-    static NSMutableSet<NSString *> *keys;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        keys = [NSMutableSet set];
-    });
+    static NSMutableSet<NSString *> *keys = [NSMutableSet new];
     return keys;
+}
+
+static NSMutableDictionary<NSString *, NSValue *> *YTKACEHookOriginals(void) {
+    static NSMutableDictionary *originals = [NSMutableDictionary new];
+    return originals;
+}
+
+static NSString *YTKACEHookKey(Class cls, SEL selector, BOOL classMethod, IMP replacement) {
+    return [NSString stringWithFormat:@"%s|%@|%@|%p", class_getName(cls),
+        classMethod ? @"+" : @"-", NSStringFromSelector(selector), (void *)replacement];
+}
+
+static BOOL YTKACEHookChainContains(Class cls, SEL selector, BOOL classMethod, IMP current, IMP replacement) {
+    for (NSUInteger depth = 0; current != NULL && depth < 128; ++depth) {
+        if (current == replacement) return YES;
+        NSValue *entry = nil;
+        for (Class owner = cls; owner != Nil; owner = class_getSuperclass(owner)) {
+            entry = [YTKACEHookOriginals() objectForKey:YTKACEHookKey(owner, selector, classMethod, current)];
+            if (entry != nil) break;
+        }
+        if (entry == nil) return NO;
+        current = (IMP)[entry pointerValue];
+    }
+    return current != NULL;
 }
 
 static BOOL YTKACEInstallHook(NSString *className,
@@ -43,23 +61,21 @@ static BOOL YTKACEInstallHook(NSString *className,
     }
 
     SEL selector = NSSelectorFromString(selectorName);
-    Method method = class_getInstanceMethod(targetClass, selector);
-    if (method == NULL) {
-        return NO;
-    }
-
-    NSString *key = [NSString stringWithFormat:@"%@|%@|%@",
-                     className,
-                     classMethod ? @"+" : @"-",
-                     selectorName];
+    NSString *key = YTKACEHookKey(targetClass, selector, classMethod, replacement);
 
     @synchronized (YTKACEHookLock()) {
-        if ([YTKACEHookKeys() containsObject:key]) {
+        NSValue *registered = [YTKACEHookOriginals() objectForKey:key];
+        if (registered != nil) {
+            if (originalStorage != NULL) *originalStorage = (IMP)[registered pointerValue];
             return YES;
         }
 
+        Method method = class_getInstanceMethod(targetClass, selector);
+        if (method == NULL) return NO;
         IMP original = method_getImplementation(method);
         const char *types = method_getTypeEncoding(method);
+        if (YTKACEHookChainContains(targetClass, selector, classMethod, original, replacement)) return NO;
+        if (originalStorage != NULL) *originalStorage = original;
 
         BOOL added = class_addMethod(targetClass, selector, replacement, types);
         if (!added) {
@@ -70,9 +86,7 @@ static BOOL YTKACEInstallHook(NSString *className,
             method_setImplementation(directMethod, replacement);
         }
 
-        if (originalStorage != NULL) {
-            *originalStorage = original;
-        }
+        [YTKACEHookOriginals() setObject:[NSValue valueWithPointer:(const void *)original] forKey:key];
         [YTKACEHookKeys() addObject:key];
         return YES;
     }
@@ -118,8 +132,6 @@ BOOL YTKACEAddInstanceMethod(NSString *className,
                                      typeEncoding);
         if (added) {
             [YTKACEHookKeys() addObject:key];
-            [YTKACEHookKeys() addObject:
-                [NSString stringWithFormat:@"%@|-|%@", className, selectorName]];
         }
         return added;
     }
@@ -131,6 +143,7 @@ NSUInteger YTKACEInstalledHookCount(void) {
     }
 }
 
+#if !defined(YTKACE_HOOK_TEST)
 typedef struct {
     void *isa;
     void *superclass;
@@ -196,3 +209,4 @@ NSArray<NSString *> *YTKACEAppClassNames(void) {
     });
     return names;
 }
+#endif
