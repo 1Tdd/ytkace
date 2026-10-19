@@ -9,7 +9,8 @@ static inline const char *YTKACEUnqualifiedType(const char *type) {
 
 static inline BOOL YTKACEBooleanType(const char *type) {
     type = YTKACEUnqualifiedType(type);
-    return type != nullptr && (type[0] == 'B' || type[0] == 'c');
+    return type != nullptr && (type[0] == 'B' || type[0] == 'c' ||
+        std::strcmp(type, @encode(BOOL)) == 0);
 }
 
 static inline SEL YTKACEPlayerMuteGetter(id target) {
