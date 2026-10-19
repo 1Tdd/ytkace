@@ -157,6 +157,11 @@ static NSString *YTKACENodeText(id node, NSUInteger depth) {
     id attributed = YTKACENodeValue(node, @"attributedText");
     NSString *text = [attributed isKindOfClass:NSAttributedString.class] ? [attributed string] : nil;
     if (text.length != 0) return text;
+    id current = YTKACENodeValue(node, @"currentTextNode");
+    if (current && current != node) {
+        text = YTKACENodeText(current, depth + 1);
+        if (text.length) return text;
+    }
     for (id child in YTKACENodeValue(node, @"subnodes")) {
         text = YTKACENodeText(child, depth + 1);
         if (text.length != 0) return text;
@@ -171,6 +176,7 @@ static BOOL YTKACEIsPostNode(id node) {
     if (!node) return NO;
     NSMutableArray *pending = [NSMutableArray arrayWithObject:node];
     NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    NSUInteger protoReads = 0;
     for (NSUInteger i = 0; i < pending.count && i < 256; ++i) {
         id item = pending[i];
         if ([seen containsObject:item]) continue;
@@ -181,11 +187,19 @@ static BOOL YTKACEIsPostNode(id node) {
         if ([token containsString:@"community"] || [token containsString:@"backstage"] ||
             [token containsString:@"post_node"] || [token containsString:@"post_renderer"] ||
             [token containsString:@"post_text"] || [token containsString:@"post_attachment"]) return YES;
+        if ([NSStringFromClass([item class]) isEqual:@"ELMElement"] && protoReads++ < 8) {
+            id proto = YTKACENodeValue(item, @"protoText");
+            if ([proto isKindOfClass:NSString.class] && [proto length] <= 262144) {
+                for (NSString *marker in @[@"community_post", @"backstage_post", @"post_base", @"post_attachment", @"id.ui.post.", @"youtube.com/post/"]) {
+                    if ([proto rangeOfString:marker options:NSCaseInsensitiveSearch].location != NSNotFound) return YES;
+                }
+            }
+        }
         for (NSString *key in @[@"postId", @"postID", @"backstagePostId"]) {
             id value = YTKACENodeValue(item, key);
             if ([value isKindOfClass:NSString.class] && [value length]) return YES;
         }
-        for (NSString *key in @[@"entry", @"elementRenderer", @"communityPostRenderer", @"backstagePostRenderer", @"postRenderer", @"model"]) {
+        for (NSString *key in @[@"entry", @"element", @"elementRenderer", @"communityPostRenderer", @"backstagePostRenderer", @"postRenderer", @"model"]) {
             id child = YTKACENodeValue(item, key);
             if (child && child != item && pending.count < 256) [pending addObject:child];
         }

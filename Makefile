@@ -98,7 +98,9 @@ YTKACE_FILES = \
 	Tweak/Settings/YTKACETabEditorController.mm \
 	Tweak/Settings/YTKACEDownloadsController.mm
 
-YTKACE_CFLAGS = -fobjc-arc -Wall -Wextra -Werror=return-type
+YTKACE_CFLAGS = -Wall -Wextra -Werror=return-type
+YTKACE_OBJCFLAGS = -fobjc-arc
+YTKACE_OBJCCFLAGS = -fobjc-arc
 YTKACE_CFLAGS += -DYTKACE_COMBINED_SABR=1
 YTKACE_CFLAGS += -DYTKACE_VERSION_STRING=\"$(shell awk '/^Version:/ {print $$2}' $(THEOS_PROJECT_DIR)/control)\"
 YTKACE_CFLAGS += -Wno-module-import-in-extern-c
