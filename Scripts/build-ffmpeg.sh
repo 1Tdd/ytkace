@@ -77,9 +77,9 @@ build_arch() {
         --ranlib="$INDEXER" \
         --nm="$TOOLCHAIN/nm" \
         --strip="$TOOLCHAIN/strip" \
-        --extra-cflags="-target $target -miphoneos-version-min=$MINOS -fPIC -fvisibility=hidden -I$DEPS/include" \
-        --extra-cxxflags="-target $target -miphoneos-version-min=$MINOS -fPIC -fvisibility=hidden" \
-        --extra-ldflags="-target $target -miphoneos-version-min=$MINOS -L$DEPS/lib" \
+        --extra-cflags="-target $target -isysroot $SDK -miphoneos-version-min=$MINOS -fPIC -fvisibility=hidden -I$DEPS/include" \
+        --extra-cxxflags="-target $target -isysroot $SDK -miphoneos-version-min=$MINOS -fPIC -fvisibility=hidden" \
+        --extra-ldflags="-target $target -isysroot $SDK -miphoneos-version-min=$MINOS -L$DEPS/lib" \
         --pkg-config=pkg-config \
         --enable-static \
         --disable-shared \
