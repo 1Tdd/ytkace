@@ -7,6 +7,7 @@
 #import <MediaPlayer/MediaPlayer.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#include <cstring>
 
 static IMP OriginalOverlayDidMoveToWindow;
 static const void *YTKACEEdgePanAssociation = &YTKACEEdgePanAssociation;
@@ -451,7 +452,16 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other 
     for (NSString *name in names) {
         SEL selector = NSSelectorFromString(name);
         if ([responder respondsToSelector:selector]) {
-            return ((double (*)(id, SEL))objc_msgSend)(responder, selector);
+            NSMethodSignature *signature = [responder methodSignatureForSelector:selector];
+            if (signature.numberOfArguments != 2) continue;
+            const char *type = signature.methodReturnType;
+            double value;
+            if (std::strcmp(type, @encode(double)) == 0) {
+                value = ((double (*)(id, SEL))objc_msgSend)(responder, selector);
+            } else if (std::strcmp(type, @encode(float)) == 0) {
+                value = ((float (*)(id, SEL))objc_msgSend)(responder, selector);
+            } else continue;
+            if (isfinite(value)) return value;
         }
     }
     return 0.0;
@@ -471,6 +481,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other 
     double maximum = [self doubleFromResponder:target
                                      selectors:@[
                                          @"maximumSeekableTime",
+                                         @"currentVideoTotalMediaTime",
                                          @"currentVideoTotalTime",
                                          @"currentVideoDuration"
                                      ]];

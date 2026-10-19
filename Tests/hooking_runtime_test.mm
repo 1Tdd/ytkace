@@ -67,7 +67,14 @@ int main(void) {
 
         assert([HookParent classValue] == 10);
         assert(YTKACEInstallClassHook(@"HookParent", @"classValue", (IMP)classFirst, &classFirstOriginal));
+        assert([HookParent classValue] == 15);
         assert(YTKACEInstallClassHook(@"HookParent", @"classValue", (IMP)classSecond, &classSecondOriginal));
+        if ([HookParent classValue] != 30) {
+            fprintf(stderr, "Class hook returned %ld; original methods return %ld and %ld.\n",
+                (long)[HookParent classValue],
+                (long)((NSInteger (*)(id, SEL))classFirstOriginal)([HookParent class], @selector(classValue)),
+                (long)((NSInteger (*)(id, SEL))classSecondOriginal)([HookParent class], @selector(classValue)));
+        }
         assert([HookParent classValue] == 30);
         original = NULL;
         assert(YTKACEInstallClassHook(@"HookParent", @"classValue", (IMP)classFirst, &original));

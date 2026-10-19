@@ -72,6 +72,7 @@ static BOOL YTKACEInstallHook(NSString *className,
 
         Method method = class_getInstanceMethod(targetClass, selector);
         if (method == NULL) return NO;
+        selector = method_getName(method);
         IMP original = method_getImplementation(method);
         const char *types = method_getTypeEncoding(method);
         if (YTKACEHookChainContains(targetClass, selector, classMethod, original, replacement)) return NO;
