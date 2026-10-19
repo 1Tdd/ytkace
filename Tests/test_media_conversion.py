@@ -95,8 +95,9 @@ class MediaConversionTests(unittest.TestCase):
         subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=64x64',
                         '-frames:v', '1', '-threads', '1', str(cover)], check=True, capture_output=True)
         output = self.directory / 'cover.mp3'
-        subprocess.run([str(self.binary), str(source), str(output), 'artwork', str(cover)],
-                       check=True, capture_output=True, text=True)
+        result = subprocess.run([str(self.binary), str(source), str(output), 'artwork', str(cover)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
         info = self.probe(output)
         self.assertEqual(info['streams'][0]['codec_name'], 'mp3')
         self.assertEqual(info['streams'][1]['codec_name'], 'mjpeg')

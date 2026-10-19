@@ -465,10 +465,12 @@ void YTKACEFFmpegCancelConversion(NSString *identifier) {
 static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
                                    NSURL *outputURL,
                                    YTKACEFFmpegProgress progress) {
+    NSString *stem = outputURL.lastPathComponent.stringByDeletingPathExtension;
+    NSString *identifier = [stem hasPrefix:@"photos-"] ? [stem substringFromIndex:7] : stem;
     NSString *artworkPath = nil;
     if (artwork.length != 0) {
         artworkPath = [NSTemporaryDirectory()
-            stringByAppendingPathComponent:@"ytkace-art.jpg"];
+            stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-art.jpg", NSUUID.UUID.UUIDString]];
         [artwork writeToFile:artworkPath atomically:YES];
     }
     AVFormatContext *audioInput = NULL;
@@ -598,6 +600,12 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
         }
         const int64_t frames = MAX((int64_t)1, duration);
         for (int64_t index = 0; index < frames; index++) {
+            @synchronized (YTKACECancelledConversions()) {
+                if ([YTKACECancelledConversions() containsObject:identifier]) {
+                    error = YTKACEFFmpegError(AVERROR_EXIT, @"Cancelled");
+                    goto finish;
+                }
+            }
             videoFrame->pts = index;
             if (avcodec_send_frame(encoder, videoFrame) >= 0) {
                 AVPacket *encoded = av_packet_alloc();
@@ -626,6 +634,12 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
         av_packet_free(&flush);
 
         while (av_read_frame(audioInput, packet) >= 0) {
+            @synchronized (YTKACECancelledConversions()) {
+                if ([YTKACECancelledConversions() containsObject:identifier]) {
+                    error = YTKACEFFmpegError(AVERROR_EXIT, @"Cancelled");
+                    goto finish;
+                }
+            }
             if (packet->stream_index == audioIndex) {
                 packet->stream_index = audioStream->index;
                 av_packet_rescale_ts(packet,
@@ -656,6 +670,7 @@ finish:
     if (artworkPath != nil) {
         [NSFileManager.defaultManager removeItemAtPath:artworkPath error:NULL];
     }
+    if (error) [NSFileManager.defaultManager removeItemAtURL:outputURL error:nil];
     return error;
 }
 

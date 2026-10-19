@@ -1962,6 +1962,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
             job.directTask = nil;
             YTKACEDownloadCoordinator *strongSelf = weakSelf;
             if (strongSelf == nil) return;
+            if (job.cancelled) { [strongSelf failProcessingJob:job URL:audioURL ?: videoURL error:nil]; return; }
             if (error == nil && audioURL != nil && (job.audioOnly || videoURL != nil)) {
                 [strongSelf completeJob:job videoURL:videoURL audioURL:audioURL];
                 return;
@@ -2005,6 +2006,8 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
                 videoBytes:videoBytes phase:mediaPhase];
         }
         completion:^(NSURL *videoURL, NSURL *audioURL, NSError *error) {
+            job.sabrTask = nil;
+            if (job.cancelled) { [weakSelf failProcessingJob:job URL:audioURL ?: videoURL error:nil]; return; }
             if (error != nil || audioURL == nil || (!job.audioOnly && videoURL == nil)) {
                 YTKACEStreamOption *fallback = nil;
                 if ([error.domain isEqualToString:@"YTKACESABR"] &&
@@ -2272,8 +2275,8 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
                 if (job.sharesFile) {
                     [strongSelf presentShareSheetForURL:destination];
                 }
+                [strongSelf.activeJobs removeObjectForKey:job.identifier];
             }
-            [strongSelf.activeJobs removeObjectForKey:job.identifier];
         }];
         return;
     }
@@ -2332,12 +2335,14 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
         URLByAppendingPathComponent:[NSString stringWithFormat:@"photos-%@.mp4",
             job.identifier]];
     void (^report)(double) = ^(double fraction) {
+        if (job.cancelled) return;
         [YTKACEDownloadProgressView.sharedView updateJob:job.identifier
             stage:YTKACELocalized(@"Converting") progress:fraction
             downloadedBytes:0 totalBytes:0];
     };
     if (job.audioOnly) {
         [self squareArtworkForJob:job then:^(NSData *artwork) {
+            if (job.cancelled) { handler(destination); return; }
             void (^makeVideo)(NSURL *) = ^(NSURL *audio) {
                 [YTKACEFFmpegMuxer videoFromAudioURL:audio artworkData:artwork
                     outputURL:converted progress:report completion:^(NSError *error) {
@@ -2361,8 +2366,13 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
                  importURL:(NSURL *)importURL
                 libraryURL:(NSURL *)libraryURL {
     {
-        [YTKACEDownloadProgressView.sharedView finishJob:job.identifier
-            success:YES message:YTKACELocalized(@"Complete")];
+        if (job.cancelled) {
+            if (![importURL isEqual:libraryURL]) [NSFileManager.defaultManager removeItemAtURL:importURL error:nil];
+            [self writeMetadataForJob:job destination:libraryURL];
+            [YTKACEDownloadProgressView.sharedView finishJob:job.identifier success:NO message:YTKACELocalized(@"Cancelled")];
+            [self.activeJobs removeObjectForKey:job.identifier];
+            return;
+        }
         __weak YTKACEDownloadCoordinator *weakSelf = self;
         const BOOL converted = ![importURL isEqual:libraryURL];
         YTKACESaveVideoToPhotosFile(importURL, ^(BOOL success, NSError *error) {
@@ -2394,6 +2404,8 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
             }
             [NSNotificationCenter.defaultCenter
                 postNotificationName:@"YTKACEDownloadLibraryChanged" object:nil];
+            [YTKACEDownloadProgressView.sharedView finishJob:job.identifier success:YES message:YTKACELocalized(@"Complete")];
+            [weakSelf.activeJobs removeObjectForKey:job.identifier];
         });
     }
 }
