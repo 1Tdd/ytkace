@@ -1,4 +1,5 @@
 #import "../../YTKACE.h"
+#include "../../Runtime/MediaPolicy.h"
 #import "../../Runtime/Hooking.h"
 #import "../../Runtime/Preferences.h"
 #import "../Downloads/YTKACEDownloadPlayerController.h"
@@ -11,30 +12,24 @@
 #import <objc/message.h>
 
 BOOL YTKACEManualPiPRequested = NO;
-static CFTimeInterval YTKACELastPlayTick = 0.0;
-static CFTimeInterval YTKACELastPauseTick = 0.0;
-static BOOL YTKACEPlaybackIsPlaying = NO;
-static double YTKACELastSeenVideoTime = -1.0;
+static YTKACEMedia::PlaybackActivity YTKACEPlaybackActivity;
+static NSObject *YTKACEPlaybackActivityLock(void) {
+    static NSObject *lock;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lock = [NSObject new]; });
+    return lock;
+}
 
 void YTKACENotifyPlaybackTick(void) {
-    YTKACELastPlayTick = CACurrentMediaTime();
-    YTKACEPlaybackIsPlaying = YES;
+    @synchronized (YTKACEPlaybackActivityLock()) { YTKACEPlaybackActivity.play(CACurrentMediaTime()); }
 }
 
 void YTKACENotifyPlaybackPaused(void) {
-    YTKACELastPauseTick = CACurrentMediaTime();
-    YTKACEPlaybackIsPlaying = NO;
+    @synchronized (YTKACEPlaybackActivityLock()) { YTKACEPlaybackActivity.pause(CACurrentMediaTime()); }
 }
 
 void YTKACENotifyVideoTime(double time) {
-    if (time > 0.0) {
-        if (fabs(time - YTKACELastSeenVideoTime) > 0.01) {
-            YTKACELastSeenVideoTime = time;
-            YTKACENotifyPlaybackTick();
-        }
-    } else {
-        YTKACENotifyPlaybackTick();
-    }
+    @synchronized (YTKACEPlaybackActivityLock()) { YTKACEPlaybackActivity.observe(time, CACurrentMediaTime()); }
 }
 
 static NSString *const YTKACEShortsPiPKey = @"YTKACE.Preference.Shorts.PiPDisabled";
@@ -51,42 +46,20 @@ static IMP YTKACEOrigDidPressPlay;
 BOOL YTKACEIsPlaybackPaused(id sender) {
     if (YTKACEManualPiPRequested) return NO;
 
-    // Check offline downloads player session
-    YTKACEDownloadPlaybackSession *dlSession = YTKACEDownloadPlaybackSession.existingSession;
-    if (dlSession != nil && dlSession.currentURL != nil && dlSession.player != nil) {
-        return dlSession.player.rate <= 0.001f;
-    }
-
     // Direct AVPlayer check if sender exposes a playerLayer with AVPlayer
     if ([sender isKindOfClass:AVPictureInPictureController.class]) {
         AVPictureInPictureController *pip = (AVPictureInPictureController *)sender;
         if ([pip respondsToSelector:@selector(playerLayer)]) {
             AVPlayerLayer *pl = pip.playerLayer;
             if (pl != nil && [pl isKindOfClass:AVPlayerLayer.class] && pl.player != nil) {
-                return pl.player.rate <= 0.001f;
+                return pl.player.timeControlStatus == AVPlayerTimeControlStatusPaused;
             }
         }
     }
 
-    CFTimeInterval now = CACurrentMediaTime();
-
-    // Explicit pause occurred after the last play tick -> PAUSED
-    if (YTKACELastPauseTick > 0.0 && YTKACELastPauseTick >= YTKACELastPlayTick) {
-        return YES;
+    @synchronized (YTKACEPlaybackActivityLock()) {
+        return YTKACEPlaybackActivity.paused(CACurrentMediaTime());
     }
-
-    // Playback ticked recently (within 2.5s) and not superseded by pause -> PLAYING
-    if (YTKACELastPlayTick > 0.0 && (now - YTKACELastPlayTick < 2.5)) {
-        return NO;
-    }
-
-    // Playback is marked playing and ticked within 3.5s -> PLAYING
-    if (YTKACEPlaybackIsPlaying && YTKACELastPlayTick > 0.0 && (now - YTKACELastPlayTick < 3.5)) {
-        return NO;
-    }
-
-    // Otherwise (cold launch, ended video, idle) -> PAUSED
-    return YES;
 }
 
 static id YTKACEShortsPiPOwner(id controller) {

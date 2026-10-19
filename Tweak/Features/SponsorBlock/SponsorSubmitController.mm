@@ -3,6 +3,7 @@
 #import "SponsorPreferences.h"
 #import "SponsorHooks.h"
 #include "SponsorPreview.h"
+#include "../../Runtime/MediaPolicy.h"
 #import "../../YTKACE.h"
 #import "../../Runtime/Preferences.h"
 #import "../../Runtime/Localization.h"
@@ -2437,6 +2438,7 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
     } else {
         self.actionSegmentedControl.enabled = YES;
         self.actionSegmentedControl.alpha = 1.0;
+        if ([self.actionType isEqualToString:@"poi"]) self.actionType = @"skip";
         if (self.actionSegmentedControl.numberOfSegments >= 3) {
             [self.actionSegmentedControl setEnabled:supportsMute forSegmentAtIndex:1];
             [self.actionSegmentedControl setEnabled:supportsFull forSegmentAtIndex:2];
@@ -2629,33 +2631,8 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
 }
 
 static double YTKACEParseManualTimestamp(NSString *raw) {
-    if (raw.length == 0) return -1.0;
-    NSString *trimmed = [[raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
-        stringByReplacingOccurrencesOfString:@"," withString:@"."];
-    if (trimmed.length == 0) return -1.0;
-    NSArray<NSString *> *parts = [trimmed componentsSeparatedByString:@":"];
-    if (parts.count == 1) {
-        NSScanner *sc = [NSScanner scannerWithString:parts[0]];
-        double val = -1.0;
-        if ([sc scanDouble:&val] && sc.isAtEnd && isfinite(val) && val >= 0.0) {
-            return val;
-        }
-        return -1.0;
-    } else if (parts.count == 2) {
-        double m = [parts[0] doubleValue];
-        double s = [parts[1] doubleValue];
-        if (m >= 0.0 && s >= 0.0 && s < 60.0) {
-            return m * 60.0 + s;
-        }
-    } else if (parts.count == 3) {
-        double h = [parts[0] doubleValue];
-        double m = [parts[1] doubleValue];
-        double s = [parts[2] doubleValue];
-        if (h >= 0.0 && m >= 0.0 && m < 60.0 && s >= 0.0 && s < 60.0) {
-            return h * 3600.0 + m * 60.0 + s;
-        }
-    }
-    return -1.0;
+    NSString *trimmed = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return YTKACEMedia::parseTimestamp(trimmed.UTF8String ?: "");
 }
 
 - (void)promptManualTimestampForStart:(BOOL)isStart {
@@ -2870,8 +2847,17 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
                 @"end": @(submitEnd),
                 @"category": strongSelf.selectedCategory ?: @"sponsor",
                 @"actionType": actionType ?: @"skip",
-                @"uuid": [[NSUUID UUID] UUIDString]
+                @"uuid": @""
             };
+            for (NSDictionary *local in [YTKACESponsorClient.sharedClient localSegmentsForVideoID:strongSelf.videoID]) {
+                if ([local[@"category"] isEqualToString:submittedSeg[@"category"]] &&
+                    [local[@"actionType"] isEqualToString:submittedSeg[@"actionType"]] &&
+                    fabs([local[@"start"] doubleValue] - submitStart) < 0.002 &&
+                    fabs([local[@"end"] doubleValue] - submitEnd) < 0.002) {
+                    submittedSeg = local;
+                    break;
+                }
+            }
             YTKACESponsorAddActiveSegment(strongSelf.videoID, submittedSeg);
 
             YTKACEShowNotice(YTKACELocalized(@"Segment submitted to SponsorBlock!"));

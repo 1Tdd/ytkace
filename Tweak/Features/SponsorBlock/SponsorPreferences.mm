@@ -1,4 +1,5 @@
 #import "SponsorPreferences.h"
+#include "SponsorTimeline.h"
 #import "../../Runtime/Preferences.h"
 #import "../../Runtime/Localization.h"
 #import <CommonCrypto/CommonDigest.h>
@@ -168,72 +169,21 @@ struct YTKACESponsorCalcInterval {
 };
 
 double YTKACESponsorCalculateSkippedDuration(NSArray<NSDictionary *> *segments, double duration) {
-    if (segments == nil || segments.count == 0 || !isfinite(duration) || duration <= 0.0) {
-        return 0.0;
+    if (!isfinite(duration) || duration <= 0.0) return 0.0;
+    std::vector<YTKACEMedia::Interval> intervals;
+    for (id segment in segments) {
+        YTKACEMedia::Interval range;
+        if (!YTKACEReadSponsorInterval(segment, range)) continue;
+        NSString *category = [segment[@"category"] isKindOfClass:NSString.class] ? segment[@"category"] : @"sponsor";
+        NSString *action = [segment[@"actionType"] isKindOfClass:NSString.class] ? segment[@"actionType"] : @"skip";
+        if (![action isEqualToString:@"skip"] || [category isEqualToString:@"poi_highlight"] || YTKACESponsorCategoryBehavior(category) != 0) continue;
+        range.start = std::min(range.start, duration);
+        range.end = std::min(range.end, duration);
+        intervals.push_back(range);
     }
-    NSMutableArray<NSValue *> *intervalValues = [NSMutableArray array];
-    for (NSDictionary *seg in segments) {
-        if (![seg isKindOfClass:NSDictionary.class]) continue;
-        NSString *category = [seg[@"category"] isKindOfClass:NSString.class]
-            ? seg[@"category"] : @"sponsor";
-        NSString *actionType = [seg[@"actionType"] isKindOfClass:NSString.class]
-            ? seg[@"actionType"] : @"skip";
-        if ([category isEqualToString:@"poi_highlight"] ||
-            [actionType isEqualToString:@"poi"] ||
-            [actionType isEqualToString:@"full"] ||
-            [actionType isEqualToString:@"mute"]) {
-            continue;
-        }
-        if (YTKACESponsorCategoryBehavior(category) != 0) {
-            continue;
-        }
-        double start = 0.0;
-        double end = 0.0;
-        if ([seg[@"start"] respondsToSelector:@selector(doubleValue)]) {
-            start = [seg[@"start"] doubleValue];
-            end = [seg[@"end"] doubleValue];
-        } else if ([seg[@"segment"] isKindOfClass:NSArray.class] && [seg[@"segment"] count] >= 2) {
-            start = [seg[@"segment"][0] doubleValue];
-            end = [seg[@"segment"][1] doubleValue];
-        }
-        start = MAX(0.0, MIN(start, duration));
-        end = MAX(0.0, MIN(end, duration));
-        if (end > start) {
-            struct YTKACESponsorCalcInterval iv = { start, end };
-            [intervalValues addObject:[NSValue valueWithBytes:&iv objCType:@encode(struct YTKACESponsorCalcInterval)]];
-        }
-    }
-    if (intervalValues.count == 0) {
-        return 0.0;
-    }
-    [intervalValues sortUsingComparator:^NSComparisonResult(NSValue *val1, NSValue *val2) {
-        struct YTKACESponsorCalcInterval iv1, iv2;
-        [val1 getValue:&iv1];
-        [val2 getValue:&iv2];
-        if (iv1.start < iv2.start) return NSOrderedAscending;
-        if (iv1.start > iv2.start) return NSOrderedDescending;
-        return NSOrderedSame;
-    }];
-
-    double totalSkipped = 0.0;
-    struct YTKACESponsorCalcInterval current;
-    [intervalValues[0] getValue:&current];
-
-    for (NSUInteger i = 1; i < intervalValues.count; i++) {
-        struct YTKACESponsorCalcInterval next;
-        [intervalValues[i] getValue:&next];
-        if (next.start <= current.end) {
-            if (next.end > current.end) {
-                current.end = next.end;
-            }
-        } else {
-            totalSkipped += (current.end - current.start);
-            current = next;
-        }
-    }
-    totalSkipped += (current.end - current.start);
-
-    return MIN(totalSkipped, duration);
+    double skipped = 0.0;
+    for (auto range : YTKACEMedia::normalize(intervals)) skipped += range.end - range.start;
+    return std::min(skipped, duration);
 }
 
 NSString *YTKACESponsorUserID(void) {

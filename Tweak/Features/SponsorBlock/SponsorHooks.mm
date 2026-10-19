@@ -62,10 +62,14 @@ static NSHashTable<UIView *> *YTKACESponsorBars;
 static BOOL YTKACESponsorTimeUpdatesEnabled;
 static BOOL YTKACEPlaybackTimeNotificationsNeeded;
 static id YTKACEPlaybackPreferenceObserver;
+static void YTKACEUpdateSponsorMute(id controller, BOOL mute);
+static const void *YTKACESponsorMuteLeaseKey = &YTKACESponsorMuteLeaseKey;
+static const void *YTKACESponsorManualMuteKey = &YTKACESponsorManualMuteKey;
 
 static void YTKACERefreshPlaybackTimePreferenceState(void) {
     YTKACESponsorTimeUpdatesEnabled =
         YTKACEFeatureEnabled(YTKACESponsorBlockKey);
+    if (!YTKACESponsorTimeUpdatesEnabled) YTKACEUpdateSponsorMute(YTKACECurrentSponsorController, NO);
     YTKACEPlaybackTimeNotificationsNeeded =
         YTKACEFeatureEnabled(@"shortsProgress") ||
         YTKACEFeatureEnabled(@"autoSkipShorts") ||
@@ -91,6 +95,34 @@ static id YTKACEObjectMessage(id receiver, NSString *selectorName) {
         return nil;
     }
     return ((id (*)(id, SEL))objc_msgSend)(receiver, selector);
+}
+
+@interface YTKACESponsorMuteLease : NSObject
+@property(nonatomic, weak) id target;
+@property(nonatomic, assign) BOOL originalMuted;
+@end
+@implementation YTKACESponsorMuteLease
+@end
+
+static void YTKACEUpdateSponsorMute(id controller, BOOL mute) {
+    if (controller == nil) return;
+    YTKACESponsorMuteLease *lease = objc_getAssociatedObject(controller, YTKACESponsorMuteLeaseKey);
+    if (mute && lease == nil) {
+        id target = controller;
+        SEL getMuted = NSSelectorFromString(@"isMuted"), setMuted = NSSelectorFromString(@"setMuted:");
+        if (![target respondsToSelector:getMuted] || ![target respondsToSelector:setMuted]) target = YTKACEObjectMessage(controller, @"player");
+        if (![target respondsToSelector:getMuted] || ![target respondsToSelector:setMuted]) return;
+        lease = [YTKACESponsorMuteLease new];
+        lease.target = target;
+        lease.originalMuted = ((BOOL (*)(id, SEL))objc_msgSend)(target, getMuted);
+        objc_setAssociatedObject(controller, YTKACESponsorMuteLeaseKey, lease, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(target, setMuted, YES);
+    } else if (!mute && lease != nil) {
+        id target = lease.target;
+        SEL setMuted = NSSelectorFromString(@"setMuted:");
+        if ([target respondsToSelector:setMuted]) ((void (*)(id, SEL, BOOL))objc_msgSend)(target, setMuted, lease.originalMuted);
+        objc_setAssociatedObject(controller, YTKACESponsorMuteLeaseKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
 }
 
 static id YTKACESafeObjectIvar(id obj, const char *ivarName) {
@@ -460,6 +492,8 @@ static void YTKACEPerformSponsorSkip(id controller, double start, double end,
 @property(nonatomic, assign) double endTime;
 @property(nonatomic, assign) NSUInteger segmentIndex;
 @property(nonatomic, copy) NSString *category;
+@property(nonatomic, copy) NSString *videoID;
+@property(nonatomic, assign) BOOL muteSegment;
 @property(nonatomic, weak) UIView *banner;
 - (void)skip;
 @end
@@ -474,16 +508,27 @@ static void YTKACEPerformSponsorSkip(id controller, double start, double end,
 - (void)skip {
     id controller = self.controller;
     [self.banner removeFromSuperview];
-    if (controller != nil) {
-        YTKACEPerformSponsorSkip(controller, self.startTime, self.endTime,
+    if (controller != nil && [self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] &&
+        YTKACESponsorCurrentTime() >= self.startTime && YTKACESponsorCurrentTime() < self.endTime) {
+        if (self.muteSegment) {
+            NSMutableSet *accepted = objc_getAssociatedObject(controller, YTKACESponsorManualMuteKey);
+            if (accepted == nil) {
+                accepted = [NSMutableSet set];
+                objc_setAssociatedObject(controller, YTKACESponsorManualMuteKey, accepted, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+            [accepted addObject:@(self.segmentIndex)];
+            YTKACEUpdateSponsorMute(controller, YES);
+        } else YTKACEPerformSponsorSkip(controller, self.startTime, self.endTime,
                                  self.segmentIndex, self.category);
     }
 }
 @end
 
 static void YTKACEAskToSkipSponsor(id controller, double start, double end,
-                                   NSUInteger segmentIndex, NSString *category) {
+                                   NSUInteger segmentIndex, NSString *category, BOOL muteSegment) {
+    NSString *videoID = [YTKACESponsorCurrentVideoID() copy];
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
         UIViewController *presenter = YTKACETopController();
         if (presenter.view.window == nil) {
             return;
@@ -501,7 +546,7 @@ static void YTKACEAskToSkipSponsor(id controller, double start, double end,
         label.textColor = UIColor.whiteColor;
         label.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightSemibold];
         UIButton *skip = [UIButton buttonWithType:UIButtonTypeSystem];
-        [skip setTitle:YTKACELocalized(@"Skip") forState:UIControlStateNormal];
+        [skip setTitle:YTKACELocalized(muteSegment ? @"Mute" : @"Skip") forState:UIControlStateNormal];
         [skip setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
         skip.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightSemibold];
         [skip addTarget:target action:@selector(skip)
@@ -531,6 +576,8 @@ static void YTKACEAskToSkipSponsor(id controller, double start, double end,
         target.endTime = end;
         target.segmentIndex = segmentIndex;
         target.category = category;
+        target.videoID = videoID;
+        target.muteSegment = muteSegment;
         target.banner = banner;
         YTKACEAddSponsorBannerSwipe(banner);
         YTKACEFadeInSponsorBanner(banner);
@@ -563,6 +610,8 @@ void YTKACESponsorUserDidManualSeek(void) {
     NSMutableSet<NSNumber *> *skipped =
         objc_getAssociatedObject(controller, YTKACESponsorSkippedAssociation);
     [skipped removeAllObjects];
+    objc_setAssociatedObject(controller, YTKACESponsorManualMuteKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    YTKACEUpdateSponsorMute(controller, NO);
     NSMutableSet<NSNumber *> *unskipped =
         objc_getAssociatedObject(controller, YTKACESponsorUnskippedAssociation);
     [unskipped removeAllObjects];
@@ -653,6 +702,23 @@ static BOOL YTKACEIsScrubbing(id controller, UIView *barView) {
 }
 
 static void YTKACEEvaluateSponsorTime(id controller, double time) {
+    BOOL mute = NO;
+    if (YTKACESponsorBlockEnabled() && isfinite(time) && !YTKACEUserIsScrubbing &&
+        !YTKACESponsorIsChannelWhitelisted(YTKACESponsorCurrentChannelTitle() ?: @"")) {
+        NSArray *active = objc_getAssociatedObject(controller, YTKACESponsorSegmentsAssociation);
+        NSSet *accepted = objc_getAssociatedObject(controller, YTKACESponsorManualMuteKey);
+        for (NSUInteger index = 0; index < active.count; ++index) {
+            NSDictionary *segment = active[index];
+            NSInteger behavior = YTKACESponsorCategoryBehavior(segment[@"category"]);
+            if ([segment[@"actionType"] isEqualToString:@"mute"] &&
+                (behavior == 0 || (behavior == 1 && [accepted containsObject:@(index)])) &&
+                time >= [segment[@"start"] doubleValue] && time < [segment[@"end"] doubleValue]) {
+                mute = YES;
+                break;
+            }
+        }
+    }
+    YTKACEUpdateSponsorMute(controller, mute);
     if (YTKACETestSkipStart >= 0.0 && YTKACETestSkipEnd > YTKACETestSkipStart) {
         if (time < YTKACETestSkipStart) {
             YTKACETestSkipArmed = YES;
@@ -732,6 +798,13 @@ static void YTKACEEvaluateSponsorTime(id controller, double time) {
             NSInteger behavior = YTKACESponsorCategoryBehavior(category);
             if (behavior == 2 || behavior == 3) return;
             NSNumber *token = @(index);
+            if ([actionType isEqualToString:@"mute"]) {
+                if (behavior == 1 && time >= start && time < end && ![skipped containsObject:token]) {
+                    [skipped addObject:token];
+                    YTKACEAskToSkipSponsor(controller, start, end, index, category, YES);
+                }
+                return;
+            }
             if ([unskipped containsObject:token]) {
                 if (sinceUnskip > 4.0 && (time < start - 2.0 || time > end + 2.0)) {
                     [unskipped removeObject:token];
@@ -745,7 +818,7 @@ static void YTKACEEvaluateSponsorTime(id controller, double time) {
             if (time >= start && time < end - 0.05 && ![skipped containsObject:token]) {
                 [skipped addObject:token];
                 if (behavior == 1) {
-                    YTKACEAskToSkipSponsor(controller, start, end, index, category);
+                    YTKACEAskToSkipSponsor(controller, start, end, index, category, NO);
                 } else {
                     YTKACEPerformSponsorSkip(controller, start, end, index, category);
                 }
@@ -1619,13 +1692,16 @@ void YTKACESponsorAddActiveSegment(NSString *videoID, NSDictionary<NSString *, i
             exists = YES;
             break;
         }
-        if (fabs([item[@"start"] doubleValue] - newStart) < 0.1 &&
-            fabs([item[@"end"] doubleValue] - newEnd) < 0.1) {
+        if ([item[@"category"] isEqualToString:segment[@"category"]] &&
+            [item[@"actionType"] isEqualToString:segment[@"actionType"]] &&
+            fabs([item[@"start"] doubleValue] - newStart) < 0.1 && fabs([item[@"end"] doubleValue] - newEnd) < 0.1) {
             exists = YES;
             break;
         }
     }
     if (!exists) {
+        objc_setAssociatedObject(controller, YTKACESponsorManualMuteKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        YTKACEUpdateSponsorMute(controller, NO);
         [updated addObject:segment];
         [updated sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
             return [a[@"start"] compare:b[@"start"]];
@@ -1690,6 +1766,10 @@ static void YTKACEDidActivateVideo(id receiver,
                                    id playbackController,
                                    id video,
                                    id playbackData) {
+    YTKACEUpdateSponsorMute(YTKACECurrentSponsorController, NO);
+    YTKACEUpdateSponsorMute(receiver, NO);
+    objc_setAssociatedObject(receiver, YTKACESponsorManualMuteKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    YTKACENotifyPlaybackPaused();
     if (OriginalDidActivateVideo != NULL) {
         ((void (*)(id, SEL, id, id, id))OriginalDidActivateVideo)(
             receiver, selector, playbackController, video, playbackData

@@ -1,4 +1,5 @@
 #import "DownloadSponsor.h"
+#include "../SponsorBlock/SponsorTimeline.h"
 #import "../../Runtime/Preferences.h"
 #import "../SponsorBlock/SponsorClient.h"
 #import "../SponsorBlock/SponsorPreferences.h"
@@ -60,10 +61,13 @@ static NSArray *YTKACEValidSegments(id value) {
         id category = item[@"category"];
         if (![start isKindOfClass:NSNumber.class] || ![end isKindOfClass:NSNumber.class] ||
             ![category isKindOfClass:NSString.class] ||
-            [end doubleValue] <= [start doubleValue]) {
+            !isfinite([start doubleValue]) || !isfinite([end doubleValue]) ||
+            [start doubleValue] < 0.0 || [end doubleValue] <= [start doubleValue]) {
             continue;
         }
-        [segments addObject:@{@"start": start, @"end": end, @"category": category}];
+        NSString *action = [item[@"actionType"] isKindOfClass:NSString.class] ? item[@"actionType"] : @"skip";
+        if (![action isEqualToString:@"skip"] && ![action isEqualToString:@"mute"]) continue;
+        [segments addObject:@{@"start": start, @"end": end, @"category": category, @"actionType": action}];
     }
     return segments;
 }
@@ -89,55 +93,16 @@ void YTKACEAttachAdjustedSponsorSegments(NSURL *fileURL, NSString *videoID,
     NSURL *target = fileURL.copy;
     NSString *channel = author.copy;
 
-    if (allSegments.count == 0 || removedSegments.count == 0) {
-        const char *path = target.fileSystemRepresentation;
-        if (path == NULL) return;
-        NSMutableDictionary *record = [@{@"id": videoID, @"segments": @[], @"segmentsCut": @YES} mutableCopy];
-        if (channel.length != 0) record[@"author"] = channel;
-        NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
-        if (data.length != 0) setxattr(path, YTKACESponsorAttribute, data.bytes, data.length, 0, 0);
-        return;
-    }
-
-    NSArray *sortedCuts = [removedSegments sortedArrayUsingComparator:
-        ^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
-            return [a[@"start"] compare:b[@"start"]];
-        }];
-
+    auto cuts = YTKACESponsorCutTimeline(removedSegments);
     NSMutableArray *remaining = [NSMutableArray array];
-    for (NSDictionary *seg in allSegments) {
-        if (![seg isKindOfClass:NSDictionary.class]) continue;
-        double start = [seg[@"start"] doubleValue];
-        double end = [seg[@"end"] doubleValue];
+    for (NSDictionary *segment in YTKACEValidSegments(allSegments)) {
+        double start = YTKACEMedia::mapTime([segment[@"start"] doubleValue], cuts);
+        double end = YTKACEMedia::mapTime([segment[@"end"] doubleValue], cuts);
         if (end <= start) continue;
-
-        BOOL wasRemoved = NO;
-        for (NSDictionary *cut in sortedCuts) {
-            double cStart = [cut[@"start"] doubleValue];
-            double cEnd = [cut[@"end"] doubleValue];
-            if (fabs(cStart - start) < 0.25 && fabs(cEnd - end) < 0.25) {
-                wasRemoved = YES;
-                break;
-            }
-        }
-        if (wasRemoved) continue;
-
-        double droppedBefore = 0.0;
-        for (NSDictionary *cut in sortedCuts) {
-            double cStart = [cut[@"start"] doubleValue];
-            double cEnd = [cut[@"end"] doubleValue];
-            if (cEnd <= cStart) continue;
-            if (cEnd <= start) {
-                droppedBefore += (cEnd - cStart);
-            }
-        }
-
-        double newStart = MAX(0.0, start - droppedBefore);
-        double newEnd = MAX(newStart + 0.1, end - droppedBefore);
-        NSMutableDictionary *m = [seg mutableCopy];
-        m[@"start"] = @(newStart);
-        m[@"end"] = @(newEnd);
-        [remaining addObject:m];
+        NSMutableDictionary *adjusted = [segment mutableCopy];
+        adjusted[@"start"] = @(start);
+        adjusted[@"end"] = @(end);
+        [remaining addObject:adjusted];
     }
 
     const char *path = target.fileSystemRepresentation;
