@@ -106,7 +106,7 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
 }
 
 - (NSString *)qualityTitle:(YTKACEStreamOption *)option {
-    if (option.audioOnly) return [NSString stringWithFormat:@"%ld kbps", (long)MAX(1, lround(option.bitrate / 1000.0))];
+    if (option.audioOnly) return option.bitrate > 0 ? [NSString stringWithFormat:@"%ld kbps", (long)lround(option.bitrate / 1000.0)] : YTKACELocalized(@"Audio only");
     return option.qualityLabel.length ? option.qualityLabel : [NSString stringWithFormat:@"%ldp", (long)option.height];
 }
 

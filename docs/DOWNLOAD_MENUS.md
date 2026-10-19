@@ -13,6 +13,8 @@ individual images and Save all images. The image viewer's download button
 opens the dedicated image actions. These use the existing Save Post Images
 and Hold to Copy Text preferences. The post link appears when its ID can be
 resolved from YouTube's model.
+Both Community actions are enabled by default; explicit saved preferences
+remain in effect.
 
 The implementation follows the supplied screenshots and the reference app's
 observed menu capabilities. It uses UIKit and SF Symbols; no reference-app

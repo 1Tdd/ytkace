@@ -795,7 +795,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         }];
     };
 
-    NSArray *cachedDirectOptions = [videoID isEqualToString:self.directOptionsVideoID] ? self.directOptions : @[];
+    NSArray *cachedDirectOptions = YTKACEDirectDownloadsEnabled() && [videoID isEqualToString:self.directOptionsVideoID] ? self.directOptions : @[];
     NSArray<YTKACEStreamOption *> *videoOptions = mergeVideos(cachedDirectOptions, sabrVideos);
     NSArray<YTKACEStreamOption *> *audioOptions = mergeAudios(cachedDirectOptions, sabrAudios);
 
@@ -868,7 +868,8 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         weakSelf.forceSABRNext = NO;
         if (!job.useDirect && cachedDirectOptions.count != 0 &&
             ![weakSelf prepareSABRFallbackForJob:job]) {
-            // prepareSABRFallbackForJob prepares SABR fallback when switching from direct
+            [weakSelf showAlertWithTitle:YTKACELocalized(@"Download failed") message:YTKACELocalized(@"The selected formats are unavailable.")];
+            return;
         }
         if (selectedCaption) {
             job.captionURL = selectedCaption[@"url"];

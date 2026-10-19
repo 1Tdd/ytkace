@@ -172,6 +172,7 @@ void YTKACERegisterDefaults(void) {
         @"YTKACE.Preference.Gestures.LandscapeOnly": @NO,
         @"YTKACE.Preference.Profiles.Preview": @YES,
         @"YTKACE.Preference.Posts.SaveImage": @YES,
+        @"YTKACE.Preference.Posts.CopyText": @YES,
         @"YTKACE.Preference.Downloads.SaveLocation": @0,
         @"YTKACE.Preference.Appearance.LaunchAnimationDisabled": @NO,
         @"YTKACE.Preference.Player.StartRate": @0,
