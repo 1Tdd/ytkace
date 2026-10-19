@@ -154,7 +154,8 @@ static id YTKACEFindExpandableText(id node, NSUInteger depth) {
 
 static NSString *YTKACENodeText(id node, NSUInteger depth) {
     if (node == nil || depth > 4) return nil;
-    NSString *text = [YTKACENodeValue(node, @"attributedText") string];
+    id attributed = YTKACENodeValue(node, @"attributedText");
+    NSString *text = [attributed isKindOfClass:NSAttributedString.class] ? [attributed string] : nil;
     if (text.length != 0) return text;
     for (id child in YTKACENodeValue(node, @"subnodes")) {
         text = YTKACENodeText(child, depth + 1);

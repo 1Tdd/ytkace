@@ -20,7 +20,7 @@ static NSError *YTKACEImageError(NSString *message) {
 
 void YTKACELoadImage(NSURL *URL, NSURL *fallbackURL, void (^completion)(NSData *, NSError *)) {
     if (!URL || ![@[@"http", @"https"] containsObject:URL.scheme.lowercaseString]) {
-        completion(nil, YTKACEImageError(YTKACELocalized(@"The image could not be loaded.")));
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(nil, YTKACEImageError(YTKACELocalized(@"The image could not be loaded."))); });
         return;
     }
     [[NSURLSession.sharedSession dataTaskWithURL:URL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {

@@ -30,7 +30,7 @@ inline std::int64_t estimatedBytes(std::int64_t length, std::int64_t bitrate, do
     if (length > 0) return length;
     if (bitrate <= 0 || !std::isfinite(duration) || duration <= 0) return 0;
     long double bytes = static_cast<long double>(bitrate) * duration / 8;
-    if (bytes >= std::numeric_limits<std::int64_t>::max()) return 0;
+    if (bytes >= std::ldexp(1.0L, 63)) return 0;
     return static_cast<std::int64_t>(bytes);
 }
 }
