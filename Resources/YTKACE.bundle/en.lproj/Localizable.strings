@@ -1199,3 +1199,21 @@ Licensed under CC BY-NC-SA 4.0.";
 "Remove Live Streams" = "Remove Live Streams";
 "Hide live streams from the Shorts feed." = "Hide live streams from the Shorts feed.";
 
+/* SponsorBlock submission preview */
+"Play" = "Play";
+"Pause" = "Pause";
+"Cut" = "Cut";
+"Mute" = "Mute";
+"Preview Cut" = "Preview Cut";
+"Preview Mute" = "Preview Mute";
+"Loading preview…" = "Loading preview…";
+"Seeking preview…" = "Seeking preview…";
+"Preview paused" = "Preview paused";
+"Playing preview" = "Playing preview";
+"Playing before cut" = "Playing before cut";
+"Playing after cut" = "Playing after cut";
+"Buffering preview…" = "Buffering preview…";
+"Previewing muted segment" = "Previewing muted segment";
+"Preview finished" = "Preview finished";
+"Preview unavailable. Tap Play to retry." = "Preview unavailable. Tap Play to retry.";
+"Video Preview" = "Video Preview";

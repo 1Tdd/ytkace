@@ -357,23 +357,6 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
             byQuality[key] = option;
         }
     }
-    // Fallback: if all were rejected, relax constraints to ensure valid video streams are available
-    if (byQuality.count == 0) {
-        for (YTKACEStreamOption *option in options) {
-            if (option.isAudioOnly) continue;
-            if (![option.mimeType hasPrefix:@"video/"] && ![option.mimeType containsString:@"video"]) continue;
-            NSInteger h = option.height > 0 ? option.height : YTKACEQualityHeight(option.qualityLabel);
-            if (h <= 0 && option.width > 0) h = MIN(option.width, 1080);
-            if (h <= 0) h = YTKACEHeightForItag(option.itag);
-            if (h <= 0) h = 720;
-            option.height = h;
-            NSString *key = option.qualityLabel.length != 0
-                ? option.qualityLabel : [NSString stringWithFormat:@"%ldp", (long)h];
-            if (byQuality[key] == nil || option.bitrate > byQuality[key].bitrate) {
-                byQuality[key] = option;
-            }
-        }
-    }
     YTKACEDownloadLog(@"quality", @"offering %@",
         [[byQuality.allKeys sortedArrayUsingSelector:@selector(compare:)]
             componentsJoinedByString:@", "]);

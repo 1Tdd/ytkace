@@ -52,6 +52,10 @@
 - (void)segmentsForVideoID:(NSString *)videoID
                 categories:(NSArray<NSString *> *)categories
                 completion:(YTKACESponsorCompletion)completion {
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self segmentsForVideoID:videoID categories:categories completion:completion]; });
+        return;
+    }
     if (videoID.length == 0 || categories.count == 0) {
         completion(@[]);
         return;
@@ -61,7 +65,7 @@
 
     NSArray *cached = [self.cache objectForKey:cacheKey];
     if (cached != nil) {
-        NSArray *locals = self.localSubmissions[videoID];
+        NSArray *locals = [self localSegmentsForVideoID:videoID];
         if (locals.count > 0) {
             NSMutableArray *merged = [cached mutableCopy];
             BOOL changed = NO;
@@ -72,9 +76,9 @@
                 double lEnd = [local[@"end"] doubleValue];
                 BOOL duplicate = NO;
                 for (NSDictionary *ex in merged) {
-                    if ([ex[@"uuid"] isEqualToString:local[@"uuid"]] ||
-                        (fabs([ex[@"start"] doubleValue] - lStart) < 0.2 &&
-                         fabs([ex[@"end"] doubleValue] - lEnd) < 0.2)) {
+                    if (([local[@"uuid"] length] > 0 && [ex[@"uuid"] isEqualToString:local[@"uuid"]]) ||
+                        ([ex[@"category"] isEqualToString:cat] && [ex[@"actionType"] isEqualToString:local[@"actionType"]] &&
+                         fabs([ex[@"start"] doubleValue] - lStart) < 0.2 && fabs([ex[@"end"] doubleValue] - lEnd) < 0.2)) {
                         duplicate = YES;
                         break;
                     }
@@ -143,6 +147,7 @@
                     id values = item[@"segment"];
                     id actionTypeObj = item[@"actionType"];
                     NSString *actionType = [actionTypeObj isKindOfClass:NSString.class] ? actionTypeObj : @"skip";
+                    if (![@[@"skip", @"mute", @"full", @"poi"] containsObject:actionType]) continue;
                     id uuidObj = item[@"UUID"] ?: item[@"uuid"];
                     NSString *uuid = [uuidObj isKindOfClass:NSString.class] ? uuidObj : @"";
 
@@ -181,7 +186,7 @@
             }
         }
 
-        NSArray *locals = weakSelf.localSubmissions[videoID];
+        NSArray *locals = [weakSelf localSegmentsForVideoID:videoID];
         if (locals.count > 0) {
             for (NSDictionary *local in locals) {
                 NSString *cat = local[@"category"];
@@ -190,9 +195,9 @@
                 double lEnd = [local[@"end"] doubleValue];
                 BOOL duplicate = NO;
                 for (NSDictionary *ex in segments) {
-                    if ([ex[@"uuid"] isEqualToString:local[@"uuid"]] ||
-                        (fabs([ex[@"start"] doubleValue] - lStart) < 0.2 &&
-                         fabs([ex[@"end"] doubleValue] - lEnd) < 0.2)) {
+                    if (([local[@"uuid"] length] > 0 && [ex[@"uuid"] isEqualToString:local[@"uuid"]]) ||
+                        ([ex[@"category"] isEqualToString:cat] && [ex[@"actionType"] isEqualToString:local[@"actionType"]] &&
+                         fabs([ex[@"start"] doubleValue] - lStart) < 0.2 && fabs([ex[@"end"] doubleValue] - lEnd) < 0.2)) {
                         duplicate = YES;
                         break;
                     }
@@ -225,30 +230,39 @@
     [self.cache removeAllObjects];
 }
 
+- (NSArray<NSDictionary *> *)localSegmentsForVideoID:(NSString *)videoID {
+    @synchronized (self) {
+        return [self.localSubmissions[videoID] copy] ?: @[];
+    }
+}
+
 - (void)addLocalSegment:(NSDictionary<NSString *, id> *)segment forVideoID:(NSString *)videoID {
     if (videoID.length == 0 || segment == nil) return;
-    NSMutableArray *list = self.localSubmissions[videoID];
-    if (list == nil) {
-        list = [NSMutableArray array];
-        self.localSubmissions[videoID] = list;
-    }
-    NSString *uuid = segment[@"uuid"];
-    double start = [segment[@"start"] doubleValue];
-    double end = [segment[@"end"] doubleValue];
-    BOOL exists = NO;
-    for (NSDictionary *item in list) {
-        if (uuid.length > 0 && [item[@"uuid"] isEqualToString:uuid]) {
-            exists = YES;
-            break;
+    @synchronized (self) {
+        NSMutableArray *list = self.localSubmissions[videoID];
+        if (list == nil) {
+            list = [NSMutableArray array];
+            self.localSubmissions[videoID] = list;
         }
-        if (fabs([item[@"start"] doubleValue] - start) < 0.1 &&
-            fabs([item[@"end"] doubleValue] - end) < 0.1) {
-            exists = YES;
-            break;
+        NSString *uuid = segment[@"uuid"];
+        double start = [segment[@"start"] doubleValue];
+        double end = [segment[@"end"] doubleValue];
+        BOOL exists = NO;
+        for (NSDictionary *item in list) {
+            if (uuid.length > 0 && [item[@"uuid"] isEqualToString:uuid]) {
+                exists = YES;
+                break;
+            }
+            if ([item[@"category"] isEqualToString:segment[@"category"]] &&
+                [item[@"actionType"] isEqualToString:segment[@"actionType"]] &&
+                fabs([item[@"start"] doubleValue] - start) < 0.1 && fabs([item[@"end"] doubleValue] - end) < 0.1) {
+                exists = YES;
+                break;
+            }
         }
-    }
-    if (!exists) {
-        [list addObject:segment];
+        if (!exists) {
+            [list addObject:segment];
+        }
     }
     [self.cache removeAllObjects];
 }
@@ -317,6 +331,12 @@
     resolvedStart = round(resolvedStart * 1000.0) / 1000.0;
     resolvedEnd = round(resolvedEnd * 1000.0) / 1000.0;
 
+    if (!isfinite(duration) || duration < 0.0 || !isfinite(resolvedStart) || !isfinite(resolvedEnd) ||
+        resolvedStart < 0.0 || resolvedEnd < resolvedStart || (!isFullVideo && !isPOI && resolvedEnd <= resolvedStart)) {
+        if (completion) dispatch_async(dispatch_get_main_queue(), ^{ completion(NO, YTKACELocalized(@"End time must be after start time")); });
+        return;
+    }
+
     NSDictionary *segment = @{
         @"segment": isFullVideo ? @[@(0.0), @(0.0)] : @[@(resolvedStart), @(resolvedEnd)],
         @"category": category ?: @"sponsor",
@@ -359,12 +379,15 @@
             ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
 
         if (success) {
+            id submitted = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+            id entry = [submitted isKindOfClass:NSArray.class] ? [submitted firstObject] : nil;
+            NSString *serverUUID = [entry isKindOfClass:NSDictionary.class] && [entry[@"UUID"] isKindOfClass:NSString.class] ? entry[@"UUID"] : @"";
             NSDictionary *localSeg = @{
                 @"start": @(resolvedStart),
                 @"end": @(resolvedEnd),
                 @"category": category ?: @"sponsor",
                 @"actionType": resolvedAction,
-                @"uuid": [[NSUUID UUID] UUIDString]
+                @"uuid": serverUUID
             };
             [weakSelf addLocalSegment:localSeg forVideoID:videoID];
         } else if (error != nil) {

@@ -1446,7 +1446,6 @@ static void YTKACEShortsControllerLayout(UIViewController *receiver,
 
 static void YTKACEPausedLayout(UIView *receiver, SEL selector) {
     YTKACEInvokeShortsOriginal(receiver, selector);
-    YTKACENotifyPlaybackPaused();
     BOOL hidden = YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.PauseCardHidden");
     YTKACESetShortsHidden(receiver, hidden);
 }
@@ -1607,7 +1606,6 @@ static void YTKACEReelPlayerHandleLoopBehavior(id receiver, SEL selector) {
 }
 
 static void YTKACEShortsTimeChanged(NSNotification *notification) {
-    YTKACENotifyPlaybackTick();
     id player = notification.object;
     NSArray<UIViewController *> *controllers = YTKACECollectShortsControllers(player);
     UIViewController *shorts = controllers.firstObject;
@@ -1665,16 +1663,6 @@ static void YTKACEShortsTimeChanged(NSNotification *notification) {
     if (shorts != nil) {
         objc_setAssociatedObject(shorts, YTKACEShortsLiveSkippedAssociation, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    if (player != nil) {
-        SEL isMutedSel = NSSelectorFromString(@"isMuted");
-        SEL setMutedSel = NSSelectorFromString(@"setMuted:");
-        if ([player respondsToSelector:isMutedSel] && [player respondsToSelector:setMutedSel]) {
-            if (((BOOL (*)(id, SEL))objc_msgSend)(player, isMutedSel)) {
-                ((void (*)(id, SEL, BOOL))objc_msgSend)(player, setMutedSel, NO);
-            }
-        }
-    }
-
     NSString *videoID = YTKACECurrentShortsVideoID(player, controllers);
     NSString *token = videoID.length > 0
         ? videoID

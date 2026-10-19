@@ -45,6 +45,9 @@ FOUNDATION_EXPORT void YTKACEDiscardRestoredRequest(void);
 FOUNDATION_EXPORT void YTKACEResolvePlayerResponse(
     NSString *videoID,
     YTKACEPlayerReloadCompletion completion);
+FOUNDATION_EXPORT void YTKACEResolveFreshPlayerResponse(
+    NSString *videoID,
+    YTKACEPlayerReloadCompletion completion);
 FOUNDATION_EXPORT void YTKACEReloadPlayer(NSString * _Nullable videoID,
                                          NSString *token,
                                          YTKACEPlayerReloadCompletion completion);

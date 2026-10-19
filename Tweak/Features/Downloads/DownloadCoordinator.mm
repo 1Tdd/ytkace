@@ -3,6 +3,7 @@
 #import "../../YTKACE.h"
 #import "DownloadLog.h"
 #import "DownloadSponsor.h"
+#include "../SponsorBlock/SponsorTimeline.h"
 #import "DownloadProgressView.h"
 #import "FFmpegMuxer.h"
 #import "SABRDownloader.h"
@@ -779,7 +780,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
                     if (a.height != b.height) return a.height > b.height ? NSOrderedAscending : NSOrderedDescending;
                     NSUInteger leftCodec = [codecOrder indexOfObject:[YTKACEDirectDownloader codecNameForOption:a]];
                     NSUInteger rightCodec = [codecOrder indexOfObject:[YTKACEDirectDownloader codecNameForOption:b]];
-                    return leftCodec < rightCodec ? NSOrderedAscending : NSOrderedDescending;
+                    return leftCodec == rightCodec ? NSOrderedSame : (leftCodec < rightCodec ? NSOrderedAscending : NSOrderedDescending);
                 }];
             }
             for (YTKACEStreamOption *opt in sabrs) {
@@ -790,7 +791,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
             }
             [merged sortUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
                 if (a.height != b.height) return a.height > b.height ? NSOrderedAscending : NSOrderedDescending;
-                return a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending;
+                return a.bitrate == b.bitrate ? NSOrderedSame : (a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending);
             }];
             return merged;
         };
@@ -807,7 +808,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
                 }
                 [merged sortUsingComparator:^NSComparisonResult(YTKACEStreamOption *a, YTKACEStreamOption *b) {
                     if (a.isDefaultAudio != b.isDefaultAudio) return a.isDefaultAudio ? NSOrderedAscending : NSOrderedDescending;
-                    return a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending;
+                    return a.bitrate == b.bitrate ? NSOrderedSame : (a.bitrate > b.bitrate ? NSOrderedAscending : NSOrderedDescending);
                 }];
             }
             for (YTKACEStreamOption *opt in sabrs) {
@@ -1887,6 +1888,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         YTKACEDownloadLog(job.identifier, @"audio remux start");
         [YTKACEFFmpegMuxer remuxAudioURL:audioURL outputURL:output
             removedSegments:job.removedSegments
+            appliedCuts:^(NSArray<NSDictionary *> *cuts) { job.removedSegments = cuts; }
             completion:^(NSError *remuxError) {
                 if (remuxError != nil) {
                     [YTKACEDownloadProgressView.sharedView
@@ -2126,56 +2128,18 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
     NSArray<NSDictionary *> *cues, NSArray<NSDictionary *> *removedSegments) {
     if (cues.count == 0 || removedSegments.count == 0) return cues;
-    NSArray *sortedCuts = [removedSegments sortedArrayUsingComparator:
-        ^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
-            return [a[@"start"] compare:b[@"start"]];
-        }];
-    NSMutableArray *adjusted = [NSMutableArray arrayWithCapacity:cues.count];
+    auto cuts = YTKACESponsorCutTimeline(removedSegments);
+    NSMutableArray *adjusted = [NSMutableArray array];
     for (NSDictionary *cue in cues) {
-        double start = [cue[@"start"] doubleValue];
-        double end = [cue[@"end"] doubleValue];
-        NSString *text = cue[@"text"];
-        if (text.length == 0 || end <= start) continue;
-
-        double droppedBeforeStart = 0.0;
-        BOOL dropped = NO;
-        for (NSDictionary *cut in sortedCuts) {
-            double cStart = [cut[@"start"] doubleValue];
-            double cEnd = [cut[@"end"] doubleValue];
-            if (cEnd <= cStart) continue;
-
-            if (end <= cStart) {
-                break;
-            }
-            if (start >= cEnd) {
-                droppedBeforeStart += (cEnd - cStart);
-                continue;
-            }
-            if (start >= cStart && end <= cEnd) {
-                dropped = YES;
-                break;
-            }
-            if (start < cStart && end > cEnd) {
-                end = cStart;
-                break;
-            }
-            if (start < cStart && end > cStart) {
-                end = cStart;
-                break;
-            }
-            if (start >= cStart && start < cEnd && end > cEnd) {
-                start = cEnd;
-                droppedBeforeStart += (cEnd - cStart);
-            }
-        }
-        if (!dropped && end > start) {
-            double newStart = MAX(0.0, start - droppedBeforeStart);
-            double newEnd = MAX(newStart + 0.1, end - droppedBeforeStart);
-            NSMutableDictionary *mCue = [cue mutableCopy];
-            mCue[@"start"] = @(newStart);
-            mCue[@"end"] = @(newEnd);
-            [adjusted addObject:mCue];
-        }
+        YTKACEMedia::Interval range;
+        if (!YTKACEReadSponsorInterval(cue, range) || ![cue[@"text"] isKindOfClass:NSString.class] || [cue[@"text"] length] == 0) continue;
+        double start = YTKACEMedia::mapTime(range.start, cuts);
+        double end = YTKACEMedia::mapTime(range.end, cuts);
+        if (end <= start) continue;
+        NSMutableDictionary *result = [cue mutableCopy];
+        result[@"start"] = @(start);
+        result[@"end"] = @(end);
+        [adjusted addObject:result];
     }
     return adjusted;
 }
@@ -2450,6 +2414,7 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
     [YTKACEFFmpegMuxer remuxVideoURL:videoURL audioURL:audioURL
         outputURL:output
         removedSegments:job.removedSegments
+        appliedCuts:^(NSArray<NSDictionary *> *cuts) { job.removedSegments = cuts; }
         completion:^(NSError *error) {
             if (error != nil) {
                 [YTKACEDownloadProgressView.sharedView finishJob:job.identifier

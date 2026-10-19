@@ -139,6 +139,9 @@ static NSArray<YTKACESubtitleCue *> *YTKACEReadSubtitles(NSURL *mediaURL) {
 @property(nonatomic, copy, readwrite) NSArray<NSDictionary<NSString *, id> *> *sponsorSegments;
 @property(nonatomic, copy, readwrite, nullable) NSDictionary<NSString *, id> *promptedSegment;
 @property(nonatomic, strong) NSMutableSet<NSNumber *> *handledSegments;
+@property(nonatomic, assign) BOOL sponsorOwnsMute;
+@property(nonatomic, assign) BOOL sponsorOriginalMuted;
+- (void)applySponsorMute:(BOOL)mute;
 @property(nonatomic, strong, nullable) NSArray *remoteTargets;
 @end
 
@@ -191,6 +194,8 @@ static YTKACEDownloadPlaybackSession *YTKACESharedPlaybackSession;
     [NSNotificationCenter.defaultCenter addObserver:self
         selector:@selector(downloadInfoChanged:)
         name:YTKACEDownloadInfoDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(sponsorPreferencesChanged:)
+        name:YTKACEPreferencesDidChangeNotification object:nil];
     return self;
 }
 
@@ -205,6 +210,21 @@ static YTKACEDownloadPlaybackSession *YTKACESharedPlaybackSession;
     self.sponsorSegments = stored;
     [self.handledSegments removeAllObjects];
     [self notifyChange];
+}
+
+- (void)sponsorPreferencesChanged:(__unused NSNotification *)note {
+    [self evaluateSponsorSegmentsAtTime:CMTimeGetSeconds(self.player.currentTime)];
+}
+
+- (void)applySponsorMute:(BOOL)mute {
+    if (mute && !self.sponsorOwnsMute) {
+        self.sponsorOriginalMuted = self.player.muted;
+        self.sponsorOwnsMute = YES;
+        self.player.muted = YES;
+    } else if (!mute && self.sponsorOwnsMute) {
+        self.player.muted = self.sponsorOriginalMuted;
+        self.sponsorOwnsMute = NO;
+    }
 }
 
 static NSString * const YTKACEResumeKey = @"YTKACE.Preference.Downloads.ResumePositions";
@@ -493,6 +513,7 @@ static void YTKACEStoreCompleted(NSURL *URL, NSTimeInterval duration,
         return;
     }
     if (![self.currentURL isEqual:URL]) {
+        [self applySponsorMute:NO];
         [self rememberPosition];
         self.currentURL = URL;
         [self.player replaceCurrentItemWithPlayerItem:
@@ -544,10 +565,12 @@ static void YTKACEStoreCompleted(NSURL *URL, NSTimeInterval duration,
 - (void)evaluateSponsorSegmentsAtTime:(NSTimeInterval)time {
     if (!YTKACESponsorBlockEnabled() || self.sponsorSegments.count == 0 ||
         !isfinite(time)) {
+        [self applySponsorMute:NO];
         [self setPrompt:nil];
         return;
     }
     NSDictionary<NSString *, id> *prompt = nil;
+    BOOL mute = NO;
     for (NSUInteger index = 0; index < self.sponsorSegments.count; index++) {
         NSDictionary<NSString *, id> *segment = self.sponsorSegments[index];
         double start = [segment[@"start"] doubleValue];
@@ -556,6 +579,13 @@ static void YTKACEStoreCompleted(NSURL *URL, NSTimeInterval duration,
         if (behavior == 2 || behavior == 3) continue;
         NSNumber *token = @(index);
         if (time < start - 1.0) [self.handledSegments removeObject:token];
+        if ([segment[@"actionType"] isEqualToString:@"mute"]) {
+            if (time >= start && time < end) {
+                if (behavior == 0 || [self.handledSegments containsObject:token]) mute = YES;
+                else prompt = segment;
+            }
+            continue;
+        }
         BOOL inside = time >= start && time < end - 0.25;
         if (!inside) continue;
         if (behavior == 1) {
@@ -567,6 +597,7 @@ static void YTKACEStoreCompleted(NSURL *URL, NSTimeInterval duration,
         [self skipSegment:segment];
         break;
     }
+    [self applySponsorMute:mute];
     [self setPrompt:prompt];
 }
 
@@ -574,6 +605,11 @@ static void YTKACEStoreCompleted(NSURL *URL, NSTimeInterval duration,
     NSUInteger index = [self.sponsorSegments indexOfObject:segment];
     if (index != NSNotFound) [self.handledSegments addObject:@(index)];
     [self setPrompt:nil];
+    if ([segment[@"actionType"] isEqualToString:@"mute"]) {
+        [self applySponsorMute:YES];
+        [self notifyChange];
+        return;
+    }
     [self seekToTime:[segment[@"end"] doubleValue]];
     if (YTKACEFeatureEnabled(@"YTKACE.Preference.SponsorBlock.AudioFeedback")) {
         [[UINotificationFeedbackGenerator new]
@@ -1997,7 +2033,7 @@ static UIImage *YTKACEScrubberThumb(CGFloat diameter, UIColor *color) {
     NSDictionary<NSString *, id> *segment = self.session.promptedSegment;
     if (segment != nil) {
         [self.skipButton setTitle:[NSString stringWithFormat:@"%@ %@",
-            YTKACELocalized(@"Skip"), YTKACELibrarySponsorTitle(segment[@"category"])]
+            YTKACELocalized([segment[@"actionType"] isEqualToString:@"mute"] ? @"Mute" : @"Skip"), YTKACELibrarySponsorTitle(segment[@"category"])]
                          forState:UIControlStateNormal];
     }
     self.skipButton.hidden = segment == nil;

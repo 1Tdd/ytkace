@@ -16,6 +16,7 @@ typedef void (^YTKACESponsorCompletion)(
 - (void)clearCache;
 - (void)clearCacheForVideoID:(NSString *)videoID;
 - (void)addLocalSegment:(NSDictionary<NSString *, id> *)segment forVideoID:(NSString *)videoID;
+- (NSArray<NSDictionary *> *)localSegmentsForVideoID:(NSString *)videoID;
 - (void)submitSegmentForVideoID:(NSString *)videoID
                           start:(double)start
                             end:(double)end
