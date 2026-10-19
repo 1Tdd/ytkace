@@ -78,7 +78,7 @@
 - (void)configureDetents {
     UISheetPresentationController *sheet = self.sheetPresentationController;
     sheet.prefersGrabberVisible = YES;
-    sheet.preferredCornerRadius = @24;
+    sheet.preferredCornerRadius = 24;
     sheet.prefersScrollingExpandsWhenScrolledToEdge = NO;
     sheet.prefersEdgeAttachedInCompactHeight = YES;
     sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = YES;
