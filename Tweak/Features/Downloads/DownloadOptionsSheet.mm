@@ -13,7 +13,8 @@
 
 static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     NSString *key = audioOnly ? @"YTKACE.Preference.Downloads.AudioSaveLocation" : @"YTKACE.Preference.Downloads.SaveLocation";
-    NSInteger value = [YTKACEPreferenceObject(key) integerValue];
+    id preference = YTKACEPreferenceObject(key);
+    NSInteger value = [preference respondsToSelector:@selector(integerValue)] ? [preference integerValue] : 0;
     return value == 1 ? YTKACEDownloadDestinationPhotos : (value == 3 ? YTKACEDownloadDestinationShare : YTKACEDownloadDestinationDownloads);
 }
 

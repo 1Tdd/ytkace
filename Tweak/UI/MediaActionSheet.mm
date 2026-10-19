@@ -83,7 +83,10 @@
     sheet.prefersEdgeAttachedInCompactHeight = YES;
     sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = YES;
     self.preferredContentSize = CGSizeMake(460, self.contentHeight);
-    if (@available(iOS 16.0, *)) {
+    // Use capability checks so the Linux toolchain needs no availability-runtime shim.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+    if ([UISheetPresentationControllerDetent respondsToSelector:@selector(customDetentWithIdentifier:resolver:)]) {
         __weak YTKACEMediaActionSheet *weakSelf = self;
         UISheetPresentationControllerDetent *content =
             [UISheetPresentationControllerDetent customDetentWithIdentifier:@"ytkace.media.content"
@@ -96,6 +99,7 @@
         sheet.detents = @[UISheetPresentationControllerDetent.mediumDetent,
                           UISheetPresentationControllerDetent.largeDetent];
     }
+#pragma clang diagnostic pop
 }
 
 - (void)setHeading:(NSString *)heading {
@@ -161,11 +165,14 @@
     CGFloat height = self.tableView.contentSize.height + 48 + self.view.safeAreaInsets.bottom;
     if (fabs(height - self.contentHeight) > 1) {
         self.contentHeight = height;
-        if (@available(iOS 16.0, *)) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+        if ([self.sheetPresentationController respondsToSelector:@selector(invalidateDetents)]) {
             [self.sheetPresentationController animateChanges:^{
                 [self.sheetPresentationController invalidateDetents];
             }];
         }
+#pragma clang diagnostic pop
     }
 }
 
