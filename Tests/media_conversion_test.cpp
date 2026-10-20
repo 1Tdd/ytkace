@@ -21,11 +21,14 @@ int main(int argc, char **argv) {
     bool stop = false;
     if (options.audioFormat == "cancel") options.audioFormat = "aac";
     std::string message;
+    YTKACEMediaConversion::Statistics statistics;
     const int result = YTKACEMediaConversion::convert(argv[1], argv[2], options,
         [&]() { return stop; }, [&](double fraction) {
             std::cout << fraction << '\n';
             if (std::string(argv[4]) == "cancel" && fraction > 0.05) stop = true;
-        }, message);
+        }, message, &statistics);
+    std::cerr << "encoder=" << statistics.videoEncoder << " hardware_attempted=" << statistics.hardwareAttempted
+              << " direct=" << statistics.directHardwareFrames << " converted=" << statistics.convertedFrames << '\n';
     if (result < 0) { std::cerr << message << '\n'; return 1; }
     return 0;
 }

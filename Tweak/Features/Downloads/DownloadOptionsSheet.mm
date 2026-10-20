@@ -180,9 +180,9 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     quality.detail = selected ? (size.length ? [NSString stringWithFormat:@"%@ · %@", [self qualityTitle:selected], size] : [self qualityTitle:selected]) : YTKACELocalized(@"None available");
     [rows addObject:quality];
     if (convertible) {
-        NSArray *values = @[@"skip", @"ultrafast", @"veryfast", @"medium"];
-        NSArray *names = @[YTKACELocalized(@"Skip conversion"), YTKACELocalized(@"Ultra fast"), YTKACELocalized(@"Very fast"), YTKACELocalized(@"Medium")];
-        NSArray *details = @[YTKACELocalized(@"Fastest · Can't save to Photos"), YTKACELocalized(@"Fast · Bigger size"), YTKACELocalized(@"Balanced"), YTKACELocalized(@"Slow · Smaller size")];
+        NSArray *values = @[@"skip", @"hardware", @"ultrafast", @"veryfast", @"medium"];
+        NSArray *names = @[YTKACELocalized(@"Skip conversion"), YTKACELocalized(@"Hardware accelerated"), YTKACELocalized(@"Ultra fast"), YTKACELocalized(@"Very fast"), YTKACELocalized(@"Medium")];
+        NSArray *details = @[YTKACELocalized(@"Fastest · Can't save to Photos"), YTKACELocalized(@"Fast · Larger files possible"), YTKACELocalized(@"Fast · Bigger size"), YTKACELocalized(@"Balanced"), YTKACELocalized(@"Slow · Smaller size")];
         NSMutableArray *choices = [NSMutableArray array];
         for (NSUInteger i = 0; i < values.count; i++) {
             NSString *value = values[i];

@@ -749,6 +749,8 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
         options.audioBitrate = (int)MIN(MAX(audioBitrate, 32000), 320000);
         for (NSString *key in metadata) options.metadata[key.UTF8String] = metadata[key].UTF8String ?: "";
         std::string message;
+        YTKACEMediaConversion::Statistics statistics;
+        CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
         int result = YTKACEMediaConversion::convert(inputURL.fileSystemRepresentation,
             outputURL.fileSystemRepresentation, options, [identifier]() {
                 @synchronized (YTKACECancelledConversions()) {
@@ -756,7 +758,10 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
                 }
             }, [progress](double fraction) {
                 if (progress) dispatch_async(dispatch_get_main_queue(), ^{ progress(fraction); });
-            }, message);
+            }, message, &statistics);
+        YTKACEDownloadLog(identifier, @"conversion encoder=%s hw_attempt=%d hw_init_error=%d direct_hw_frames=%llu converted_frames=%llu elapsed=%.2fs result=%d",
+            statistics.videoEncoder.c_str(), statistics.hardwareAttempted, statistics.hardwareInitError,
+            statistics.directHardwareFrames, statistics.convertedFrames, CFAbsoluteTimeGetCurrent() - started, result);
         NSError *error = result < 0 ? [NSError errorWithDomain:@"YTKACEFFmpeg" code:result
             userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithUTF8String:message.c_str()] ?: @"Conversion failed"}] : nil;
         dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });

@@ -70,6 +70,22 @@ class MediaConversionTests(unittest.TestCase):
         output = self.convert(source, 'av1-converted.mp4', 'veryfast')
         self.assertEqual(self.probe(output)['streams'][0]['codec_name'], 'h264')
 
+    def test_hardware_mode_falls_back_when_unavailable(self):
+        output = self.directory / 'hardware-mode.mp4'
+        result = subprocess.run([str(self.binary), str(self.video), str(output), 'hardware', 'aac'],
+                                capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('hardware_attempted=1', result.stderr)
+        self.assertTrue('encoder=libx264' in result.stderr or 'encoder=h264_videotoolbox' in result.stderr, result.stderr)
+        info = self.probe(output)
+        self.assertEqual([s['codec_name'] for s in info['streams']], ['h264', 'aac'])
+        self.assertAlmostEqual(float(info['format']['duration']), 1.7, delta=.15)
+        subprocess.run(['ffmpeg', '-v', 'error', '-i', str(output), '-f', 'null', '-'],
+                       check=True, capture_output=True, timeout=30)
+
+    def test_hardware_mode_can_be_cancelled(self):
+        self.convert(self.video, 'cancel-hardware.mp4', 'hardware', 'cancel', success=False)
+
     def test_mp3_audio_and_metadata(self):
         output = self.convert(self.video, 'audio.mp3', audio='mp3')
         info = self.probe(output)

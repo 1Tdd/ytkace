@@ -21,7 +21,18 @@ observed menu capabilities. It uses UIKit and SF Symbols; no reference-app
 implementation or bundled assets are included.
 
 AV1 and VP9 have an Encoding preset section: Skip conversion preserves the
-source codec; Ultra fast, Very fast, and Medium convert to H.264 using the
+source codec; Hardware accelerated uses Apple's VideoToolbox H.264 encoder
+with hardware required. Compatible NV12 decoder buffers pass straight to the
+encoder without a CPU download, pixel conversion, or upload. Other supported
+input pixel formats are converted to NV12 and uploaded to an encoder buffer pool.
+If hardware initialization is unavailable, conversion falls back to the Very
+fast software preset. Hardware rate control uses a resolution/frame-rate-based
+bitrate, so file size and quality are not identical to x264 CRF 20. MP3 encoding
+continues to use LAME on the CPU. Logs record the selected encoder, direct
+hardware-frame count, converted-frame count, initialization error, and elapsed
+time; device speedups have not been measured here.
+
+Ultra fast, Very fast, and Medium convert to H.264 using the
 corresponding x264 presets at CRF 20. Converted video can be sent to Photos.
 AV1 currently requires hardware decoding support. VP9 can also be decoded
 in software. HDR conversion is rejected with an explicit error rather than

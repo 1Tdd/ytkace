@@ -12,6 +12,9 @@ extern "C" {
 #include <libavutil/audio_fifo.h>
 #include <libavutil/error.h>
 #include <libavutil/hwcontext.h>
+#ifdef __APPLE__
+#include <libavutil/hwcontext_videotoolbox.h>
+#endif
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
@@ -28,12 +31,16 @@ struct Session {
     AVFormatContext *input = nullptr, *output = nullptr;
     AVPacket *packet = av_packet_alloc(), *encoded = av_packet_alloc();
     AVFrame *decoded = av_frame_alloc(), *software = av_frame_alloc(), *video = av_frame_alloc();
+    AVFrame *upload = av_frame_alloc();
     AVCodecContext *videoDecoder = nullptr, *videoEncoder = nullptr;
     AVCodecContext *audioDecoder = nullptr, *audioEncoder = nullptr;
     SwsContext *scaler = nullptr;
     SwrContext *resampler = nullptr;
     AVAudioFifo *fifo = nullptr;
     AVBufferRef *hardware = nullptr;
+    AVBufferRef *encoderFrames = nullptr;
+    bool hardwareEncoder = false;
+    Statistics *statistics = nullptr;
     int videoIndex = -1, audioIndex = -1;
     AVStream *videoOut = nullptr, *audioOut = nullptr;
     int64_t audioPTS = 0, nextVideoPTS = 0;
@@ -41,11 +48,12 @@ struct Session {
     ~Session() {
         av_packet_free(&packet); av_packet_free(&encoded);
         av_frame_free(&decoded); av_frame_free(&software); av_frame_free(&video);
+        av_frame_free(&upload);
         avcodec_free_context(&videoDecoder); avcodec_free_context(&videoEncoder);
         avcodec_free_context(&audioDecoder); avcodec_free_context(&audioEncoder);
         sws_freeContext(scaler); swr_free(&resampler);
         if (fifo) av_audio_fifo_free(fifo);
-        av_buffer_unref(&hardware);
+        av_buffer_unref(&encoderFrames); av_buffer_unref(&hardware);
         avformat_close_input(&input);
         if (output) {
             if (output->pb) avio_closep(&output->pb);
@@ -95,6 +103,55 @@ struct Session {
         } catch (...) { avcodec_free_context(&context); throw; }
         return context;
     }
+    void openVideoEncoder(bool accelerated, const std::string &preset) {
+        const char *name = accelerated ? "h264_videotoolbox" : "libx264";
+        const AVCodec *codec = avcodec_find_encoder_by_name(name);
+        if (!codec) throw Failure{AVERROR_ENCODER_NOT_FOUND, "Find H.264 encoder"};
+        videoEncoder = avcodec_alloc_context3(codec);
+        if (!videoEncoder) throw Failure{AVERROR(ENOMEM), "Allocate H.264 encoder"};
+        auto *e = videoEncoder;
+        e->width = (videoDecoder->width + 1) & ~1;
+        e->height = (videoDecoder->height + 1) & ~1;
+        e->framerate = av_guess_frame_rate(input, input->streams[videoIndex], nullptr);
+        if (e->framerate.num <= 0 || e->framerate.den <= 0) e->framerate = {30, 1};
+        e->time_base = {1, 90000}; e->sample_aspect_ratio = videoDecoder->sample_aspect_ratio;
+        e->color_primaries = videoDecoder->color_primaries; e->color_trc = videoDecoder->color_trc;
+        e->colorspace = videoDecoder->colorspace; e->color_range = videoDecoder->color_range;
+        if (e->color_trc == AVCOL_TRC_SMPTE2084 || e->color_trc == AVCOL_TRC_ARIB_STD_B67)
+            throw Failure{AVERROR(ENOTSUP), "HDR conversion requires tone mapping; choose Skip conversion"};
+        if (output->oformat->flags & AVFMT_GLOBALHEADER) e->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        if (accelerated) {
+            if (!hardware) check(av_hwdevice_ctx_create(&hardware, AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+                nullptr, nullptr, 0), "Create hardware encoding device");
+            encoderFrames = av_hwframe_ctx_alloc(hardware);
+            if (!encoderFrames) throw Failure{AVERROR(ENOMEM), "Allocate hardware frame pool"};
+            auto *frames = reinterpret_cast<AVHWFramesContext *>(encoderFrames->data);
+            frames->format = AV_PIX_FMT_VIDEOTOOLBOX; frames->sw_format = AV_PIX_FMT_NV12;
+            frames->width = e->width; frames->height = e->height;
+#ifdef __APPLE__
+            reinterpret_cast<AVVTFramesContext *>(frames->hwctx)->color_range = e->color_range;
+#endif
+            check(av_hwframe_ctx_init(encoderFrames), "Create hardware frame pool");
+            e->hw_frames_ctx = av_buffer_ref(encoderFrames);
+            if (!e->hw_frames_ctx) throw Failure{AVERROR(ENOMEM), "Retain hardware frame pool"};
+            e->pix_fmt = AV_PIX_FMT_VIDEOTOOLBOX; e->sw_pix_fmt = AV_PIX_FMT_NV12;
+            // Apple hardware rate control uses bitrate, not x264's CRF scale.
+            double rate = double(e->width) * e->height * av_q2d(e->framerate) * 0.12;
+            e->bit_rate = static_cast<int64_t>(std::clamp(rate, 256000.0, 80000000.0));
+            e->gop_size = std::max(1, static_cast<int>(std::lround(av_q2d(e->framerate) * 2)));
+            e->max_b_frames = 0;
+            check(av_opt_set_int(e->priv_data, "allow_sw", 0, 0), "Require hardware encoder");
+            check(av_opt_set_int(e->priv_data, "realtime", 0, 0), "Set offline encoding");
+            check(av_opt_set_int(e->priv_data, "prio_speed", 1, 0), "Prioritize encoding speed");
+        } else {
+            e->pix_fmt = AV_PIX_FMT_YUV420P; e->thread_count = 2;
+            check(av_opt_set(e->priv_data, "preset", preset.c_str(), 0), "Set encoding preset");
+            check(av_opt_set(e->priv_data, "crf", "20", 0), "Set encoding quality");
+        }
+        check(avcodec_open2(e, codec, nullptr), "Open H.264 encoder");
+        hardwareEncoder = accelerated;
+        if (statistics) statistics->videoEncoder = name;
+    }
     void drainEncoder(AVCodecContext *encoder, AVStream *stream) {
         for (;;) {
             stopIfCancelled();
@@ -118,6 +175,22 @@ struct Session {
         drainEncoder(encoder, stream);
     }
     void videoFrame() {
+        AVStream *stream = input->streams[videoIndex];
+        int64_t pts = decoded->best_effort_timestamp;
+        int64_t origin = stream->start_time == AV_NOPTS_VALUE ? 0 : stream->start_time;
+        int64_t outputPTS = pts == AV_NOPTS_VALUE ? nextVideoPTS : av_rescale_q(pts - origin, stream->time_base, videoEncoder->time_base);
+        nextVideoPTS = outputPTS + std::max<int64_t>(1, av_rescale_q(1, av_inv_q(videoEncoder->framerate), videoEncoder->time_base));
+        if (hardwareEncoder && decoded->format == AV_PIX_FMT_VIDEOTOOLBOX && decoded->hw_frames_ctx &&
+            decoded->width == videoEncoder->width && decoded->height == videoEncoder->height) {
+            auto *frames = reinterpret_cast<AVHWFramesContext *>(decoded->hw_frames_ctx->data);
+            if (frames->sw_format == AV_PIX_FMT_NV12) {
+                // VideoToolbox consumes the decoder's CVPixelBuffer directly.
+                decoded->pts = outputPTS;
+                encode(videoEncoder, videoOut, decoded);
+                if (statistics) statistics->directHardwareFrames++;
+                return;
+            }
+        }
         AVFrame *source = decoded;
         if (decoded->format == AV_PIX_FMT_VIDEOTOOLBOX) {
             av_frame_unref(software);
@@ -127,16 +200,19 @@ struct Session {
         check(av_frame_make_writable(video), "Prepare video frame");
         scaler = sws_getCachedContext(scaler, source->width, source->height,
             static_cast<AVPixelFormat>(source->format), videoEncoder->width, videoEncoder->height,
-            videoEncoder->pix_fmt, SWS_BICUBIC, nullptr, nullptr, nullptr);
+            static_cast<AVPixelFormat>(video->format), SWS_BICUBIC, nullptr, nullptr, nullptr);
         if (!scaler) throw Failure{AVERROR(ENOMEM), "Create video scaler"};
         check(sws_scale(scaler, source->data, source->linesize, 0, source->height,
                         video->data, video->linesize), "Convert video pixels");
-        AVStream *stream = input->streams[videoIndex];
-        int64_t pts = decoded->best_effort_timestamp;
-        int64_t origin = stream->start_time == AV_NOPTS_VALUE ? 0 : stream->start_time;
-        video->pts = pts == AV_NOPTS_VALUE ? nextVideoPTS : av_rescale_q(pts - origin, stream->time_base, videoEncoder->time_base);
-        nextVideoPTS = video->pts + std::max<int64_t>(1, av_rescale_q(1, av_inv_q(videoEncoder->framerate), videoEncoder->time_base));
-        encode(videoEncoder, videoOut, video);
+        video->pts = outputPTS;
+        if (hardwareEncoder) {
+            av_frame_unref(upload);
+            check(av_hwframe_get_buffer(encoderFrames, upload, 0), "Get hardware encoding buffer");
+            check(av_hwframe_transfer_data(upload, video, 0), "Upload video frame");
+            check(av_frame_copy_props(upload, video), "Copy video frame properties");
+            encode(videoEncoder, videoOut, upload);
+        } else encode(videoEncoder, videoOut, video);
+        if (statistics) statistics->convertedFrames++;
     }
     void writeAudio(bool final) {
         const int frameSize = audioEncoder->frame_size > 0 ? audioEncoder->frame_size : 1024;
@@ -206,12 +282,13 @@ struct Session {
 
 int convert(const std::string &inputPath, const std::string &outputPath, const Options &options,
             const std::function<bool()> &cancelled, const std::function<void(double)> &progress,
-            std::string &message) {
+            std::string &message, Statistics *statistics) {
+    if (statistics) *statistics = Statistics{};
     if (inputPath == outputPath) { message = "Input and output must differ"; return AVERROR(EINVAL); }
     int result = 0;
     try {
-        Session s; s.cancelled = cancelled; s.stopIfCancelled();
-        if (!s.packet || !s.encoded || !s.decoded || !s.software || !s.video) throw Failure{AVERROR(ENOMEM), "Allocate conversion"};
+        Session s; s.cancelled = cancelled; s.statistics = statistics; s.stopIfCancelled();
+        if (!s.packet || !s.encoded || !s.decoded || !s.software || !s.video || !s.upload) throw Failure{AVERROR(ENOMEM), "Allocate conversion"};
         s.input = avformat_alloc_context();
         if (!s.input) throw Failure{AVERROR(ENOMEM), "Allocate input"};
         s.input->interrupt_callback = {Session::interrupt, &s};
@@ -219,7 +296,7 @@ int convert(const std::string &inputPath, const std::string &outputPath, const O
         check(avformat_find_stream_info(s.input, nullptr), "Read conversion input");
         const bool video = !options.videoPreset.empty();
         const bool mp3 = options.audioFormat == "mp3";
-        if (video && options.videoPreset != "ultrafast" && options.videoPreset != "veryfast" && options.videoPreset != "medium")
+        if (video && options.videoPreset != "hardware" && options.videoPreset != "ultrafast" && options.videoPreset != "veryfast" && options.videoPreset != "medium")
             throw Failure{AVERROR(EINVAL), "Unknown encoding preset"};
         check(avformat_alloc_output_context2(&s.output, nullptr, mp3 ? "mp3" : "mp4", outputPath.c_str()), "Create conversion output");
         av_dict_copy(&s.output->metadata, s.input->metadata, 0);
@@ -227,31 +304,25 @@ int convert(const std::string &inputPath, const std::string &outputPath, const O
         if (video) {
             s.videoIndex = av_find_best_stream(s.input, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
             check(s.videoIndex, "Find video"); s.videoDecoder = s.decoder(s.videoIndex);
-            const AVCodec *codec = avcodec_find_encoder_by_name("libx264");
-            if (!codec) throw Failure{AVERROR_ENCODER_NOT_FOUND, "Find H.264 encoder"};
-            s.videoEncoder = avcodec_alloc_context3(codec);
-            if (!s.videoEncoder) throw Failure{AVERROR(ENOMEM), "Allocate H.264 encoder"};
+            if (options.videoPreset == "hardware") {
+                if (statistics) statistics->hardwareAttempted = true;
+                try { s.openVideoEncoder(true, ""); }
+                catch (const Failure &failure) {
+                    if (failure.code == AVERROR(ENOMEM) || failure.code == AVERROR_EXIT) throw;
+                    if (statistics) statistics->hardwareInitError = failure.code;
+                    avcodec_free_context(&s.videoEncoder); av_buffer_unref(&s.encoderFrames);
+                    s.stopIfCancelled(); s.openVideoEncoder(false, "veryfast");
+                }
+            } else s.openVideoEncoder(false, options.videoPreset);
             auto *e = s.videoEncoder;
-            e->width = (s.videoDecoder->width + 1) & ~1; e->height = (s.videoDecoder->height + 1) & ~1;
-            e->pix_fmt = AV_PIX_FMT_YUV420P; e->thread_count = 2;
-            e->framerate = av_guess_frame_rate(s.input, s.input->streams[s.videoIndex], nullptr);
-            if (e->framerate.num <= 0 || e->framerate.den <= 0) e->framerate = {30, 1};
-            e->time_base = {1, 90000}; e->sample_aspect_ratio = s.videoDecoder->sample_aspect_ratio;
-            e->color_primaries = s.videoDecoder->color_primaries; e->color_trc = s.videoDecoder->color_trc;
-            e->colorspace = s.videoDecoder->colorspace; e->color_range = s.videoDecoder->color_range;
-            // HDR is never silently tagged as SDR by this 8-bit conversion path.
-            if (e->color_trc == AVCOL_TRC_SMPTE2084 || e->color_trc == AVCOL_TRC_ARIB_STD_B67)
-                throw Failure{AVERROR(ENOTSUP), "HDR conversion requires tone mapping; choose Skip conversion"};
-            if (s.output->oformat->flags & AVFMT_GLOBALHEADER) e->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-            check(av_opt_set(e->priv_data, "preset", options.videoPreset.c_str(), 0), "Set encoding preset");
-            check(av_opt_set(e->priv_data, "crf", "20", 0), "Set encoding quality");
-            check(avcodec_open2(e, codec, nullptr), "Open H.264 encoder");
             s.videoOut = avformat_new_stream(s.output, nullptr);
             if (!s.videoOut) throw Failure{AVERROR(ENOMEM), "Create video stream"};
             check(avcodec_parameters_from_context(s.videoOut->codecpar, e), "Set H.264 parameters");
             s.videoOut->time_base = e->time_base;
             s.videoOut->avg_frame_rate = e->framerate;
-            s.video->format = e->pix_fmt; s.video->width = e->width; s.video->height = e->height;
+            s.video->format = s.hardwareEncoder ? AV_PIX_FMT_NV12 : e->pix_fmt;
+            s.video->width = e->width; s.video->height = e->height;
+            s.video->color_range = e->color_range; s.video->colorspace = e->colorspace;
             check(av_frame_get_buffer(s.video, 32), "Allocate video frame");
         }
         s.audioIndex = av_find_best_stream(s.input, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
