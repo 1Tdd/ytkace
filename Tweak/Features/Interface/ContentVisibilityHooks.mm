@@ -1204,7 +1204,6 @@ static SEL YTKACESelHasReelItemRenderer;
 static SEL YTKACESelHasMerchShelfRenderer;
 static SEL YTKACESelHasMerchItemRenderer;
 static SEL YTKACESelHasCommunity[5];
-static SEL YTKACESelHasMix[6];
 static SEL YTKACESelHasGame[2];
 static SEL YTKACEFeedContainerSels[8];
 
@@ -1236,12 +1235,6 @@ static void YTKACEFeedInitSels(void) {
         YTKACESelHasCommunity[3] = @selector(hasPostsContainerRenderer);
         YTKACESelHasCommunity[4] =
             @selector(hasChannelPostBulletinRenderer);
-        YTKACESelHasMix[0] = @selector(hasAutomixPreviewVideoRenderer);
-        YTKACESelHasMix[1] = @selector(hasAutomixPlaylistVideoRenderer);
-        YTKACESelHasMix[2] = @selector(hasRadioRenderer);
-        YTKACESelHasMix[3] = @selector(hasPivotRadioRenderer);
-        YTKACESelHasMix[4] = @selector(hasRadioAutomixPlaylistId);
-        YTKACESelHasMix[5] = @selector(hasRadioPlaylistMixPlaylistId);
         YTKACESelHasGame[0] = @selector(hasGameCardRenderer);
         YTKACESelHasGame[1] = @selector(hasGameDetailsRenderer);
         YTKACEFeedContainerSels[0] = YTKACESelContentsArray;
@@ -1346,9 +1339,8 @@ typedef NS_OPTIONS(NSUInteger, YTKACEFeedKind) {
     YTKACEFeedKindShorts    = 1 << 0,
     YTKACEFeedKindProducts  = 1 << 1,
     YTKACEFeedKindCommunity = 1 << 2,
-    YTKACEFeedKindMix       = 1 << 3,
-    YTKACEFeedKindPlayable  = 1 << 4,
-    YTKACEFeedKindHorizontalShelves = 1 << 5,
+    YTKACEFeedKindPlayable  = 1 << 3,
+    YTKACEFeedKindHorizontalShelves = 1 << 4,
 };
 
 static NSArray<NSString *> *YTKACEShortsClasses(void) {
@@ -1395,21 +1387,6 @@ static NSArray<NSString *> *YTKACECommunityIdentifiers(void) {
     static dispatch_once_t t;
     dispatch_once(&t, ^{ v = @[@"community_post", @"communitypost",
         @"backstage"]; });
-    return v;
-}
-static NSArray<NSString *> *YTKACEMixClasses(void) {
-    static NSArray<NSString *> *v;
-    static dispatch_once_t t;
-    dispatch_once(&t, ^{ v = @[@"automixpreviewvideorenderer",
-        @"automixplaylistvideorenderer", @"mixradiorenderer",
-        @"radiorenderer", @"feednudgerenderer"]; });
-    return v;
-}
-static NSArray<NSString *> *YTKACEMixIdentifiers(void) {
-    static NSArray<NSString *> *v;
-    static dispatch_once_t t;
-    dispatch_once(&t, ^{ v = @[@"automix", @"radio_playlist_mix",
-        @"feed_nudge"]; });
     return v;
 }
 static NSArray<NSString *> *YTKACEPlayableClasses(void) {
@@ -1477,13 +1454,6 @@ static inline YTKACEFeedKind YTKACEFeedKindForNode(id node,
             YTKACEFastIdentifierMatches(node,
                                         YTKACECommunityIdentifiers())) {
             found |= YTKACEFeedKindCommunity;
-        }
-    }
-    if ((wanted & YTKACEFeedKindMix) && !(found & YTKACEFeedKindMix)) {
-        if (YTKACEFastEntryMatchesSel(node, YTKACESelHasMix, 6,
-                                      YTKACEMixClasses()) ||
-            YTKACEFastIdentifierMatches(node, YTKACEMixIdentifiers())) {
-            found |= YTKACEFeedKindMix;
         }
     }
     if ((wanted & YTKACEFeedKindPlayable) &&
@@ -1723,9 +1693,7 @@ static NSArray<NSString *> *YTKACEMixBytesMarkers(void) {
     static NSArray<NSString *> *v;
     static dispatch_once_t t;
     dispatch_once(&t, ^{ v = @[
-        @"feed_nudge_view", @"feed_nudge",
-        @"radioautomixplaylistid", @"radioplaylistmixplaylistid",
-        @"radio_playlist_mix"
+        @"&list=RD"
     ]; });
     return v;
 }
@@ -1795,10 +1763,6 @@ static YTKACEFeedKind YTKACEFeedKindForSection(id section,
             if ((missing & YTKACEFeedKindCommunity) &&
                 YTKACEBytesContain(bytes, YTKACECommunityBytesMarkers())) {
                 structural |= YTKACEFeedKindCommunity;
-            }
-            if ((missing & YTKACEFeedKindMix) &&
-                YTKACEBytesContain(bytes, YTKACEMixBytesMarkers())) {
-                structural |= YTKACEFeedKindMix;
             }
             if ((missing & YTKACEFeedKindPlayable) &&
                 YTKACEBytesContain(bytes, YTKACEPlayableBytesMarkers())) {
@@ -2007,9 +1971,50 @@ static BOOL YTKACESectionIsAIChannel(id receiver, id section, BOOL blocklist, BO
     return hit;
 }
 
+static BOOL YTKACEEntryIsMix(id entry) {
+    NSData *bytes = YTKACESectionBytes(entry);
+    if (bytes.length == 0) return NO;
+    return YTKACEBytesContain(bytes, YTKACEMixBytesMarkers());
+}
+
+static BOOL YTKACEMixFilteredEntries(id section) {
+    YTKACEFeedInitSels();
+    NSData *bytes = YTKACESectionBytes(section);
+    if (bytes.length != 0 &&
+        !YTKACEBytesContain(bytes, YTKACEMixBytesMarkers())) {
+        return NO;
+    }
+    id contents = YTKACEFastChildSel(section, YTKACESelContentsArray);
+    if (![contents isKindOfClass:NSMutableArray.class]) return NO;
+    NSMutableIndexSet *drop = [NSMutableIndexSet indexSet];
+    [(NSArray *)contents enumerateObjectsUsingBlock:^(id entry, NSUInteger index,
+                                                      __unused BOOL *stop) {
+        if (YTKACEEntryIsMix(entry)) [drop addIndex:index];
+    }];
+    if (drop.count == 0) return NO;
+    [(NSMutableArray *)contents removeObjectsAtIndexes:drop];
+    return [(NSArray *)contents count] == 0;
+}
+
+static NSArray *YTKACEMixFilteredFeedSections(NSArray *sections) {
+    if (!atomic_load(&YTKACEFeedHideMixes)) return sections;
+    if (![sections isKindOfClass:NSArray.class]) return sections;
+    NSMutableIndexSet *empty = [NSMutableIndexSet indexSet];
+    for (NSUInteger index = 0; index < sections.count; index++) {
+        if (YTKACEMixFilteredEntries(sections[index])) {
+            [empty addIndex:index];
+        }
+    }
+    if (empty.count == 0) return sections;
+    NSMutableArray *kept = [sections mutableCopy];
+    [kept removeObjectsAtIndexes:empty];
+    return kept;
+}
+
 static NSArray *YTKACEFilteredFeedSections(id receiver, NSArray *sections) {
     YTKACEFeedEnsureFlagObserver();
-    NSArray *adFiltered = YTKACEFilterAdSections(sections);
+    NSArray *adFiltered = YTKACEMixFilteredFeedSections(
+        YTKACEFilterAdSections(sections));
     if ([adFiltered isKindOfClass:NSArray.class] && adFiltered.count != 0 &&
         YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.CommentGuidelinesHidden")) {
         NSIndexSet *guidelines = [adFiltered indexesOfObjectsPassingTest:
@@ -2031,13 +2036,11 @@ static NSArray *YTKACEFilteredFeedSections(id receiver, NSArray *sections) {
     BOOL hideCommunity = atomic_load(&YTKACEFeedHideCommunity);
     BOOL hideHorizontalShelves = atomic_load(&YTKACEFeedHideHorizontalShelves) &&
         !YTKACEKeepsShelvesInFeed(receiver);
-    BOOL hideMixes = atomic_load(&YTKACEFeedHideMixes);
     BOOL hidePlayables = atomic_load(&YTKACEFeedHidePlayables);
     YTKACEFeedKind wanted = 0;
     if (hideShorts) wanted |= YTKACEFeedKindShorts;
     if (hideProducts) wanted |= YTKACEFeedKindProducts;
     if (hideCommunity) wanted |= YTKACEFeedKindCommunity;
-    if (hideMixes) wanted |= YTKACEFeedKindMix;
     if (hidePlayables) wanted |= YTKACEFeedKindPlayable;
     if (hideHorizontalShelves) wanted |= YTKACEFeedKindHorizontalShelves;
     BOOL hideAIBlock = atomic_load(&YTKACEFeedHideAIBlock);
@@ -2053,7 +2056,6 @@ static NSArray *YTKACEFilteredFeedSections(id receiver, NSArray *sections) {
         if (hideShorts && (kind & YTKACEFeedKindShorts)) cut = @"shorts";
         else if (hideProducts && (kind & YTKACEFeedKindProducts)) cut = @"products";
         else if (hideCommunity && (kind & YTKACEFeedKindCommunity)) cut = @"community";
-        else if (hideMixes && (kind & YTKACEFeedKindMix)) cut = @"mixes";
         else if (hidePlayables && (kind & YTKACEFeedKindPlayable)) cut = @"playables";
         else if (hideHorizontalShelves &&
             (kind & YTKACEFeedKindHorizontalShelves)) cut = @"shelves";
