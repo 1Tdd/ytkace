@@ -848,6 +848,20 @@ static void YTKACEPersistPlayerRequest(id request) {
     [encoded writeToURL:YTKACERequestSeedURL() atomically:YES];
 }
 
+NSString *YTKACEPlayerOnBehalfOfUser(void) {
+    id request = nil;
+    @synchronized (YTKACESABRDownloader.class) {
+        request = YTKACELastPlayerRequest;
+    }
+    if (request == nil) return nil;
+    @try {
+        id value = [request valueForKeyPath:@"context.user.onBehalfOfUser"];
+        return [value isKindOfClass:NSString.class] && [value length] != 0 ? value : nil;
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
 void YTKACEDiscardRestoredRequest(void) {
     BOOL restored = NO;
     @synchronized (YTKACESABRDownloader.class) {

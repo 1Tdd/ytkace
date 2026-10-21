@@ -973,3 +973,4 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE usa datos de SponsorBlock.\nCon licen
 "Debug: Off" = "Depuración: No";
 "Debug logs on" = "Registros de depuración activados";
 "Debug logs off" = "Registros de depuración desactivados";
+"Default leaves YouTube's own tab bar as is." = "Predeterminado deja la barra de pestañas de YouTube como está.";

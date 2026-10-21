@@ -1345,6 +1345,131 @@ static void YTKACEHideCreateViews(UIView *view) {
     }
 }
 
+static NSString * const YTKACETabBarGlassModeKey = @"YTKACE.Preference.Tabs.GlassMode";
+
+NSInteger YTKACETabBarGlassMode(void) {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    id value = [defaults objectForKey:YTKACETabBarGlassModeKey];
+    if ([value respondsToSelector:@selector(integerValue)]) return [value integerValue];
+    return [defaults boolForKey:@"YTKACE.Preference.Tabs.Glass"] ? 1 : 0;
+}
+
+BOOL YTKACETabBarOwnGlass(void) {
+    return YTKACETabBarGlassMode() == 1;
+}
+
+static IMP YTKACEOrigYouTubeGlass;
+static IMP YTKACEOrigYouTubeGlassImpl;
+static IMP YTKACEOrigGlassAvailable;
+static IMP YTKACEOrigGlassCompute;
+static IMP YTKACEOrigPivotGlassEffect;
+static IMP YTKACEOrigPivotGlassEffectStyle;
+
+static BOOL YTKACEForcedYouTubeGlass(IMP original, id receiver, SEL selector) {
+    NSInteger mode = YTKACETabBarGlassMode();
+    BOOL value = original != NULL ? ((BOOL (*)(id, SEL))original)(receiver, selector) : NO;
+    YTKACEDebugLog(@"glass", @"%@ %@ original=%d mode=%ld", NSStringFromClass(object_getClass(receiver)),
+                   NSStringFromSelector(selector), value, (long)mode);
+    if (mode == 2) return YES;
+    if (mode == 1 || mode == 3) return NO;
+    return value;
+}
+
+static BOOL YTKACEYouTubeGlass(id receiver, SEL selector) {
+    return YTKACEForcedYouTubeGlass(YTKACEOrigYouTubeGlass, receiver, selector);
+}
+
+static BOOL YTKACEYouTubeGlassImpl(id receiver, SEL selector) {
+    return YTKACEForcedYouTubeGlass(YTKACEOrigYouTubeGlassImpl, receiver, selector);
+}
+
+static BOOL YTKACEGlassAvailableValue(IMP original, id receiver, SEL selector) {
+    BOOL value = original != NULL ? ((BOOL (*)(id, SEL))original)(receiver, selector) : NO;
+    YTKACEDebugLog(@"glass", @"M3CLiquidGlass %@ original=%d", NSStringFromSelector(selector), value);
+    if (YTKACETabBarGlassMode() == 2 && NSClassFromString(@"UIGlassEffect") != Nil) return YES;
+    return value;
+}
+
+static BOOL YTKACEGlassAvailable(id receiver, SEL selector) {
+    return YTKACEGlassAvailableValue(YTKACEOrigGlassAvailable, receiver, selector);
+}
+
+static BOOL YTKACEGlassCompute(id receiver, SEL selector) {
+    return YTKACEGlassAvailableValue(YTKACEOrigGlassCompute, receiver, selector);
+}
+
+static id YTKACEPivotGlassValue(id value, SEL selector) {
+    NSInteger mode = YTKACETabBarGlassMode();
+    YTKACEDebugLog(@"glass", @"YTPivotBarView %@ effect=%@ mode=%ld", NSStringFromSelector(selector),
+                   value != nil ? NSStringFromClass([value class]) : @"nil", (long)mode);
+    return mode == 1 || mode == 3 ? nil : value;
+}
+
+static id YTKACEPivotGlassEffect(id receiver, SEL selector) {
+    id value = ((id (*)(id, SEL))YTKACEOrigPivotGlassEffect)(receiver, selector);
+    return YTKACEPivotGlassValue(value, selector);
+}
+
+static id YTKACEPivotGlassEffectStyle(id receiver, SEL selector, NSInteger style) {
+    id value = ((id (*)(id, SEL, NSInteger))YTKACEOrigPivotGlassEffectStyle)(receiver, selector, style);
+    return YTKACEPivotGlassValue(value, selector);
+}
+
+static IMP YTKACEOrigFloatyBars;
+static IMP YTKACEOrigFloatyBarsImpl;
+static IMP YTKACEOrigFloatingStyle;
+static IMP YTKACEOrigFloatingStyleImpl;
+static IMP YTKACEOrigPivotSetFloatingStyle;
+
+static BOOL YTKACEFloatyValue(IMP original, id receiver, SEL selector) {
+    BOOL value = original != NULL ? ((BOOL (*)(id, SEL))original)(receiver, selector) : NO;
+    NSInteger mode = YTKACETabBarGlassMode();
+    YTKACEDebugLog(@"glass", @"%@ %@ original=%d mode=%ld", NSStringFromClass(object_getClass(receiver)),
+                   NSStringFromSelector(selector), value, (long)mode);
+    if (mode == 2) return YES;
+    if (mode == 1 || mode == 3) return NO;
+    return value;
+}
+
+static BOOL YTKACEFloatyBars(id receiver, SEL selector) {
+    return YTKACEFloatyValue(YTKACEOrigFloatyBars, receiver, selector);
+}
+
+static BOOL YTKACEFloatyBarsImpl(id receiver, SEL selector) {
+    return YTKACEFloatyValue(YTKACEOrigFloatyBarsImpl, receiver, selector);
+}
+
+static long long YTKACEFloatingStyleValue(IMP original, id receiver, SEL selector) {
+    long long value = original != NULL ? ((long long (*)(id, SEL))original)(receiver, selector) : 0;
+    NSInteger mode = YTKACETabBarGlassMode();
+    YTKACEDebugLog(@"glass", @"%@ %@ original=%lld mode=%ld", NSStringFromClass(object_getClass(receiver)),
+                   NSStringFromSelector(selector), value, (long)mode);
+    if (mode == 2) return 2;
+    if (mode == 1 || mode == 3) return 0;
+    return value;
+}
+
+static long long YTKACEFloatingStyle(id receiver, SEL selector) {
+    return YTKACEFloatingStyleValue(YTKACEOrigFloatingStyle, receiver, selector);
+}
+
+static long long YTKACEFloatingStyleImpl(id receiver, SEL selector) {
+    return YTKACEFloatingStyleValue(YTKACEOrigFloatingStyleImpl, receiver, selector);
+}
+
+static void YTKACEPivotSetFloatingStyle(id receiver, SEL selector, long long style) {
+    NSInteger mode = YTKACETabBarGlassMode();
+    if ((mode == 1 || mode == 3) && style == 2) style = 0;
+    ((void (*)(id, SEL, long long))YTKACEOrigPivotSetFloatingStyle)(receiver, selector, style);
+}
+
+static BOOL YTKACEMethodTypesMatch(Class cls, NSString *selector, BOOL meta, const char *prefix) {
+    Method method = meta ? class_getClassMethod(cls, NSSelectorFromString(selector))
+                         : class_getInstanceMethod(cls, NSSelectorFromString(selector));
+    const char *types = method != NULL ? method_getTypeEncoding(method) : NULL;
+    return types != NULL && strncmp(types, prefix, strlen(prefix)) == 0;
+}
+
 static IMP YTKACEOrigInfoDictionary;
 static IMP YTKACEOrigInfoObject;
 static NSString * const YTKACEDesignCompatibilityKey = @"UIDesignRequiresCompatibility";
@@ -1365,10 +1490,56 @@ static id YTKACEInfoObject(NSBundle *self, SEL _cmd, NSString *key) {
 }
 
 __attribute__((constructor)) static void YTKACEInstallLiquidGlassDesign(void) {
+    BOOL config = YTKACEMethodTypesMatch(NSClassFromString(@"YTColdConfig"),
+        @"mainAppCoreClientIos27EnableLiquidGlass", NO, "B16") &&
+        YTKACEInstallInstanceHook(@"YTColdConfig", @"mainAppCoreClientIos27EnableLiquidGlass",
+            (IMP)YTKACEYouTubeGlass, &YTKACEOrigYouTubeGlass);
+    BOOL impl = YTKACEMethodTypesMatch(NSClassFromString(@"YTColdConfigMainAppCoreClientImpl"),
+        @"ios27EnableLiquidGlass", NO, "B16") &&
+        YTKACEInstallInstanceHook(@"YTColdConfigMainAppCoreClientImpl", @"ios27EnableLiquidGlass",
+            (IMP)YTKACEYouTubeGlassImpl, &YTKACEOrigYouTubeGlassImpl);
+    BOOL available = YTKACEMethodTypesMatch(NSClassFromString(@"M3CLiquidGlass"),
+        @"isLiquidGlassAvailable", YES, "B16") &&
+        YTKACEInstallClassHook(@"M3CLiquidGlass", @"isLiquidGlassAvailable",
+            (IMP)YTKACEGlassAvailable, &YTKACEOrigGlassAvailable);
+    BOOL compute = YTKACEMethodTypesMatch(NSClassFromString(@"M3CLiquidGlass"),
+        @"computeIsLiquidGlassAvailable", YES, "B16") &&
+        YTKACEInstallClassHook(@"M3CLiquidGlass", @"computeIsLiquidGlassAvailable",
+            (IMP)YTKACEGlassCompute, &YTKACEOrigGlassCompute);
+    BOOL effect = YTKACEMethodTypesMatch(NSClassFromString(@"YTPivotBarView"), @"liquidGlassEffect", NO, "@16") &&
+        YTKACEInstallInstanceHook(@"YTPivotBarView", @"liquidGlassEffect",
+            (IMP)YTKACEPivotGlassEffect, &YTKACEOrigPivotGlassEffect);
+    BOOL effectStyle = YTKACEMethodTypesMatch(NSClassFromString(@"YTPivotBarView"),
+        @"liquidGlassEffectForPageStyle:", NO, "@24") &&
+        YTKACEInstallInstanceHook(@"YTPivotBarView", @"liquidGlassEffectForPageStyle:",
+            (IMP)YTKACEPivotGlassEffectStyle, &YTKACEOrigPivotGlassEffectStyle);
+    BOOL floaty = YTKACEMethodTypesMatch(NSClassFromString(@"YTColdConfig"),
+        @"mainAppCoreClientIosEnablePositionedFloatyBars", NO, "B16") &&
+        YTKACEInstallInstanceHook(@"YTColdConfig", @"mainAppCoreClientIosEnablePositionedFloatyBars",
+            (IMP)YTKACEFloatyBars, &YTKACEOrigFloatyBars);
+    BOOL floatyImpl = YTKACEMethodTypesMatch(NSClassFromString(@"YTColdConfigMainAppCoreClientImpl"),
+        @"iosEnablePositionedFloatyBars", NO, "B16") &&
+        YTKACEInstallInstanceHook(@"YTColdConfigMainAppCoreClientImpl", @"iosEnablePositionedFloatyBars",
+            (IMP)YTKACEFloatyBarsImpl, &YTKACEOrigFloatyBarsImpl);
+    BOOL floatStyle = YTKACEMethodTypesMatch(NSClassFromString(@"YTColdConfig"),
+        @"mainAppCoreClientIosFloatingBarStyle", NO, "q16") &&
+        YTKACEInstallInstanceHook(@"YTColdConfig", @"mainAppCoreClientIosFloatingBarStyle",
+            (IMP)YTKACEFloatingStyle, &YTKACEOrigFloatingStyle);
+    BOOL floatStyleImpl = YTKACEMethodTypesMatch(NSClassFromString(@"YTColdConfigMainAppCoreClientImpl"),
+        @"iosFloatingBarStyle", NO, "q16") &&
+        YTKACEInstallInstanceHook(@"YTColdConfigMainAppCoreClientImpl", @"iosFloatingBarStyle",
+            (IMP)YTKACEFloatingStyleImpl, &YTKACEOrigFloatingStyleImpl);
+    BOOL pivotStyle = YTKACEMethodTypesMatch(NSClassFromString(@"YTPivotBarView"), @"setFloatingBarStyle:", NO, "v24") &&
+        YTKACEInstallInstanceHook(@"YTPivotBarView", @"setFloatingBarStyle:",
+            (IMP)YTKACEPivotSetFloatingStyle, &YTKACEOrigPivotSetFloatingStyle);
+    YTKACEDownloadLog(@"glass", @"youtube glass hooks config=%d impl=%d available=%d compute=%d effect=%d style=%d "
+                      "floaty=%d/%d floatStyle=%d/%d pivotStyle=%d mode=%ld",
+                      config, impl, available, compute, effect, effectStyle, floaty, floatyImpl, floatStyle,
+                      floatStyleImpl, pivotStyle, (long)YTKACETabBarGlassMode());
     if (NSClassFromString(@"UIGlassEffect") == Nil) return;
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    BOOL any = NO;
-    for (NSString *key in @[@"YTKACE.Preference.Tabs.Glass", @"YTKACE.Preference.Glass.TopBar",
+    BOOL any = YTKACETabBarGlassMode() == 1 || YTKACETabBarGlassMode() == 2;
+    for (NSString *key in @[@"YTKACE.Preference.Glass.TopBar",
                             @"YTKACE.Preference.Glass.Menus", @"YTKACE.Preference.Glass.Notices",
                             @"YTKACE.Preference.Glass.Player"]) {
         if ([defaults boolForKey:key]) any = YES;
@@ -3126,7 +3297,7 @@ static void YTKACEApplyShortsBackdrop(UIView *bar, BOOL shorts) {
 
 static BOOL YTKACEApplyPivotBarGlass(UIView *receiver, UIView *blur) {
     UIVisualEffectView *glass = objc_getAssociatedObject(receiver, YTKACEPivotBarGlassAssociation);
-    BOOL wanted = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.Glass") &&
+    BOOL wanted = YTKACETabBarOwnGlass() &&
         YTKACELiquidGlassAvailable();
     if (!wanted) {
         if (glass != nil) {
@@ -3258,7 +3429,7 @@ static IMP OriginalFrostedPermitted;
 
 static BOOL YTKACEFrostedPermitted(id receiver, SEL selector) {
     NSInteger mode = YTKACEMasterEnabled() ? YTKACEFrostedTabBarMode() : 0;
-    if (YTKACELiquidGlassAvailable() && YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.Glass")) return YES;
+    if (YTKACELiquidGlassAvailable() && YTKACETabBarOwnGlass()) return YES;
     if (mode == 1) return YES;
     if (mode == 2) return NO;
     return OriginalFrostedPermitted != NULL && ((BOOL (*)(id, SEL))OriginalFrostedPermitted)(receiver, selector);
@@ -3641,7 +3812,7 @@ void YTKACEInstallTabBarHooks(void) {
                               @"pointInside:withEvent:",
                               (IMP)YTKACEPivotBarPointInside,
                               &OriginalPivotBarPointInside);
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.Glass") && YTKACELiquidGlassAvailable()) {
+    if (YTKACETabBarOwnGlass() && YTKACELiquidGlassAvailable()) {
         YTKACEInstallInstanceHook(@"UIScrollView",
                                   @"setContentOffset:",
                                   (IMP)YTKACEScrollSetContentOffset,

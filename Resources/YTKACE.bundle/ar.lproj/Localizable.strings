@@ -991,3 +991,4 @@ Licensed under CC BY-NC-SA 4.0." = "يستخدم YTKACE بيانات SponsorBloc
 "Debug: Off" = "التصحيح: متوقف";
 "Debug logs on" = "تم تفعيل سجلات التصحيح";
 "Debug logs off" = "تم إيقاف سجلات التصحيح";
+"Default leaves YouTube's own tab bar as is." = "الافتراضي يترك شريط علامات التبويب الخاص بيوتيوب كما هو.";

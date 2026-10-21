@@ -946,3 +946,4 @@
 "Debug: Off" = "Depuração: Não";
 "Debug logs on" = "Logs de depuração ativados";
 "Debug logs off" = "Logs de depuração desativados";
+"Default leaves YouTube's own tab bar as is." = "Padrão mantém a barra de abas do próprio YouTube.";

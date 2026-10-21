@@ -991,3 +991,4 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE использует данные Spo
 "Debug: Off" = "Отладка: Выкл";
 "Debug logs on" = "Журнал отладки включён";
 "Debug logs off" = "Журнал отладки выключен";
+"Default leaves YouTube's own tab bar as is." = "По умолчанию панель вкладок YouTube остаётся без изменений.";

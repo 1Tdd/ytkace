@@ -991,3 +991,4 @@ CC BY-NC-SA 4.0 でライセンスされています。";
 "Debug: Off" = "デバッグ: オフ";
 "Debug logs on" = "デバッグログ オン";
 "Debug logs off" = "デバッグログ オフ";
+"Default leaves YouTube's own tab bar as is." = "デフォルトではYouTube独自のタブバーをそのまま使います。";

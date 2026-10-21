@@ -991,3 +991,4 @@ Cấp phép theo CC BY-NC-SA 4.0.";
 "Debug: Off" = "Gỡ lỗi: Tắt";
 "Debug logs on" = "Đã bật nhật ký gỡ lỗi";
 "Debug logs off" = "Đã tắt nhật ký gỡ lỗi";
+"Default leaves YouTube's own tab bar as is." = "Mặc định giữ nguyên thanh tab của YouTube.";

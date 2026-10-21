@@ -991,3 +991,4 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Debug: Off" = "Debug: No";
 "Debug logs on" = "Log di debug attivi";
 "Debug logs off" = "Log di debug disattivati";
+"Default leaves YouTube's own tab bar as is." = "Predefinito lascia invariata la barra delle schede di YouTube.";

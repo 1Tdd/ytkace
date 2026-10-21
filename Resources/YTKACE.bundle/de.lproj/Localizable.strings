@@ -991,3 +991,4 @@ Lizenziert unter CC BY-NC-SA 4.0.";
 "Debug: Off" = "Debug: Aus";
 "Debug logs on" = "Debug-Logs an";
 "Debug logs off" = "Debug-Logs aus";
+"Default leaves YouTube's own tab bar as is." = "Standard lässt YouTubes eigene Tab-Leiste unverändert.";

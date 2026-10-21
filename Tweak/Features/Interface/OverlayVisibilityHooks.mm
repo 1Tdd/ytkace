@@ -970,8 +970,8 @@ static CGFloat YTKACEFullscreenActionBarHeight(id receiver, SEL selector) {
 }
 
 static CGSize YTKACEFullscreenActionsSizeThatFits(id receiver, SEL selector,
-                                                   CGRect size) {
-    CGSize fitted = ((CGSize (*)(id, SEL, CGRect))
+                                                   CGSize size) {
+    CGSize fitted = ((CGSize (*)(id, SEL, CGSize))
         OriginalFullscreenActionsSizeThatFits)(receiver, selector, size);
     if (!YTKACEFeatureEnabled(YTKACEFullscreenActionsKey)) return fitted;
     return CGSizeMake(fitted.width, YTKACEFullscreenActionsReservedHeight);

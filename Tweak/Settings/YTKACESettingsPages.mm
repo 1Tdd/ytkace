@@ -325,6 +325,7 @@ BOOL YTKACEPreferenceNeedsRestart(NSString *key) {
         @"YTKACE.Preference.Playback.LegacyQualityMenu",
         @"YTKACE.Preference.Navigation.StatusBarHidden",
         @"YTKACE.Preference.Tabs.Glass",
+        @"YTKACE.Preference.Tabs.GlassMode",
         @"YTKACE.Preference.Glass.TopBar",
         @"YTKACE.Preference.Glass.Menus",
         @"YTKACE.Preference.Glass.Notices",
@@ -1749,7 +1750,10 @@ static NSDictionary *YTKACETopBarDefinition(void) {
 static NSDictionary *YTKACEGlassOptionsDefinition(void) {
     return YTKACEPageDefinition(@"glass", @"Liquid Glass", @[
         @[
-            YTKACEToggle(@"Tab Bar", @"YTKACE.Preference.Tabs.Glass", @"", @""),
+            YTKACEPickerDetail(@"Tab Bar", @"Default leaves YouTube's own tab bar as is.",
+                               @"YTKACE.Preference.Tabs.GlassMode",
+                               @[@"Default", @"YTKACE", @"YouTube", @"Off"], @[@0, @1, @2, @3],
+                               YTKACETabBarOwnGlass() ? 1 : 0),
             YTKACEToggle(@"Top Bar Buttons", @"YTKACE.Preference.Glass.TopBar", @"", @""),
             YTKACEToggle(@"Menus and Sheets", @"YTKACE.Preference.Glass.Menus", @"", @""),
             YTKACEToggle(@"YTKACE Toasts and Popups", @"YTKACE.Preference.Glass.Notices", @"", @""),

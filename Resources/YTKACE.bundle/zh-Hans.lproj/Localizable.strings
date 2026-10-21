@@ -1002,3 +1002,4 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 数据。
 "Debug: Off" = "调试：关";
 "Debug logs on" = "调试日志已开启";
 "Debug logs off" = "调试日志已关闭";
+"Default leaves YouTube's own tab bar as is." = "默认保留 YouTube 自带的标签栏。";

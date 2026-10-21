@@ -991,3 +991,4 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 資料。
 "Debug: Off" = "偵錯：關";
 "Debug logs on" = "偵錯記錄已開啟";
 "Debug logs off" = "偵錯記錄已關閉";
+"Default leaves YouTube's own tab bar as is." = "預設保留 YouTube 原本的分頁列。";

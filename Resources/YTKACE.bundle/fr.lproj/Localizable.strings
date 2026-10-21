@@ -991,3 +991,4 @@ Sous licence CC BY-NC-SA 4.0.";
 "Debug: Off" = "Débogage : Non";
 "Debug logs on" = "Journaux de débogage activés";
 "Debug logs off" = "Journaux de débogage désactivés";
+"Default leaves YouTube's own tab bar as is." = "Par défaut, la barre d’onglets de YouTube reste telle quelle.";

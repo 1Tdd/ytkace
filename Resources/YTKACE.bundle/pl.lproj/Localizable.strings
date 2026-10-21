@@ -973,3 +973,4 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE korzysta z danych SponsorBlock.\nLice
 "Debug: Off" = "Debug: Wył.";
 "Debug logs on" = "Logi debugowania włączone";
 "Debug logs off" = "Logi debugowania wyłączone";
+"Default leaves YouTube's own tab bar as is." = "Domyślne pozostawia własny pasek kart YouTube bez zmian.";

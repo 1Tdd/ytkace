@@ -991,3 +991,4 @@ CC BY-NC-SA 4.0 라이선스가 적용됩니다.";
 "Debug: Off" = "디버그: 끔";
 "Debug logs on" = "디버그 로그 켬";
 "Debug logs off" = "디버그 로그 끔";
+"Default leaves YouTube's own tab bar as is." = "기본값은 YouTube 자체 탭 바를 그대로 둡니다.";
