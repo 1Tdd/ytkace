@@ -4,6 +4,7 @@
 #import "../../Runtime/Preferences.h"
 #import "../Downloads/DownloadCoordinator.h"
 #import "../Downloads/DownloadLog.h"
+#import "ShortsPlayback.h"
 
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
@@ -674,6 +675,22 @@ static NSString *YTKACECurrentShortsVideoID(id player, NSArray<UIViewController 
         }
     }
     return nil;
+}
+
+BOOL YTKACEResolveShortsPlayback(id player, NSString **videoID) {
+    NSArray<UIViewController *> *controllers = YTKACECollectShortsControllers(player);
+    if (videoID != NULL) *videoID = controllers.count > 0
+        ? YTKACECurrentShortsVideoID(player, controllers) : nil;
+    return controllers.count > 0 || YTKACEPlayerIsShorts(player);
+}
+
+BOOL YTKACEShortsPlayerIsScrubbing(id player) {
+    for (id controller in YTKACECollectShortsControllers(player)) {
+        Ivar token = class_getInstanceVariable(object_getClass(controller), "_scrubbingToken");
+        if (token != NULL && ivar_getTypeEncoding(token)[0] == '@' &&
+            object_getIvar(controller, token) != nil) return YES;
+    }
+    return NO;
 }
 
 static UIScrollView *YTKACEShortsFindPager(UIView *view, NSUInteger depth) {

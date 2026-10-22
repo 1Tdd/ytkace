@@ -4,6 +4,8 @@
 #import "../../Runtime/Localization.h"
 #import <CommonCrypto/CommonDigest.h>
 
+NSString * const YTKACESponsorShortsKey = @"YTKACE.Preference.SponsorBlock.Shorts";
+
 NSArray<NSDictionary<NSString *, NSString *> *> *YTKACESponsorCategoryDefinitions(void) {
     return @[
         @{@"id": @"sponsor", @"title": YTKACELocalized(@"Sponsor"), @"color": @"#00D400",

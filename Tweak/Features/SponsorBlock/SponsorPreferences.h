@@ -4,6 +4,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString * const YTKACESponsorUserIDKey;
+FOUNDATION_EXPORT NSString * const YTKACESponsorShortsKey;
 FOUNDATION_EXPORT NSString * const YTKACESponsorSubmitButtonKey;
 FOUNDATION_EXPORT NSString * const YTKACESponsorTimeSavedKey;
 FOUNDATION_EXPORT NSString * const YTKACESponsorSkipCountKey;
