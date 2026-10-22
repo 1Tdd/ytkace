@@ -17,6 +17,18 @@ Playback changes:
 
 English and Italian setting labels are included. Other languages use the English fallback.
 
+## Submitting from Shorts
+
+Enable **Submit Button** on the SponsorBlock settings page. With SponsorBlock in Shorts enabled, a shield button appears next to the Shorts download button, or near the upper right when downloads are hidden. It has its own 44-point touch target and also works with downloads disabled.
+
+Tap the shield to set the segment start. Continue playback, tap again, then choose **Set End Time & Review**. The editor supports the existing categories, skip/mute actions, precise timing, preview, and explicit submission. Long-press the shield to open the editor directly.
+
+Choose **Label Entire Short...** to label the whole clip as Sponsor or Self Promotion. This uses SponsorBlock's full-video label action; it does not create a skip segment. The editor still requires you to press Submit.
+
+Drafts reset when the clip changes. Menu callbacks reject a changed video, iPad popovers anchor to the tapped control, and opening the editor pauses the current Short to prevent auto-advance. Shorts endpoints use a 0.05-second end tolerance rather than the ordinary video's 1.5-second shortcut.
+
+Additional device checks: show/hide the shield with preferences, test with downloads disabled and both download positions, record a partial segment, label an entire Short, cancel without submission, swipe during a draft, and confirm no duplicate buttons on old/new Shorts layouts or iPad.
+
 ## Verification
 
 Local Python suite: 27 tests passed, with four test classes skipped because this Windows environment lacks their native compiler/FFmpeg dependencies. GitHub Actions runs the full native suite and builds both supported IPA bases.

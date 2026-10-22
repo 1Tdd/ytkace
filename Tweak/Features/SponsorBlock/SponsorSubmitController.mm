@@ -13,11 +13,13 @@
 #import "../../Settings/YTKACESettingsPages.h"
 #import "../Downloads/StreamResolver.h"
 #import "../Downloads/SABRDownloader.h"
+#import "../Shorts/ShortsPlayback.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
+#import <objc/runtime.h>
 #import <math.h>
 
 #pragma clang diagnostic push
@@ -109,6 +111,11 @@ static UIViewController *YTKACEFindTopController(void) {
 + (instancetype)sharedCoordinator;
 @property(nonatomic, weak) UIView *overlay;
 @property(nonatomic, weak) UIButton *button;
+@property(nonatomic, strong) NSHashTable<UIButton *> *shortsButtons;
+@property(nonatomic, weak) UIButton *menuAnchor;
+- (void)handleShortsButtonTap:(UIButton *)sender;
+- (void)handleRegularButtonTap;
+- (UIButton *)presentationAnchor;
 @property(nonatomic, weak) UIView *draftBanner;
 @property(nonatomic, copy, nullable) NSString *draftVideoID;
 @property(nonatomic, assign) double draftStartTime;
@@ -139,6 +146,7 @@ static UIViewController *YTKACEFindTopController(void) {
         _draftStartTime = 0.0;
         _draftEndTime = 0.0;
         _draftCategory = @"sponsor";
+        _shortsButtons = [NSHashTable weakObjectsHashTable];
         [NSNotificationCenter.defaultCenter
             addObserver:self
                selector:@selector(updateButton)
@@ -265,27 +273,50 @@ static UIViewController *YTKACEFindTopController(void) {
     [self updateButton];
 }
 
+- (UIButton *)presentationAnchor {
+    return self.menuAnchor.window != nil ? self.menuAnchor : self.button;
+}
+
+- (void)handleRegularButtonTap {
+    self.menuAnchor = self.button;
+    [self handleButtonTap];
+}
+
+- (void)handleShortsButtonTap:(UIButton *)sender {
+    if (!YTKACESponsorBlockEnabled() || !YTKACEFeatureEnabled(YTKACESponsorShortsKey) ||
+        !YTKACESponsorSubmitButtonEnabled()) return;
+    NSString *videoID = nil;
+    if (!YTKACEResolveShortsPlayback(YTKACEActivePlayerViewController(), &videoID) ||
+        (videoID.length > 0 && ![videoID isEqualToString:YTKACESponsorCurrentVideoID()])) {
+        YTKACEShowNotice(YTKACELocalized(@"No active video"));
+        return;
+    }
+    self.menuAnchor = sender;
+    [self handleButtonTap];
+}
+
 - (void)updateButton {
-    if (self.button == nil) return;
     BOOL enabled = YTKACESponsorBlockEnabled() && YTKACESponsorSubmitButtonEnabled();
     self.button.hidden = !enabled;
-    if (!enabled) return;
-
-    if (self.hasDraftStart) {
-        self.button.tintColor = YTKACEAccentColor();
-    } else {
-        self.button.tintColor = UIColor.whiteColor;
+    self.button.tintColor = self.hasDraftStart ? YTKACEAccentColor() : UIColor.whiteColor;
+    for (UIButton *button in self.shortsButtons.allObjects) {
+        button.hidden = !enabled || !YTKACEFeatureEnabled(YTKACESponsorShortsKey);
+        button.tintColor = self.hasDraftStart ? YTKACEAccentColor() : UIColor.whiteColor;
+        button.accessibilityValue = self.hasDraftStart ? YTKACELocalized(@"Set End Time & Review") : nil;
     }
 }
 
 - (void)handleButtonLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
+    if (!YTKACESponsorBlockEnabled() || !YTKACESponsorSubmitButtonEnabled()) return;
     AudioServicesPlaySystemSound(1519);
     NSString *videoID = YTKACESponsorCurrentVideoID();
     if (videoID.length == 0) {
         YTKACEShowNotice(YTKACELocalized(@"No active video"));
         return;
     }
+    if (![self.draftVideoID isEqualToString:videoID]) [self clearDraft];
+    if ([gesture.view isKindOfClass:UIButton.class]) self.menuAnchor = (UIButton *)gesture.view;
     double dur = YTKACESponsorCurrentDuration();
     double curTime = YTKACESponsorCurrentTime();
     if (dur > 0.0 && curTime > dur) curTime = dur;
@@ -333,9 +364,9 @@ static UIViewController *YTKACEFindTopController(void) {
                                            handler:nil]];
 
     if (alert.popoverPresentationController != nil) {
-        if (self.button != nil && self.button.window != nil) {
-            alert.popoverPresentationController.sourceView = self.button;
-            alert.popoverPresentationController.sourceRect = self.button.bounds;
+        if (self.presentationAnchor != nil && self.presentationAnchor.window != nil) {
+            alert.popoverPresentationController.sourceView = self.presentationAnchor;
+            alert.popoverPresentationController.sourceRect = self.presentationAnchor.bounds;
         } else if (presenter.view != nil) {
             alert.popoverPresentationController.sourceView = presenter.view;
             alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1.0, 1.0);
@@ -384,9 +415,9 @@ static UIViewController *YTKACEFindTopController(void) {
                                            handler:nil]];
 
     if (alert.popoverPresentationController != nil) {
-        if (self.button != nil && self.button.window != nil) {
-            alert.popoverPresentationController.sourceView = self.button;
-            alert.popoverPresentationController.sourceRect = self.button.bounds;
+        if (self.presentationAnchor != nil && self.presentationAnchor.window != nil) {
+            alert.popoverPresentationController.sourceView = self.presentationAnchor;
+            alert.popoverPresentationController.sourceRect = self.presentationAnchor.bounds;
         } else if (presenter.view != nil) {
             alert.popoverPresentationController.sourceView = presenter.view;
             alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1.0, 1.0);
@@ -458,9 +489,9 @@ static UIViewController *YTKACEFindTopController(void) {
                                            handler:nil]];
 
     if (alert.popoverPresentationController != nil) {
-        if (self.button != nil && self.button.window != nil) {
-            alert.popoverPresentationController.sourceView = self.button;
-            alert.popoverPresentationController.sourceRect = self.button.bounds;
+        if (self.presentationAnchor != nil && self.presentationAnchor.window != nil) {
+            alert.popoverPresentationController.sourceView = self.presentationAnchor;
+            alert.popoverPresentationController.sourceRect = self.presentationAnchor.bounds;
         } else if (presenter.view != nil) {
             alert.popoverPresentationController.sourceView = presenter.view;
             alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1.0, 1.0);
@@ -481,6 +512,7 @@ static UIViewController *YTKACEFindTopController(void) {
         self.draftVideoID = videoID;
     }
 
+    BOOL isShort = YTKACEResolveShortsPlayback(YTKACEActivePlayerViewController(), NULL);
     double dur = YTKACESponsorCurrentDuration();
     if (dur <= 0.0) {
         for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
@@ -489,7 +521,7 @@ static UIViewController *YTKACEFindTopController(void) {
     }
     double now = YTKACESponsorCurrentTime();
     if (dur > 0.0) {
-        if (now > dur || now >= dur - 1.5 || (now < 1.0 && self.hasDraftStart && self.draftStartTime >= 1.0)) {
+        if (now > dur || now >= dur - (isShort ? 0.05 : 1.5) || (now < 1.0 && self.hasDraftStart && self.draftStartTime >= 1.0)) {
             now = dur;
         }
     }
@@ -516,6 +548,7 @@ static UIViewController *YTKACEFindTopController(void) {
                            YTKACEFormatSponsorTime(hlTime)],
                 @"icon": [UIImage systemImageNamed:@"scope"] ?: [UIImage new],
                 @"handler": [^{
+                    if (![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                     YTKACESponsorSeek(hlTime);
                     YTKACEPlayYouTubePlayer();
                     AudioServicesPlaySystemSound(1519);
@@ -603,7 +636,7 @@ static UIViewController *YTKACEFindTopController(void) {
             @"icon": [UIImage systemImageNamed:@"timer"] ?: [UIImage new],
             @"handler": [^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                if (!strongSelf) return;
+                if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 strongSelf.draftVideoID = videoID;
                 strongSelf.draftStartTime = now;
                 strongSelf.hasDraftStart = YES;
@@ -621,7 +654,7 @@ static UIViewController *YTKACEFindTopController(void) {
             } copy]
         }];
         [actions addObject:@{
-            @"title": YTKACELocalized(@"Mark Full Video..."),
+            @"title": YTKACELocalized(isShort ? @"Label Entire Short..." : @"Mark Full Video..."),
             @"icon": [UIImage systemImageNamed:@"film.stack"] ?: [UIImage new],
             @"handler": [^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
@@ -659,7 +692,7 @@ static UIViewController *YTKACEFindTopController(void) {
         }];
         YTKACEPresentNativeSheet(YTKACELocalized(@"SponsorBlock"),
                                  YTKACELocalized(@"Mark segment to submit"),
-                                 self.button,
+                                 self.presentationAnchor,
                                  actions);
     } else {
         [self dismissDraftBanner];
@@ -671,7 +704,7 @@ static UIViewController *YTKACEFindTopController(void) {
             @"icon": [UIImage systemImageNamed:@"checkmark.circle"] ?: [UIImage new],
             @"handler": [^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                if (!strongSelf) return;
+                if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 strongSelf.draftEndTime = now;
                 strongSelf.hasDraftEnd = YES;
                 YTKACEPresentSponsorSubmitController(videoID, strongSelf.draftStartTime, now, nil);
@@ -684,7 +717,7 @@ static UIViewController *YTKACEFindTopController(void) {
                 @"icon": [UIImage systemImageNamed:@"forward.end.alt"] ?: [UIImage new],
                 @"handler": [^{
                     YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                    if (!strongSelf) return;
+                    if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                     strongSelf.draftEndTime = dur;
                     strongSelf.hasDraftEnd = YES;
                     YTKACEPresentSponsorSubmitController(videoID, strongSelf.draftStartTime, dur, nil);
@@ -696,7 +729,7 @@ static UIViewController *YTKACEFindTopController(void) {
             @"icon": [UIImage systemImageNamed:@"slider.horizontal.3"] ?: [UIImage new],
             @"handler": [^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                if (!strongSelf) return;
+                if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 double end = strongSelf.hasDraftEnd ? strongSelf.draftEndTime : now;
                 YTKACEPresentSponsorSubmitController(videoID, strongSelf.draftStartTime, end, nil);
             } copy]
@@ -709,7 +742,7 @@ static UIViewController *YTKACEFindTopController(void) {
             @"icon": [UIImage systemImageNamed:@"arrow.counterclockwise"] ?: [UIImage new],
             @"handler": [^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                if (!strongSelf) return;
+                if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 double curTime = YTKACESponsorCurrentTime();
                 double curDur = YTKACESponsorCurrentDuration();
                 if (curDur > 0.0 && curTime > curDur) curTime = curDur;
@@ -725,7 +758,7 @@ static UIViewController *YTKACEFindTopController(void) {
             @"icon": [UIImage systemImageNamed:@"xmark.circle"] ?: [UIImage new],
             @"handler": [^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                if (!strongSelf) return;
+                if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 [strongSelf clearDraft];
                 AudioServicesPlaySystemSound(1520);
                 YTKACEShowNotice(YTKACELocalized(@"Draft discarded"));
@@ -733,13 +766,15 @@ static UIViewController *YTKACEFindTopController(void) {
         }];
         YTKACEPresentNativeSheet(YTKACELocalized(@"SponsorBlock Draft"),
                                  [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Recording segment from"), startText],
-                                 self.button,
+                                 self.presentationAnchor,
                                  actions);
     }
 }
 
 - (void)presentFullVideoPickerForVideoID:(NSString *)videoID {
+    BOOL isShort = YTKACEResolveShortsPlayback(YTKACEActivePlayerViewController(), NULL);
     void (^openFullEditor)(NSString *) = ^(NSString *categoryID) {
+        if (![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
         UIViewController *presenter = YTKACEFindTopController();
         if (!presenter) return;
         YTKACESponsorSubmitController *controller = [YTKACESponsorSubmitController new];
@@ -778,7 +813,7 @@ static UIViewController *YTKACEFindTopController(void) {
 
     NSMutableArray<NSDictionary *> *actions = [NSMutableArray array];
     [actions addObject:@{
-        @"title": [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Full Video"), YTKACESponsorCategoryTitle(@"sponsor")],
+        @"title": [NSString stringWithFormat:@"%@: %@", YTKACELocalized(isShort ? @"Entire Short" : @"Full Video"), YTKACESponsorCategoryTitle(@"sponsor")],
         @"subtitle": YTKACESponsorCategoryDescription(@"sponsor"),
         @"icon": [UIImage systemImageNamed:@"dollarsign.circle.fill"] ?: [UIImage new],
         @"handler": [^{
@@ -786,7 +821,7 @@ static UIViewController *YTKACEFindTopController(void) {
         } copy]
     }];
     [actions addObject:@{
-        @"title": [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Full Video"), YTKACESponsorCategoryTitle(@"selfpromo")],
+        @"title": [NSString stringWithFormat:@"%@: %@", YTKACELocalized(isShort ? @"Entire Short" : @"Full Video"), YTKACESponsorCategoryTitle(@"selfpromo")],
         @"subtitle": YTKACESponsorCategoryDescription(@"selfpromo"),
         @"icon": [UIImage systemImageNamed:@"megaphone.fill"] ?: [UIImage new],
         @"handler": [^{
@@ -794,9 +829,9 @@ static UIViewController *YTKACEFindTopController(void) {
         } copy]
     }];
 
-    YTKACEPresentNativeSheet(YTKACELocalized(@"Mark Full Video..."),
-                             YTKACELocalized(@"Choose a category for the entire video:"),
-                             self.button,
+    YTKACEPresentNativeSheet(YTKACELocalized(isShort ? @"Label Entire Short..." : @"Mark Full Video..."),
+                             YTKACELocalized(isShort ? @"Labels the entire Short without skipping it. Choose a category:" : @"Choose a category for the entire video:"),
+                             self.presentationAnchor,
                              actions);
 }
 
@@ -894,6 +929,11 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    if ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] &&
+        YTKACEResolveShortsPlayback(YTKACEActivePlayerViewController(), NULL)) {
+        // Keep Shorts auto-advance from replacing the clip while its editor is open.
+        YTKACEPauseYouTubePlayer();
+    }
     if (YTKACELiquidGlassAvailable()) {
         YTKACEApplyMenuGlassBackground(self.view, 0.0);
         self.view.backgroundColor = UIColor.clearColor;
@@ -2482,7 +2522,8 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
     }
 
     if (isFull) {
-        double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+        double dur = self.videoDuration > 0.0 ? self.videoDuration :
+        ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentDuration() : 0.0);
         self.startTimeLabel.text = YTKACEFormatSponsorTime(0.0);
         self.startSecLabel.text = @"(0.00s)";
         self.endTimeLabel.text = dur > 0.0 ? YTKACEFormatSponsorTime(dur) : YTKACELocalized(@"Full Video");
@@ -2563,9 +2604,10 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
         self.actionType = @"skip";
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
-    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    double dur = self.videoDuration > 0.0 ? self.videoDuration :
+        ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentDuration() : 0.0);
     if (dur <= 0.0) {
-        for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
+        for (YTKACEVideoChapter *ch in ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentChapters() : @[])) {
             if (ch.endTime > dur) dur = ch.endTime;
         }
         if (dur > 0.0) self.videoDuration = dur;
@@ -2594,9 +2636,10 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
     double delta = (double)sender.tag / 10.0;
-    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    double dur = self.videoDuration > 0.0 ? self.videoDuration :
+        ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentDuration() : 0.0);
     if (dur <= 0.0) {
-        for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
+        for (YTKACEVideoChapter *ch in ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentChapters() : @[])) {
             if (ch.endTime > dur) dur = ch.endTime;
         }
         if (dur > 0.0) self.videoDuration = dur;
@@ -2615,9 +2658,10 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
         self.actionSegmentedControl.selectedSegmentIndex = 0;
     }
     double delta = (double)sender.tag / 10.0;
-    double dur = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    double dur = self.videoDuration > 0.0 ? self.videoDuration :
+        ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentDuration() : 0.0);
     if (dur <= 0.0) {
-        for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
+        for (YTKACEVideoChapter *ch in ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentChapters() : @[])) {
             if (ch.endTime > dur) dur = ch.endTime;
         }
         if (dur > 0.0) self.videoDuration = dur;
@@ -2662,9 +2706,10 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
                 strongSelf.actionType = @"skip";
                 strongSelf.actionSegmentedControl.selectedSegmentIndex = 0;
             }
-            double dur = strongSelf.videoDuration > 0.0 ? strongSelf.videoDuration : YTKACESponsorCurrentDuration();
+            double dur = strongSelf.videoDuration > 0.0 ? strongSelf.videoDuration :
+                ([strongSelf.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentDuration() : 0.0);
             if (dur <= 0.0) {
-                for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
+                for (YTKACEVideoChapter *ch in ([strongSelf.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentChapters() : @[])) {
                     if (ch.endTime > dur) dur = ch.endTime;
                 }
                 if (dur > 0.0) strongSelf.videoDuration = dur;
@@ -2801,7 +2846,8 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
         actionType = @"skip";
     }
 
-    double duration = self.videoDuration > 0.0 ? self.videoDuration : YTKACESponsorCurrentDuration();
+    double duration = self.videoDuration > 0.0 ? self.videoDuration :
+        ([self.videoID isEqualToString:YTKACESponsorCurrentVideoID()] ? YTKACESponsorCurrentDuration() : 0.0);
     double submitStart = isFull ? 0.0 : self.startTime;
     double submitEnd = isFull ? 0.0 : (isPOI ? submitStart : self.endTime);
     if (duration > 0.0 && !isFull && !isPOI) {
@@ -2885,6 +2931,10 @@ void YTKACEPresentSponsorSubmitController(NSString *videoID,
                                           double startTime,
                                           double endTime,
                                           UIViewController *presenter) {
+    if (videoID.length > 0 && ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) {
+        YTKACEShowNotice(YTKACELocalized(@"No active video"));
+        return;
+    }
     [YTKACESponsorSubmitCoordinator.sharedCoordinator dismissDraftBanner];
     if (presenter == nil) {
         presenter = YTKACEFindTopController();
@@ -2908,7 +2958,8 @@ void YTKACEPresentSponsorSubmitController(NSString *videoID,
             startTime = MAX(0.0, dur - 10.0);
             endTime = dur;
         } else {
-            if (endTime >= dur - 1.5 || endTime > dur) endTime = dur;
+            BOOL isShort = YTKACEResolveShortsPlayback(YTKACEActivePlayerViewController(), NULL);
+            if (endTime >= dur - (isShort ? 0.05 : 1.5) || endTime > dur) endTime = dur;
             if ((endTime <= 0.0 || endTime <= startTime) && dur > startTime) {
                 endTime = dur;
             }
@@ -2956,6 +3007,67 @@ void YTKACEPresentSponsorSubmitController(NSString *videoID,
     [presenter presentViewController:nav animated:YES completion:nil];
 }
 
+void YTKACEConfigureShortsSponsorSubmit(UIView *host, UIButton *downloadButton) {
+    static const void *key = &key;
+    YTKACESponsorSubmitCoordinator *coordinator = YTKACESponsorSubmitCoordinator.sharedCoordinator;
+    UIButton *button = objc_getAssociatedObject(host, key);
+    BOOL enabled = YTKACESponsorBlockEnabled() && YTKACESponsorSubmitButtonEnabled() &&
+        YTKACEFeatureEnabled(YTKACESponsorShortsKey);
+    if (button == nil && enabled) {
+        button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.accessibilityIdentifier = @"YTKACE Shorts SponsorBlock Submit";
+        button.accessibilityLabel = YTKACELocalized(@"SponsorBlock");
+        button.accessibilityHint = YTKACELocalized(@"Mark segment to submit");
+        button.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.45];
+        button.layer.cornerRadius = 22.0;
+        [button setImage:[YTKACEAssetImage(@"sponsorblock_shield_template", @"play.shield")
+            imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]
+                forState:UIControlStateNormal];
+        [button setPreferredSymbolConfiguration:[UIImageSymbolConfiguration
+            configurationWithPointSize:21.0 weight:UIImageSymbolWeightMedium]
+            forImageInState:UIControlStateNormal];
+        [button addTarget:coordinator action:@selector(handleShortsButtonTap:)
+            forControlEvents:UIControlEventTouchUpInside];
+        UILongPressGestureRecognizer *press = [[UILongPressGestureRecognizer alloc]
+            initWithTarget:coordinator action:@selector(handleButtonLongPress:)];
+        press.minimumPressDuration = 0.5;
+        [button addGestureRecognizer:press];
+        [host addSubview:button];
+        objc_setAssociatedObject(host, key, button, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [coordinator.shortsButtons addObject:button];
+    }
+    if (button == nil) return;
+    if (button.superview != host) [host addSubview:button];
+    button.hidden = !enabled;
+    button.tintColor = coordinator.hasDraftStart ? YTKACEAccentColor() : UIColor.whiteColor;
+    UIEdgeInsets safe = host.safeAreaInsets;
+    CGFloat x = CGRectGetWidth(host.bounds) - safe.right - 60.0;
+    CGFloat y = safe.top + 64.0;
+    if (downloadButton != nil && !downloadButton.hidden && !CGRectIsEmpty(downloadButton.frame)) {
+        CGRect frame = [downloadButton convertRect:downloadButton.bounds toView:host];
+        x = CGRectGetMinX(frame) - 52.0;
+        y = CGRectGetMidY(frame) - 22.0;
+    }
+    x = MAX(safe.left + 8.0, MIN(x, CGRectGetWidth(host.bounds) - safe.right - 52.0));
+    y = MAX(safe.top + 8.0, MIN(y, CGRectGetHeight(host.bounds) - safe.bottom - 52.0));
+    button.frame = CGRectMake(round(x), round(y), 44.0, 44.0);
+    button.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [host bringSubviewToFront:button];
+    // Container and overlay layouts can both run for the same visible Short.
+    NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:host];
+    while (pending.count > 0) {
+        UIView *view = pending.lastObject;
+        [pending removeLastObject];
+        for (UIView *child in view.subviews) {
+            if (child != button && [child.accessibilityIdentifier isEqualToString:button.accessibilityIdentifier]) {
+                [child removeFromSuperview];
+            } else {
+                [pending addObject:child];
+            }
+        }
+    }
+}
+
 void YTKACEInstallSponsorSubmitControls(void) {
     YTKACERegisterOverlayConfigurator(@"sponsorblock_submit", ^(UIView *overlay, UIStackView *stack) {
         YTKACESponsorSubmitCoordinator *coordinator = YTKACESponsorSubmitCoordinator.sharedCoordinator;
@@ -2966,7 +3078,7 @@ void YTKACEInstallSponsorSubmitControls(void) {
             @"YTKACE SponsorBlock Submit",
             @"play.shield",
             coordinator,
-            @selector(handleButtonTap)
+            @selector(handleRegularButtonTap)
         );
 
         UIImageSymbolConfiguration *configuration =

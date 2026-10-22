@@ -1306,3 +1306,7 @@ Licensed under CC BY-NC-SA 4.0.";
 
 "SponsorBlock in Shorts" = "SponsorBlock in Shorts";
 "Apply the same category rules to Shorts. Requires SponsorBlock to be enabled." = "Apply the same category rules to Shorts. Requires SponsorBlock to be enabled.";
+
+"Label Entire Short..." = "Label Entire Short...";
+"Entire Short" = "Entire Short";
+"Labels the entire Short without skipping it. Choose a category:" = "Labels the entire Short without skipping it. Choose a category:";

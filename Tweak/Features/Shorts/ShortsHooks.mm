@@ -5,6 +5,7 @@
 #import "../Downloads/DownloadCoordinator.h"
 #import "../Downloads/DownloadLog.h"
 #import "ShortsPlayback.h"
+#import "../SponsorBlock/SponsorSubmitController.h"
 
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
@@ -218,6 +219,7 @@ static void YTKACECollectShortsActionsWalk(UIView *view,
                                            const YTKACERailMetrics *metrics,
                                            NSMutableArray<UIView *> *views) {
     if (view.tag != YTKACEShortsDownloadTag &&
+        ![view.accessibilityIdentifier hasPrefix:@"YTKACE"] &&
         (includeHidden || (!view.hidden && view.alpha > 0.05)) &&
         YTKACEIsShortsActionView(view, root, metrics) &&
         YTKACEActionIsFullyVisible(view, root)) {
@@ -1076,6 +1078,9 @@ static void YTKACEConfigureReelView(UIView *receiver, BOOL showDownload) {
             }
         }
         (void)duplicates;
+    }
+    if (showDownload && visibleHost && downloadHost != nil) {
+        YTKACEConfigureShortsSponsorSubmit(downloadHost, download);
     }
     if (showDownload && download != nil && download.hidden && YTKACEDownloadsEnabled() && action == nil &&
         downloadHost != nil) {

@@ -1950,6 +1950,7 @@ static void YTKACEEvaluateSponsorPlayback(id receiver, id video, double time) {
         YTKACECurrentSponsorController = receiver;
     }
     if (receiver != YTKACECurrentSponsorController) return;
+    YTKACELatestResolvedVideoTime = time;
     NSNumber *previous = objc_getAssociatedObject(receiver, YTKACESponsorPreviousTimeKey);
     if (shorts && previous != nil && time < previous.doubleValue - 0.5 &&
         CACurrentMediaTime() - YTKACELastUnskipTime > 4.0) {

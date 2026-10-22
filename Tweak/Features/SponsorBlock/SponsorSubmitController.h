@@ -3,6 +3,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 void YTKACEInstallSponsorSubmitControls(void);
+void YTKACEConfigureShortsSponsorSubmit(UIView *host, UIButton * _Nullable downloadButton);
 
 void YTKACEPresentSponsorSubmitController(
     NSString * _Nullable videoID,
