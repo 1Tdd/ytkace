@@ -374,8 +374,7 @@ BOOL YTKACEProductOverlayMatches(id overlay) {
 }
 
 static BOOL YTKACEHidePlayerShoppingPills(void) {
-    return YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden") ||
-        YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ShoppingPillsHidden");
+    return YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden");
 }
 
 static BOOL YTKACEShouldDropProductOverlay(id overlay) {

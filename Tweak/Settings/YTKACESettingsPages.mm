@@ -2111,9 +2111,6 @@ static NSDictionary *YTKACEWatchPageDefinition(void) {
             YTKACEToggle(@"Remove Comment Preview", @"YTKACE.Preference.Overlay.CommentPreviewsHidden", @"", @""),
             YTKACEToggle(@"Remove Comment Guidelines", @"YTKACE.Preference.Overlay.CommentGuidelinesHidden", @"", @""),
             YTKACEToggle(@"Remove Paid Promotion Label", @"YTKACE.Preference.Overlay.PaidPromotionHidden", @"", @""),
-            YTKACEToggleDetail(@"Hide In-Video Shopping Pills",
-                               @"Hide product cards and shopping pills over the video player, including fullscreen.",
-                               @"YTKACE.Preference.Overlay.ShoppingPillsHidden"),
             YTKACEToggleDetail(@"Remove Products", @"Hide shopping and product tags in videos, Shorts and feeds.",
                                @"YTKACE.Preference.Overlay.ProductsHidden")
         ],

@@ -2,9 +2,11 @@
 
 ## Shopping pills
 
-Enable **YTKACE → Watch Page → Hide In-Video Shopping Pills** to hide product shopping cards over the video, including landscape fullscreen. This setting defaults to off and does not enable the broader feed and Shorts product filter.
+Enable **YTKACE → Watch Page → Remove Products** to hide product shopping cards over the video, including landscape fullscreen, along with shopping/product tags in Shorts and feeds. There is one product visibility switch.
 
-The player filter uses the existing product renderer, shopping overlay, timely shelf, and view visibility hooks. It also recognizes product-card/pill identifiers and `player_overlay_timely_shelf`, found in the supplied YouTube 21.41.5 binary. Element display views inside the main player use the same option. The existing **Remove Products** setting continues to enable the player filter too.
+The player filter uses the existing product renderer, shopping overlay, timely shelf, and view visibility hooks. It also recognizes product-card/pill identifiers and `player_overlay_timely_shelf`, found in the supplied YouTube 21.41.5 binary. Element display views inside the main player use the same option.
+
+The separate player-only shopping-pill toggle was added in our fork and has been removed. If it was enabled, its state migrates to **Remove Products** on the next launch. The original Remove Products setting predates that fork change. All shopping-pill detection improvements remain enabled by the single switch.
 
 ## Shorts shield
 

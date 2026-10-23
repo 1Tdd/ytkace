@@ -2269,8 +2269,7 @@ static void YTKACEApplyContentVisibility(UIView *view) {
 }
 
 static void YTKACEConsiderProductDisplayView(UIView *view, NSString *identifier) {
-    if ((YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden") ||
-         YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ShoppingPillsHidden")) &&
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden") &&
         YTKACEProductIdentifierMatches(identifier)) {
         YTKACEHideProductSubtree(view);
     }

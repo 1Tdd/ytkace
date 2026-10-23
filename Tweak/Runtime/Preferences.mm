@@ -149,7 +149,6 @@ void YTKACERegisterDefaults(void) {
         @"YTKACE.Preference.Shorts.SoundHidden": @NO,
         @"YTKACE.Preference.Shorts.DownloadPosition": @0,
         @"YTKACE.Preference.Overlay.ProductsHidden": @NO,
-        @"YTKACE.Preference.Overlay.ShoppingPillsHidden": @NO,
         @"YTKACE.Preference.Feed.CommunityPostsHidden": @NO,
         @"YTKACE.Preference.Feed.HorizontalShelvesHidden": @NO,
         @"YTKACE.Preference.Feed.MixesHidden": @NO,
@@ -257,6 +256,11 @@ void YTKACERegisterDefaults(void) {
         }
     }
     [YTKACEDefaults() setBool:YES forKey:YTKACEMasterEnabledKey];
+    // Consolidate the former player-only toggle into Remove Products.
+    if ([YTKACEDefaults() boolForKey:@"YTKACE.Preference.Overlay.ShoppingPillsHidden"]) {
+        [YTKACEDefaults() setBool:YES forKey:@"YTKACE.Preference.Overlay.ProductsHidden"];
+    }
+    [YTKACEDefaults() removeObjectForKey:@"YTKACE.Preference.Overlay.ShoppingPillsHidden"];
     if ([YTKACEDefaults() objectForKey:@"YTKACE.Preference.Shorts.ProductsHidden"] != nil) {
         if ([YTKACEDefaults() boolForKey:@"YTKACE.Preference.Shorts.ProductsHidden"]) {
             [YTKACEDefaults() setBool:YES
