@@ -994,3 +994,4 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE использует данные Spo
 "Remove Live Streams" = "Удалить прямые трансляции";
 "Hide live streams from the Shorts feed." = "Скрывать прямые трансляции из ленты Shorts.";
 
+"Default leaves YouTube's own tab bar as is." = "По умолчанию панель вкладок YouTube остаётся без изменений.";

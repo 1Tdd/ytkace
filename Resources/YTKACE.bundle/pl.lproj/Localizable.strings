@@ -976,3 +976,4 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE korzysta z danych SponsorBlock.\nLice
 "Remove Live Streams" = "Usuń transmisje na żywo";
 "Hide live streams from the Shorts feed." = "Ukryj transmisje na żywo z kanału Shorts.";
 
+"Default leaves YouTube's own tab bar as is." = "Domyślne pozostawia własny pasek kart YouTube bez zmian.";

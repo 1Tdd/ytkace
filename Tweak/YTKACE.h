@@ -94,6 +94,8 @@ void YTKACEStartCastDiscovery(void);
 void YTKACEInstallTabBarHooks(void);
 void YTKACERefreshPivotBarBackground(void);
 BOOL YTKACELiquidGlassAvailable(void);
+NSInteger YTKACETabBarGlassMode(void);
+BOOL YTKACETabBarOwnGlass(void);
 NSInteger YTKACEFrostedTabBarMode(void);
 void YTKACEApplyTopNavigationGlass(UIView *container);
 UIView *YTKACEMakeSettingsGlass(void);

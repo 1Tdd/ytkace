@@ -326,6 +326,7 @@ BOOL YTKACEPreferenceNeedsRestart(NSString *key) {
         @"YTKACE.Preference.Playback.LegacyQualityMenu",
         @"YTKACE.Preference.Navigation.StatusBarHidden",
         @"YTKACE.Preference.Tabs.Glass",
+        @"YTKACE.Preference.Tabs.GlassMode",
         @"YTKACE.Preference.Glass.TopBar",
         @"YTKACE.Preference.Glass.Menus",
         @"YTKACE.Preference.Glass.Notices",
@@ -2144,9 +2145,18 @@ static NSDictionary *YTKACEFeedDefinition(void) {
         ],
         @[
             YTKACEToggle(@"Remove Shorts Shelves", @"YTKACE.Preference.Shorts.FeedHidden", @"", @""),
+            YTKACEToggleDetail(@"Keep Shorts in Home",
+                @"Still show Shorts on the Home feed when shelves are removed.",
+                @"YTKACE.Preference.Shorts.HomeKept"),
             YTKACEToggleDetail(@"Keep Shorts in Subscriptions",
                 @"Still show Shorts in the Subscriptions feed when shelves are removed.",
                 @"YTKACE.Preference.Shorts.SubscriptionsKept"),
+            YTKACEToggleDetail(@"Keep Shorts in Search",
+                @"Still show Shorts in search results when shelves are removed.",
+                @"YTKACE.Preference.Shorts.SearchKept"),
+            YTKACEToggleDetail(@"Keep Shorts on Channels",
+                @"Still show Shorts on channel pages when shelves are removed.",
+                @"YTKACE.Preference.Shorts.ChannelsKept"),
             YTKACEToggleDetail(@"Remove Horizontal Shelves",
                                @"Removes horizontal shelves like Watch again from the feed.",
                                @"YTKACE.Preference.Feed.HorizontalShelvesHidden"),
@@ -2242,7 +2252,10 @@ static NSDictionary *YTKACETopBarDefinition(void) {
 static NSDictionary *YTKACEGlassOptionsDefinition(void) {
     return YTKACEPageDefinition(@"glass", @"Liquid Glass", @[
         @[
-            YTKACEToggle(@"Tab Bar", @"YTKACE.Preference.Tabs.Glass", @"", @""),
+            YTKACEPickerDetail(@"Tab Bar", @"Default leaves YouTube's own tab bar as is.",
+                               @"YTKACE.Preference.Tabs.GlassMode",
+                               @[@"Default", @"YTKACE", @"YouTube", @"Off"], @[@0, @1, @2, @3],
+                               YTKACETabBarOwnGlass() ? 1 : 0),
             YTKACEToggle(@"Top Bar Buttons", @"YTKACE.Preference.Glass.TopBar", @"", @""),
             YTKACEToggle(@"Menus and Sheets", @"YTKACE.Preference.Glass.Menus", @"", @""),
             YTKACEToggle(@"YTKACE Toasts and Popups", @"YTKACE.Preference.Glass.Notices", @"", @""),
