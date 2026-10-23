@@ -8,7 +8,9 @@ The player filter uses the existing product renderer, shopping overlay, timely s
 
 ## Shorts shield
 
-The SponsorBlock submit shield has a transparent background and a small icon shadow, matching the download control. Its 44-point touch target is unchanged. It is centered above Download rather than to its left. With Download hidden, it uses the first visible Shorts action as its anchor; if there is no action, it falls back to the upper right. Coordinates are clamped to the host safe area.
+The SponsorBlock submit shield has a transparent background and a small icon shadow, matching the download control. Its 44-point touch target is unchanged. In the side action column, it is centered above Download. With Download at the top, the shield sits to its left on the same row, keeping it below the Shorts header and away from its touch controls. With Download hidden, it uses the first visible Shorts action as its anchor; if there is no action, it falls back to the upper right. Coordinates are clamped to the host safe area.
+
+The placement regression test exercises top and side positions, hidden downloads, different widths/rotation, safe-area clamping, and non-overlapping touch targets using the same geometry function as the app.
 
 ## Verification
 

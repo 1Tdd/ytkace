@@ -14,6 +14,7 @@
 #import "../Downloads/StreamResolver.h"
 #import "../Downloads/SABRDownloader.h"
 #import "../Shorts/ShortsPlayback.h"
+#include "../Shorts/ShortsSubmitPlacement.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -3045,21 +3046,25 @@ void YTKACEConfigureShortsSponsorSubmit(UIView *host, UIButton *downloadButton, 
     button.backgroundColor = UIColor.clearColor;
     button.tintColor = coordinator.hasDraftStart ? YTKACEAccentColor() : UIColor.whiteColor;
     UIEdgeInsets safe = host.safeAreaInsets;
-    CGFloat x = CGRectGetWidth(host.bounds) - safe.right - 60.0;
-    CGFloat y = safe.top + 64.0;
-    if (downloadButton != nil && !downloadButton.hidden && !CGRectIsEmpty(downloadButton.frame)) {
-        CGRect frame = [downloadButton convertRect:downloadButton.bounds toView:host];
-        x = CGRectGetMidX(frame) - 22.0;
-        y = CGRectGetMinY(frame) - 52.0;
+    BOOL hasDownload = downloadButton != nil && !downloadButton.hidden &&
+        !CGRectIsEmpty(downloadButton.frame);
+    CGRect anchor = CGRectZero;
+    if (hasDownload) {
+        anchor = [downloadButton convertRect:downloadButton.bounds toView:host];
     } else if (railAction != nil) {
-        CGRect frame = [railAction convertRect:railAction.bounds toView:host];
-        x = CGRectGetMidX(frame) - 22.0;
-        y = CGRectGetMinY(frame) - 52.0;
+        anchor = [railAction convertRect:railAction.bounds toView:host];
     }
-    x = MAX(safe.left + 8.0, MIN(x, CGRectGetWidth(host.bounds) - safe.right - 52.0));
-    y = MAX(safe.top + 8.0, MIN(y, CGRectGetHeight(host.bounds) - safe.bottom - 52.0));
-    button.frame = CGRectMake(round(x), round(y), 44.0, 44.0);
-    button.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    BOOL topDownload = hasDownload && [NSUserDefaults.standardUserDefaults
+        integerForKey:@"YTKACE.Preference.Shorts.DownloadPosition"] == 0;
+    auto frame = YTKACEShorts::submitFrame(
+        {safe.left + 8.0, safe.top + 8.0,
+         CGRectGetWidth(host.bounds) - safe.left - safe.right - 16.0,
+         CGRectGetHeight(host.bounds) - safe.top - safe.bottom - 16.0},
+        {anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height},
+        hasDownload || railAction != nil, topDownload);
+    button.frame = CGRectMake(round(frame.x), round(frame.y), frame.width, frame.height);
+    button.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin |
+        (topDownload ? UIViewAutoresizingFlexibleBottomMargin : UIViewAutoresizingFlexibleTopMargin);
     [host bringSubviewToFront:button];
     // Container and overlay layouts can both run for the same visible Short.
     NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:host];
