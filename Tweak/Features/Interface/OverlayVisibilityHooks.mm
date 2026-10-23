@@ -373,8 +373,13 @@ BOOL YTKACEProductOverlayMatches(id overlay) {
     return NO;
 }
 
+static BOOL YTKACEHidePlayerShoppingPills(void) {
+    return YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden") ||
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ShoppingPillsHidden");
+}
+
 static BOOL YTKACEShouldDropProductOverlay(id overlay) {
-    return YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden") &&
+    return YTKACEHidePlayerShoppingPills() &&
         YTKACEProductOverlayMatches(overlay);
 }
 
@@ -411,6 +416,8 @@ static NSArray<NSString *> *YTKACEProductPillTokens(void) {
     dispatch_once(&onceToken, ^{
         tokens = @[
             @"product_in_video", @"products_in_video",
+            @"productcard", @"product_card", @"productpill", @"product_pill",
+            @"player_overlay_timely_shelf",
             @"tagged_product", @"creator_product",
             @"shopping", @"merchandise",
             @"products", @"tagged"
@@ -763,7 +770,7 @@ static void YTKACESweepProductViews(UIView *root, BOOL hide) {
 
 static void YTKACEApplyProductVisibility(UIView *root) {
     if (root == nil) return;
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden")) {
+    if (YTKACEHidePlayerShoppingPills()) {
         YTKACESweepProductViews(root, YES);
     } else if (YTKACEProductHiddenCount > 0) {
         YTKACESweepProductViews(root, NO);
@@ -818,13 +825,13 @@ static void YTKACEDidUpdatePlayerOverlayContent(id receiver, SEL selector,
 }
 
 static BOOL YTKACEHasProductsInVideoOverlay(id receiver, SEL selector) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden")) return NO;
+    if (YTKACEHidePlayerShoppingPills()) return NO;
     return OriginalHasProductsInVideoOverlay != NULL &&
         ((BOOL (*)(id, SEL))OriginalHasProductsInVideoOverlay)(receiver, selector);
 }
 
 static id YTKACEProductsInVideoOverlay(id receiver, SEL selector) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden")) return nil;
+    if (YTKACEHidePlayerShoppingPills()) return nil;
     return OriginalProductsInVideoOverlay == NULL ? nil :
         ((id (*)(id, SEL))OriginalProductsInVideoOverlay)(receiver, selector);
 }
@@ -853,7 +860,7 @@ static void YTKACEUpdateTimelyShelfOverlay(id receiver, SEL selector,
 }
 
 static void YTKACEUpdateTimelyShelfState(id receiver, SEL selector) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden")) {
+    if (YTKACEHidePlayerShoppingPills()) {
         return;
     }
     if (OriginalUpdateTimelyShelfState != NULL) {
@@ -864,7 +871,7 @@ static void YTKACEUpdateTimelyShelfState(id receiver, SEL selector) {
 
 static void YTKACEUpdateTimelyShelfStateWith(id receiver, SEL selector,
                                               NSInteger state) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden")) {
+    if (YTKACEHidePlayerShoppingPills()) {
         return;
     }
     if (OriginalUpdateTimelyShelfStateWith != NULL) {
@@ -875,7 +882,7 @@ static void YTKACEUpdateTimelyShelfStateWith(id receiver, SEL selector,
 
 static void YTKACETimelyShelfFrame(id receiver, SEL selector,
                                     id shelf, CGRect overlayBounds) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden")) {
+    if (YTKACEHidePlayerShoppingPills()) {
         if ([shelf isKindOfClass:UIView.class]) {
             UIView *shelfView = (UIView *)shelf;
             YTKACEProductHiddenCounted(shelfView, YES);
@@ -892,7 +899,7 @@ static void YTKACETimelyShelfFrame(id receiver, SEL selector,
 }
 
 static CGFloat YTKACETimelyShelfHeightHook(id receiver, SEL selector) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.ProductsHidden")) {
+    if (YTKACEHidePlayerShoppingPills()) {
         return 0.0;
     }
     static Class barClass;

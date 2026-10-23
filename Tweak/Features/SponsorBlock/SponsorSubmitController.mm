@@ -3007,7 +3007,7 @@ void YTKACEPresentSponsorSubmitController(NSString *videoID,
     [presenter presentViewController:nav animated:YES completion:nil];
 }
 
-void YTKACEConfigureShortsSponsorSubmit(UIView *host, UIButton *downloadButton) {
+void YTKACEConfigureShortsSponsorSubmit(UIView *host, UIButton *downloadButton, UIView *railAction) {
     static const void *key = &key;
     YTKACESponsorSubmitCoordinator *coordinator = YTKACESponsorSubmitCoordinator.sharedCoordinator;
     UIButton *button = objc_getAssociatedObject(host, key);
@@ -3018,8 +3018,11 @@ void YTKACEConfigureShortsSponsorSubmit(UIView *host, UIButton *downloadButton) 
         button.accessibilityIdentifier = @"YTKACE Shorts SponsorBlock Submit";
         button.accessibilityLabel = YTKACELocalized(@"SponsorBlock");
         button.accessibilityHint = YTKACELocalized(@"Mark segment to submit");
-        button.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.45];
-        button.layer.cornerRadius = 22.0;
+        button.backgroundColor = UIColor.clearColor;
+        button.layer.shadowColor = UIColor.blackColor.CGColor;
+        button.layer.shadowOpacity = 0.55;
+        button.layer.shadowRadius = 4.0;
+        button.layer.shadowOffset = CGSizeMake(0.0, 2.0);
         [button setImage:[YTKACEAssetImage(@"sponsorblock_shield_template", @"play.shield")
             imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]
                 forState:UIControlStateNormal];
@@ -3039,14 +3042,19 @@ void YTKACEConfigureShortsSponsorSubmit(UIView *host, UIButton *downloadButton) 
     if (button == nil) return;
     if (button.superview != host) [host addSubview:button];
     button.hidden = !enabled;
+    button.backgroundColor = UIColor.clearColor;
     button.tintColor = coordinator.hasDraftStart ? YTKACEAccentColor() : UIColor.whiteColor;
     UIEdgeInsets safe = host.safeAreaInsets;
     CGFloat x = CGRectGetWidth(host.bounds) - safe.right - 60.0;
     CGFloat y = safe.top + 64.0;
     if (downloadButton != nil && !downloadButton.hidden && !CGRectIsEmpty(downloadButton.frame)) {
         CGRect frame = [downloadButton convertRect:downloadButton.bounds toView:host];
-        x = CGRectGetMinX(frame) - 52.0;
-        y = CGRectGetMidY(frame) - 22.0;
+        x = CGRectGetMidX(frame) - 22.0;
+        y = CGRectGetMinY(frame) - 52.0;
+    } else if (railAction != nil) {
+        CGRect frame = [railAction convertRect:railAction.bounds toView:host];
+        x = CGRectGetMidX(frame) - 22.0;
+        y = CGRectGetMinY(frame) - 52.0;
     }
     x = MAX(safe.left + 8.0, MIN(x, CGRectGetWidth(host.bounds) - safe.right - 52.0));
     y = MAX(safe.top + 8.0, MIN(y, CGRectGetHeight(host.bounds) - safe.bottom - 52.0));

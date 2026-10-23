@@ -149,6 +149,7 @@ void YTKACERegisterDefaults(void) {
         @"YTKACE.Preference.Shorts.SoundHidden": @NO,
         @"YTKACE.Preference.Shorts.DownloadPosition": @0,
         @"YTKACE.Preference.Overlay.ProductsHidden": @NO,
+        @"YTKACE.Preference.Overlay.ShoppingPillsHidden": @NO,
         @"YTKACE.Preference.Feed.CommunityPostsHidden": @NO,
         @"YTKACE.Preference.Feed.HorizontalShelvesHidden": @NO,
         @"YTKACE.Preference.Feed.MixesHidden": @NO,

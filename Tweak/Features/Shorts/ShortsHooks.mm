@@ -1080,7 +1080,7 @@ static void YTKACEConfigureReelView(UIView *receiver, BOOL showDownload) {
         (void)duplicates;
     }
     if (showDownload && visibleHost && downloadHost != nil) {
-        YTKACEConfigureShortsSponsorSubmit(downloadHost, download);
+        YTKACEConfigureShortsSponsorSubmit(downloadHost, download, action);
     }
     if (showDownload && download != nil && download.hidden && YTKACEDownloadsEnabled() && action == nil &&
         downloadHost != nil) {
