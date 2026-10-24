@@ -20,6 +20,7 @@ YTKACE_FILES = \
 	Tweak/Features/SponsorBlock/SponsorPreferences.mm \
 	Tweak/Features/SponsorBlock/SponsorHooks.mm \
 	Tweak/Features/SponsorBlock/DeArrow.mm \
+	Tweak/Features/SponsorBlock/SponsorMenu.mm \
 	Tweak/Features/Downloads/StreamResolver.mm \
 	Tweak/Features/Downloads/SABRDownloader.mm \
 	Tweak/Features/Downloads/DirectDownloader.mm \
@@ -76,6 +77,7 @@ YTKACE_FILES = \
 	Tweak/Features/Interface/OverlayVisibilityHooks.mm \
 	Tweak/Features/Interface/ContentVisibilityHooks.mm \
 	Tweak/Features/Interface/AiSList.mm \
+	Tweak/Features/Interface/AiSListReport.mm \
 	Tweak/Features/Interface/MiscellaneousHooks.mm \
 	Tweak/Features/Interface/CopyCommentHooks.mm \
 	Tweak/Features/Interface/ProfilePictureViewer.mm \

@@ -53,6 +53,19 @@ static NSDictionary *YTKACEWithFooter(NSDictionary *item, NSString *footer) {
     return copy;
 }
 
+static NSDictionary *YTKACEInput(NSString *title, NSString *subtitle, NSString *key, NSString *placeholder) {
+    return @{
+        @"type": @"input",
+        @"title": YTKACELocalized(title),
+        @"en": title,
+        @"subtitle": YTKACELocalized(subtitle ?: @""),
+        @"key": key,
+        @"placeholder": YTKACELocalized(placeholder ?: @""),
+        @"asset": @"",
+        @"symbol": @""
+    };
+}
+
 static NSDictionary *YTKACEToggleDetail(NSString *title,
                                          NSString *subtitle,
                                          NSString *key) {
@@ -903,6 +916,18 @@ willDisplayHeaderView:(UIView *)view
             cell.accessoryView = value;
         }
         cell.accessoryType = UITableViewCellAccessoryNone;
+    } else if ([type isEqualToString:@"input"]) {
+        id stored = YTKACEPreferenceObject(item[@"key"]);
+        UILabel *value = [UILabel new];
+        value.text = [stored isKindOfClass:NSString.class] && [stored length] != 0 ? stored : item[@"placeholder"];
+        value.font = [UIFont systemFontOfSize:15.0];
+        value.textColor = YTKACEAccentColor();
+        value.textAlignment = NSTextAlignmentRight;
+        [value sizeToFit];
+        if (CGRectGetWidth(value.frame) > 160.0) value.frame = CGRectMake(0.0, 0.0, 160.0, CGRectGetHeight(value.frame));
+        value.lineBreakMode = NSLineBreakByTruncatingTail;
+        cell.accessoryView = value;
+        cell.accessoryType = UITableViewCellAccessoryNone;
     } else if ([type isEqualToString:@"color"]) {
         NSString *stored = YTKACEPreferenceObject(item[@"key"]);
         UIColor *color = YTKACEColorFromHex(
@@ -1006,6 +1031,28 @@ willDisplayHeaderView:(UIView *)view
     } else if ([type isEqualToString:@"action"]) {
         YTKACEAction action = item[@"action"];
         action(self);
+    } else if ([type isEqualToString:@"input"]) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:item[@"title"]
+                                                                       message:item[@"subtitle"]
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+            id stored = YTKACEPreferenceObject(item[@"key"]);
+            field.text = [stored isKindOfClass:NSString.class] ? stored : @"";
+            field.placeholder = item[@"placeholder"];
+            field.autocorrectionType = UITextAutocorrectionTypeNo;
+            field.clearButtonMode = UITextFieldViewModeWhileEditing;
+        }];
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
+                                                  style:UIAlertActionStyleCancel handler:nil]];
+        __weak UIAlertController *weakAlert = alert;
+        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Save") style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            NSString *text = [weakAlert.textFields.firstObject.text
+                stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            YTKACESetPreferenceObject(item[@"key"], text ?: @"");
+            [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+        }]];
+        [self presentViewController:alert animated:YES completion:nil];
     } else if ([type isEqualToString:@"color"]) {
         NSString *stored = YTKACEPreferenceObject(item[@"key"]);
         UIColorPickerViewController *picker = [UIColorPickerViewController new];
@@ -1399,6 +1446,9 @@ static NSDictionary *YTKACESponsorBlockDefinition(void) {
         YTKACEToggleDetail(@"SponsorBlock",
                            @"Skip or mark video segments. Set each category below.",
                            YTKACESponsorBlockKey),
+        YTKACEToggleDetail(@"Player Button",
+                           @"Adds a shield to the player to whitelist channels, vote on segments and submit new ones.",
+                           @"YTKACE.Preference.SponsorBlock.OverlayButton"),
         YTKACEPickerDetail(@"Skip Notice", @"Shown after a segment is skipped.",
                      @"YTKACE.Preference.SponsorBlock.NotificationMode",
                      @[@"With Unskip", @"Text Only", @"Off"],
@@ -1674,9 +1724,14 @@ static NSDictionary *YTKACEFeedDefinition(void) {
             YTKACEToggleDetail(@"Hide AI Channels",
                                @"Hides videos from channels on the AiSList blocklist.",
                                @"YTKACE.Preference.Feed.AIChannelsHidden"),
-            YTKACEWithFooter(YTKACEToggleDetail(@"Hide Suspected AI Channels",
+            YTKACEToggleDetail(@"Hide Suspected AI Channels",
                                @"Also hides channels on the AiSList warnlist.",
                                @"YTKACE.Preference.Feed.SuspectedAIChannelsHidden"),
+            YTKACEToggleDetail(@"Report AI Channels",
+                               @"Adds Report AI Channel to the ⋯ menu of videos.",
+                               @"YTKACE.Preference.Feed.AIChannelReporting"),
+            YTKACEWithFooter(YTKACEInput(@"Report Name", @"Sent with your reports to AiSList.",
+                                         @"YTKACE.Preference.Feed.AIReportName", @"YTKACE"),
                              @"List from aisloplist.com, updates automatically.")
         ]
     ], @[YTKACELocalized(@"HOME"), YTKACELocalized(@"FEED"), YTKACELocalized(@"AI CHANNELS")]);

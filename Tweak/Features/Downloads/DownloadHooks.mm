@@ -1,3 +1,4 @@
+#import "../Interface/AiSList.h"
 #import "DownloadCoordinator.h"
 #import "DownloadLog.h"
 #import "SABRDownloader.h"
@@ -948,7 +949,7 @@ static id YTKACEActionsForRenderersLog(id receiver, SEL selector, id renderers,
     id actions = ((id (*)(id, SEL, id, id, id, BOOL, id))OriginalActionsForRenderersLog)(
         receiver, selector, renderers, view, entry, log, responder);
     YTKACERouteSpeedMenuItem(renderers, actions, view, responder);
-    return actions;
+    return YTKACEAiSListAppendMenuAction(renderers, actions);
 }
 
 static UIView *YTKACEOverflowButtonInside(UIView *root) {
