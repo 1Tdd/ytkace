@@ -1032,3 +1032,5 @@ Licensed under CC BY-NC-SA 4.0." = "يستخدم YTKACE بيانات SponsorBloc
 "SponsorBlock rejected this segment" = "رفض SponsorBlock هذا المقطع";
 "Could not reach SponsorBlock" = "تعذر الاتصال بـ SponsorBlock";
 "Mark a start and end first" = "حدد البداية والنهاية أولًا";
+"Clean Copied Links" = "تنظيف الروابط المنسوخة";
+"Removes tracking like si= from links you copy or share." = "يزيل التتبع مثل si= من الروابط التي تنسخها أو تشاركها.";

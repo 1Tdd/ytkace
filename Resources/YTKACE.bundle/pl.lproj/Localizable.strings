@@ -1014,3 +1014,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE korzysta z danych SponsorBlock.\nLice
 "SponsorBlock rejected this segment" = "SponsorBlock odrzucił ten segment";
 "Could not reach SponsorBlock" = "Nie można połączyć się ze SponsorBlock";
 "Mark a start and end first" = "Najpierw zaznacz początek i koniec";
+"Clean Copied Links" = "Czyść kopiowane linki";
+"Removes tracking like si= from links you copy or share." = "Usuwa śledzenie, np. si=, z linków, które kopiujesz lub udostępniasz.";

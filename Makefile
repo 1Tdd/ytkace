@@ -78,6 +78,7 @@ YTKACE_FILES = \
 	Tweak/Features/Interface/ContentVisibilityHooks.mm \
 	Tweak/Features/Interface/AiSList.mm \
 	Tweak/Features/Interface/AiSListReport.mm \
+	Tweak/Features/Interface/LinkCleaning.mm \
 	Tweak/Features/Interface/MiscellaneousHooks.mm \
 	Tweak/Features/Interface/CopyCommentHooks.mm \
 	Tweak/Features/Interface/ProfilePictureViewer.mm \

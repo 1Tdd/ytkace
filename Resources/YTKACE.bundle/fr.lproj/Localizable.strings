@@ -1032,3 +1032,5 @@ Sous licence CC BY-NC-SA 4.0.";
 "SponsorBlock rejected this segment" = "SponsorBlock a refusé ce segment";
 "Could not reach SponsorBlock" = "Impossible de joindre SponsorBlock";
 "Mark a start and end first" = "Marque d’abord un début et une fin";
+"Clean Copied Links" = "Nettoyer les liens copiés";
+"Removes tracking like si= from links you copy or share." = "Supprime le suivi comme si= des liens que tu copies ou partages.";

@@ -987,3 +987,5 @@
 "SponsorBlock rejected this segment" = "O SponsorBlock recusou este segmento";
 "Could not reach SponsorBlock" = "Não foi possível acessar o SponsorBlock";
 "Mark a start and end first" = "Marque um início e um fim primeiro";
+"Clean Copied Links" = "Limpar links copiados";
+"Removes tracking like si= from links you copy or share." = "Remove rastreamento como si= dos links que você copia ou compartilha.";

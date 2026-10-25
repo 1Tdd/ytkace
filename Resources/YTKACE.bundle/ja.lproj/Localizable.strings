@@ -1032,3 +1032,5 @@ CC BY-NC-SA 4.0 でライセンスされています。";
 "SponsorBlock rejected this segment" = "SponsorBlockがこのセグメントを拒否しました";
 "Could not reach SponsorBlock" = "SponsorBlockに接続できません";
 "Mark a start and end first" = "先に開始と終了を記録してください";
+"Clean Copied Links" = "コピーしたリンクを整理";
+"Removes tracking like si= from links you copy or share." = "コピーや共有するリンクから si= などのトラッキングを削除します。";

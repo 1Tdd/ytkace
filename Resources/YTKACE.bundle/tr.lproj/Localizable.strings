@@ -1032,3 +1032,5 @@ CC BY-NC-SA 4.0 ile lisanslanmıştır.";
 "SponsorBlock rejected this segment" = "SponsorBlock bu segmenti reddetti";
 "Could not reach SponsorBlock" = "SponsorBlock'a ulaşılamadı";
 "Mark a start and end first" = "Önce bir başlangıç ve bitiş işaretle";
+"Clean Copied Links" = "Kopyalanan bağlantıları temizle";
+"Removes tracking like si= from links you copy or share." = "Kopyaladığın veya paylaştığın bağlantılardan si= gibi izlemeyi kaldırır.";

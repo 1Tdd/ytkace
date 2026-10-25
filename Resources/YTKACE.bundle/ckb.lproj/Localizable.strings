@@ -1032,3 +1032,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE داتای SponsorBlock بەکارد�
 "SponsorBlock rejected this segment" = "SponsorBlock ئەم بەشەی ڕەت کردەوە";
 "Could not reach SponsorBlock" = "پەیوەندی بە SponsorBlock ەوە نەکرا";
 "Mark a start and end first" = "سەرەتا دەستپێک و کۆتایی دیاری بکە";
+"Clean Copied Links" = "پاککردنەوەی بەستەرە کۆپیکراوەکان";
+"Removes tracking like si= from links you copy or share." = "شوێنکەوتنی وەک si= لە ئەو بەستەرانە لادەبات کە کۆپی یان هاوبەشیان دەکەیت.";

@@ -1032,3 +1032,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 資料。
 "SponsorBlock rejected this segment" = "SponsorBlock 拒絕了此片段";
 "Could not reach SponsorBlock" = "無法連線至 SponsorBlock";
 "Mark a start and end first" = "請先標記開始和結束";
+"Clean Copied Links" = "清理複製的連結";
+"Removes tracking like si= from links you copy or share." = "移除你複製或分享的連結中的 si= 等追蹤參數。";

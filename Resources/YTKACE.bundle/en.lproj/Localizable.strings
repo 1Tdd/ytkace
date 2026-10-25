@@ -1053,3 +1053,5 @@ Licensed under CC BY-NC-SA 4.0.";
 "SponsorBlock rejected this segment" = "SponsorBlock rejected this segment";
 "Could not reach SponsorBlock" = "Could not reach SponsorBlock";
 "Mark a start and end first" = "Mark a start and end first";
+"Clean Copied Links" = "Clean Copied Links";
+"Removes tracking like si= from links you copy or share." = "Removes tracking like si= from links you copy or share.";

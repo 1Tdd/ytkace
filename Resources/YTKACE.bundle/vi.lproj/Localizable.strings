@@ -1032,3 +1032,5 @@ Cấp phép theo CC BY-NC-SA 4.0.";
 "SponsorBlock rejected this segment" = "SponsorBlock đã từ chối phân đoạn này";
 "Could not reach SponsorBlock" = "Không thể kết nối SponsorBlock";
 "Mark a start and end first" = "Hãy đánh dấu điểm bắt đầu và kết thúc trước";
+"Clean Copied Links" = "Làm sạch liên kết đã sao chép";
+"Removes tracking like si= from links you copy or share." = "Xóa thông số theo dõi như si= khỏi liên kết bạn sao chép hoặc chia sẻ.";

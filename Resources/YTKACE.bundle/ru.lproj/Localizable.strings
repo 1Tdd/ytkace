@@ -1032,3 +1032,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE использует данные Spo
 "SponsorBlock rejected this segment" = "SponsorBlock отклонил этот сегмент";
 "Could not reach SponsorBlock" = "Не удалось связаться с SponsorBlock";
 "Mark a start and end first" = "Сначала отметьте начало и конец";
+"Clean Copied Links" = "Очищать скопированные ссылки";
+"Removes tracking like si= from links you copy or share." = "Удаляет отслеживание вроде si= из ссылок, которые вы копируете или отправляете.";
