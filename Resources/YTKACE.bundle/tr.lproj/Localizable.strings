@@ -1034,3 +1034,7 @@ CC BY-NC-SA 4.0 ile lisanslanmıştır.";
 "Mark a start and end first" = "Önce bir başlangıç ve bitiş işaretle";
 "Clean Copied Links" = "Kopyalanan bağlantıları temizle";
 "Removes tracking like si= from links you copy or share." = "Kopyaladığın veya paylaştığın bağlantılardan si= gibi izlemeyi kaldırır.";
+"Remove Play on Different Device" = "Başka cihazda oynat'ı kaldır";
+"Remove Play Next in Queue" = "Sıradaki olarak oynat'ı kaldır";
+"Remove Play Last in Queue" = "Sıranın sonunda oynat'ı kaldır";
+"VIDEO MENU" = "VİDEO MENÜSÜ";

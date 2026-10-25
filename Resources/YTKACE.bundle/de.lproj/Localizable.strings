@@ -1034,3 +1034,7 @@ Lizenziert unter CC BY-NC-SA 4.0.";
 "Mark a start and end first" = "Markiere zuerst Start und Ende";
 "Clean Copied Links" = "Kopierte Links bereinigen";
 "Removes tracking like si= from links you copy or share." = "Entfernt Tracking wie si= aus Links, die du kopierst oder teilst.";
+"Remove Play on Different Device" = "„Auf anderem Gerät abspielen“ entfernen";
+"Remove Play Next in Queue" = "„Als Nächstes in der Wiedergabeliste“ entfernen";
+"Remove Play Last in Queue" = "„Zuletzt in der Wiedergabeliste“ entfernen";
+"VIDEO MENU" = "VIDEOMENÜ";

@@ -1016,3 +1016,7 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE usa datos de SponsorBlock.\nCon licen
 "Mark a start and end first" = "Marca primero un inicio y un final";
 "Clean Copied Links" = "Limpiar enlaces copiados";
 "Removes tracking like si= from links you copy or share." = "Quita el rastreo como si= de los enlaces que copias o compartes.";
+"Remove Play on Different Device" = "Quitar Reproducir en otro dispositivo";
+"Remove Play Next in Queue" = "Quitar Reproducir a continuación";
+"Remove Play Last in Queue" = "Quitar Reproducir al final de la cola";
+"VIDEO MENU" = "MENÚ DEL VIDEO";

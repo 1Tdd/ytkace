@@ -1034,3 +1034,7 @@ CC BY-NC-SA 4.0 でライセンスされています。";
 "Mark a start and end first" = "先に開始と終了を記録してください";
 "Clean Copied Links" = "コピーしたリンクを整理";
 "Removes tracking like si= from links you copy or share." = "コピーや共有するリンクから si= などのトラッキングを削除します。";
+"Remove Play on Different Device" = "「別のデバイスで再生」を削除";
+"Remove Play Next in Queue" = "「次に再生」を削除";
+"Remove Play Last in Queue" = "「最後に再生」を削除";
+"VIDEO MENU" = "動画メニュー";

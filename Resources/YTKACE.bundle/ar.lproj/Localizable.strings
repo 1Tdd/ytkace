@@ -1034,3 +1034,7 @@ Licensed under CC BY-NC-SA 4.0." = "يستخدم YTKACE بيانات SponsorBloc
 "Mark a start and end first" = "حدد البداية والنهاية أولًا";
 "Clean Copied Links" = "تنظيف الروابط المنسوخة";
 "Removes tracking like si= from links you copy or share." = "يزيل التتبع مثل si= من الروابط التي تنسخها أو تشاركها.";
+"Remove Play on Different Device" = "إزالة «التشغيل على جهاز آخر»";
+"Remove Play Next in Queue" = "إزالة «التشغيل التالي»";
+"Remove Play Last in Queue" = "إزالة «التشغيل في النهاية»";
+"VIDEO MENU" = "قائمة الفيديو";

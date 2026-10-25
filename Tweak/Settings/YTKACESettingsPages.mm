@@ -1721,6 +1721,12 @@ static NSDictionary *YTKACEFeedDefinition(void) {
                                @"YTKACE.Preference.Feed.PlayablesHidden")
         ],
         @[
+            YTKACEToggle(@"Remove Play on Different Device", @"YTKACE.Preference.Menu.CastHidden", @"", @""),
+            YTKACEToggle(@"Remove Play Next in Queue", @"YTKACE.Preference.Menu.PlayNextHidden", @"", @""),
+            YTKACEToggle(@"Remove Play Last in Queue", @"YTKACE.Preference.Menu.PlayLastHidden", @"", @""),
+            YTKACEToggle(@"Remove Report", @"YTKACE.Preference.Menu.ReportHidden", @"", @"")
+        ],
+        @[
             YTKACEToggleDetail(@"Hide AI Channels",
                                @"Hides videos from channels on the AiSList blocklist.",
                                @"YTKACE.Preference.Feed.AIChannelsHidden"),
@@ -1734,7 +1740,8 @@ static NSDictionary *YTKACEFeedDefinition(void) {
                                          @"YTKACE.Preference.Feed.AIReportName", @"YTKACE"),
                              @"List from aisloplist.com, updates automatically.")
         ]
-    ], @[YTKACELocalized(@"HOME"), YTKACELocalized(@"FEED"), YTKACELocalized(@"AI CHANNELS")]);
+    ], @[YTKACELocalized(@"HOME"), YTKACELocalized(@"FEED"), YTKACELocalized(@"VIDEO MENU"),
+          YTKACELocalized(@"AI CHANNELS")]);
 }
 
 static NSDictionary *YTKACEShortsOptionsDefinition(void) {

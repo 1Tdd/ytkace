@@ -1034,3 +1034,7 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE использует данные Spo
 "Mark a start and end first" = "Сначала отметьте начало и конец";
 "Clean Copied Links" = "Очищать скопированные ссылки";
 "Removes tracking like si= from links you copy or share." = "Удаляет отслеживание вроде si= из ссылок, которые вы копируете или отправляете.";
+"Remove Play on Different Device" = "Убрать «Воспроизвести на другом устройстве»";
+"Remove Play Next in Queue" = "Убрать «Воспроизвести следующим»";
+"Remove Play Last in Queue" = "Убрать «Воспроизвести последним»";
+"VIDEO MENU" = "МЕНЮ ВИДЕО";

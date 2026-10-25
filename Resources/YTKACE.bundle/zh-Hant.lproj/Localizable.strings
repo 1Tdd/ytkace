@@ -1034,3 +1034,7 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 資料。
 "Mark a start and end first" = "請先標記開始和結束";
 "Clean Copied Links" = "清理複製的連結";
 "Removes tracking like si= from links you copy or share." = "移除你複製或分享的連結中的 si= 等追蹤參數。";
+"Remove Play on Different Device" = "移除「在其他裝置上播放」";
+"Remove Play Next in Queue" = "移除「下一個播放」";
+"Remove Play Last in Queue" = "移除「最後播放」";
+"VIDEO MENU" = "影片選單";

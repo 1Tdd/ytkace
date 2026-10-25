@@ -1034,3 +1034,7 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE داتای SponsorBlock بەکارد�
 "Mark a start and end first" = "سەرەتا دەستپێک و کۆتایی دیاری بکە";
 "Clean Copied Links" = "پاککردنەوەی بەستەرە کۆپیکراوەکان";
 "Removes tracking like si= from links you copy or share." = "شوێنکەوتنی وەک si= لە ئەو بەستەرانە لادەبات کە کۆپی یان هاوبەشیان دەکەیت.";
+"Remove Play on Different Device" = "لابردنی «لێدان لە ئامێرێکی تر»";
+"Remove Play Next in Queue" = "لابردنی «لێدانی دواتر»";
+"Remove Play Last in Queue" = "لابردنی «لێدانی کۆتایی»";
+"VIDEO MENU" = "لیستی ڤیدیۆ";

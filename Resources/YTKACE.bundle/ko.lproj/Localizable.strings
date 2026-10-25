@@ -1034,3 +1034,7 @@ CC BY-NC-SA 4.0 라이선스가 적용됩니다.";
 "Mark a start and end first" = "먼저 시작과 끝을 표시하세요";
 "Clean Copied Links" = "복사한 링크 정리";
 "Removes tracking like si= from links you copy or share." = "복사하거나 공유하는 링크에서 si= 같은 추적 정보를 제거합니다.";
+"Remove Play on Different Device" = "다른 기기에서 재생 삭제";
+"Remove Play Next in Queue" = "다음 재생 삭제";
+"Remove Play Last in Queue" = "마지막에 재생 삭제";
+"VIDEO MENU" = "동영상 메뉴";

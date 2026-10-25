@@ -1034,3 +1034,7 @@ Cấp phép theo CC BY-NC-SA 4.0.";
 "Mark a start and end first" = "Hãy đánh dấu điểm bắt đầu và kết thúc trước";
 "Clean Copied Links" = "Làm sạch liên kết đã sao chép";
 "Removes tracking like si= from links you copy or share." = "Xóa thông số theo dõi như si= khỏi liên kết bạn sao chép hoặc chia sẻ.";
+"Remove Play on Different Device" = "Xóa Phát trên thiết bị khác";
+"Remove Play Next in Queue" = "Xóa Phát tiếp theo";
+"Remove Play Last in Queue" = "Xóa Phát cuối cùng";
+"VIDEO MENU" = "MENU VIDEO";

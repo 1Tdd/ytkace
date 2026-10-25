@@ -940,9 +940,52 @@ static void YTKACEShowMenuSkipCompletion(id receiver, SEL selector, id renderer,
                                         responder, completion);
 }
 
+static NSString *YTKACEMenuItemIcon(id renderer) {
+    NSString *text = nil;
+    @try {
+        text = [renderer description];
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+    NSRange range = [text rangeOfString:@"icon_type: "];
+    if (range.location == NSNotFound) return nil;
+    NSUInteger start = NSMaxRange(range);
+    NSUInteger end = start;
+    while (end < text.length) {
+        unichar character = [text characterAtIndex:end];
+        if (!((character >= 'A' && character <= 'Z') || character == '_' || (character >= '0' && character <= '9'))) break;
+        end++;
+    }
+    return end > start ? [text substringWithRange:NSMakeRange(start, end - start)] : nil;
+}
+
+static id YTKACEFilteredMenuRenderers(id renderers) {
+    if (![renderers isKindOfClass:NSArray.class] || [renderers count] == 0) return renderers;
+    NSDictionary<NSString *, NSString *> *hidden = @{
+        @"CAST_ICON": @"YTKACE.Preference.Menu.CastHidden",
+        @"QUEUE_PLAY_NEXT": @"YTKACE.Preference.Menu.PlayNextHidden",
+        @"QUEUE_PLAY_LAST": @"YTKACE.Preference.Menu.PlayLastHidden",
+        @"ADD_TO_REMOTE_QUEUE": @"YTKACE.Preference.Menu.PlayLastHidden",
+        @"FLAG": @"YTKACE.Preference.Menu.ReportHidden"
+    };
+    BOOL any = NO;
+    for (NSString *key in [NSSet setWithArray:hidden.allValues]) {
+        if (YTKACEFeatureEnabled(key)) any = YES;
+    }
+    if (!any) return renderers;
+    NSMutableArray *kept = [NSMutableArray arrayWithCapacity:[renderers count]];
+    for (id renderer in (NSArray *)renderers) {
+        NSString *key = hidden[YTKACEMenuItemIcon(renderer) ?: @""];
+        if (key != nil && YTKACEFeatureEnabled(key)) continue;
+        [kept addObject:renderer];
+    }
+    return kept.count == [renderers count] ? renderers : kept;
+}
+
 static id YTKACEActionsForRenderersLog(id receiver, SEL selector, id renderers,
                                        id view, id entry, BOOL log,
                                        id responder) {
+    renderers = YTKACEFilteredMenuRenderers(renderers);
     YTKACEQueuePrepareMenuRenderers(renderers);
     YTKACECaptureMenuSource(view);
     if (OriginalActionsForRenderersLog == NULL) return nil;
