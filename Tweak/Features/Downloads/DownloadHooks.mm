@@ -966,7 +966,13 @@ static id YTKACEFilteredMenuRenderers(id renderers) {
         @"QUEUE_PLAY_NEXT": @"YTKACE.Preference.Menu.PlayNextHidden",
         @"QUEUE_PLAY_LAST": @"YTKACE.Preference.Menu.PlayLastHidden",
         @"ADD_TO_REMOTE_QUEUE": @"YTKACE.Preference.Menu.PlayLastHidden",
-        @"FLAG": @"YTKACE.Preference.Menu.ReportHidden"
+        @"FLAG": @"YTKACE.Preference.Menu.ReportHidden",
+        @"ADD_TO_WATCH_LATER": @"YTKACE.Preference.Menu.WatchLaterHidden",
+        @"BOOKMARK_BORDER": @"YTKACE.Preference.Menu.SaveHidden",
+        @"OFFLINE_ADD": @"YTKACE.Preference.Menu.DownloadHidden",
+        @"SHARE_ARROW": @"YTKACE.Preference.Menu.ShareHidden",
+        @"HIDE": @"YTKACE.Preference.Menu.NotInterestedHidden",
+        @"PERSON_CIRCLE_SLASH": @"YTKACE.Preference.Menu.DontRecommendHidden"
     };
     BOOL any = NO;
     for (NSString *key in [NSSet setWithArray:hidden.allValues]) {
@@ -985,6 +991,7 @@ static id YTKACEFilteredMenuRenderers(id renderers) {
 static id YTKACEActionsForRenderersLog(id receiver, SEL selector, id renderers,
                                        id view, id entry, BOOL log,
                                        id responder) {
+    id allRenderers = renderers;
     renderers = YTKACEFilteredMenuRenderers(renderers);
     YTKACEQueuePrepareMenuRenderers(renderers);
     YTKACECaptureMenuSource(view);
@@ -992,7 +999,7 @@ static id YTKACEActionsForRenderersLog(id receiver, SEL selector, id renderers,
     id actions = ((id (*)(id, SEL, id, id, id, BOOL, id))OriginalActionsForRenderersLog)(
         receiver, selector, renderers, view, entry, log, responder);
     YTKACERouteSpeedMenuItem(renderers, actions, view, responder);
-    return YTKACEAiSListAppendMenuAction(renderers, actions);
+    return YTKACEAiSListAppendMenuAction(allRenderers, actions);
 }
 
 static UIView *YTKACEOverflowButtonInside(UIView *root) {

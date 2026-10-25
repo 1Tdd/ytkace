@@ -1038,3 +1038,8 @@ CC BY-NC-SA 4.0 라이선스가 적용됩니다.";
 "Remove Play Next in Queue" = "다음 재생 삭제";
 "Remove Play Last in Queue" = "마지막에 재생 삭제";
 "VIDEO MENU" = "동영상 메뉴";
+"Remove Save to Watch Later" = "나중에 볼 동영상에 저장 삭제";
+"Remove Save to Playlist" = "재생목록에 저장 삭제";
+"Remove Not Interested" = "관심 없음 삭제";
+"Remove Don't Recommend Channel" = "채널 추천 안함 삭제";
+"Also removes YTKACE's download from this menu." = "이 메뉴에서 YTKACE 다운로드도 삭제됩니다.";

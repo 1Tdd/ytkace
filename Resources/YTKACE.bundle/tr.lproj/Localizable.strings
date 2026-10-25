@@ -1038,3 +1038,8 @@ CC BY-NC-SA 4.0 ile lisanslanmıştır.";
 "Remove Play Next in Queue" = "Sıradaki olarak oynat'ı kaldır";
 "Remove Play Last in Queue" = "Sıranın sonunda oynat'ı kaldır";
 "VIDEO MENU" = "VİDEO MENÜSÜ";
+"Remove Save to Watch Later" = "Daha sonra izle'ye kaydet'i kaldır";
+"Remove Save to Playlist" = "Oynatma listesine kaydet'i kaldır";
+"Remove Not Interested" = "İlgilenmiyorum'u kaldır";
+"Remove Don't Recommend Channel" = "Kanalı önerme'yi kaldır";
+"Also removes YTKACE's download from this menu." = "YTKACE indirmesini de bu menüden kaldırır.";

@@ -1038,3 +1038,8 @@ CC BY-NC-SA 4.0 でライセンスされています。";
 "Remove Play Next in Queue" = "「次に再生」を削除";
 "Remove Play Last in Queue" = "「最後に再生」を削除";
 "VIDEO MENU" = "動画メニュー";
+"Remove Save to Watch Later" = "「後で見るに保存」を削除";
+"Remove Save to Playlist" = "「再生リストに保存」を削除";
+"Remove Not Interested" = "「興味なし」を削除";
+"Remove Don't Recommend Channel" = "「チャンネルをおすすめに表示しない」を削除";
+"Also removes YTKACE's download from this menu." = "このメニューからYTKACEのダウンロードも削除します。";

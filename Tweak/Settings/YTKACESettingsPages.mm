@@ -1724,6 +1724,13 @@ static NSDictionary *YTKACEFeedDefinition(void) {
             YTKACEToggle(@"Remove Play on Different Device", @"YTKACE.Preference.Menu.CastHidden", @"", @""),
             YTKACEToggle(@"Remove Play Next in Queue", @"YTKACE.Preference.Menu.PlayNextHidden", @"", @""),
             YTKACEToggle(@"Remove Play Last in Queue", @"YTKACE.Preference.Menu.PlayLastHidden", @"", @""),
+            YTKACEToggle(@"Remove Save to Watch Later", @"YTKACE.Preference.Menu.WatchLaterHidden", @"", @""),
+            YTKACEToggle(@"Remove Save to Playlist", @"YTKACE.Preference.Menu.SaveHidden", @"", @""),
+            YTKACEToggleDetail(@"Remove Download", @"Also removes YTKACE's download from this menu.",
+                               @"YTKACE.Preference.Menu.DownloadHidden"),
+            YTKACEToggle(@"Remove Share", @"YTKACE.Preference.Menu.ShareHidden", @"", @""),
+            YTKACEToggle(@"Remove Not Interested", @"YTKACE.Preference.Menu.NotInterestedHidden", @"", @""),
+            YTKACEToggle(@"Remove Don't Recommend Channel", @"YTKACE.Preference.Menu.DontRecommendHidden", @"", @""),
             YTKACEToggle(@"Remove Report", @"YTKACE.Preference.Menu.ReportHidden", @"", @"")
         ],
         @[

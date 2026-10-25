@@ -1038,3 +1038,8 @@ Cấp phép theo CC BY-NC-SA 4.0.";
 "Remove Play Next in Queue" = "Xóa Phát tiếp theo";
 "Remove Play Last in Queue" = "Xóa Phát cuối cùng";
 "VIDEO MENU" = "MENU VIDEO";
+"Remove Save to Watch Later" = "Xóa Lưu vào Xem sau";
+"Remove Save to Playlist" = "Xóa Lưu vào danh sách phát";
+"Remove Not Interested" = "Xóa Không quan tâm";
+"Remove Don't Recommend Channel" = "Xóa Không đề xuất kênh";
+"Also removes YTKACE's download from this menu." = "Cũng xóa mục tải xuống của YTKACE khỏi menu này.";

@@ -1059,3 +1059,8 @@ Licensed under CC BY-NC-SA 4.0.";
 "Remove Play Next in Queue" = "Remove Play Next in Queue";
 "Remove Play Last in Queue" = "Remove Play Last in Queue";
 "VIDEO MENU" = "VIDEO MENU";
+"Remove Save to Watch Later" = "Remove Save to Watch Later";
+"Remove Save to Playlist" = "Remove Save to Playlist";
+"Remove Not Interested" = "Remove Not Interested";
+"Remove Don't Recommend Channel" = "Remove Don't Recommend Channel";
+"Also removes YTKACE's download from this menu." = "Also removes YTKACE's download from this menu.";

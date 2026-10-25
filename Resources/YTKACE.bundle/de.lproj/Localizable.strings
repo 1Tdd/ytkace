@@ -1038,3 +1038,8 @@ Lizenziert unter CC BY-NC-SA 4.0.";
 "Remove Play Next in Queue" = "„Als Nächstes in der Wiedergabeliste“ entfernen";
 "Remove Play Last in Queue" = "„Zuletzt in der Wiedergabeliste“ entfernen";
 "VIDEO MENU" = "VIDEOMENÜ";
+"Remove Save to Watch Later" = "„Später ansehen“ entfernen";
+"Remove Save to Playlist" = "„In Playlist speichern“ entfernen";
+"Remove Not Interested" = "„Kein Interesse“ entfernen";
+"Remove Don't Recommend Channel" = "„Kanal nicht empfehlen“ entfernen";
+"Also removes YTKACE's download from this menu." = "Entfernt auch den YTKACE-Download aus diesem Menü.";
