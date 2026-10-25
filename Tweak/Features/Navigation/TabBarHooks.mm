@@ -11,6 +11,7 @@
 #import <objc/runtime.h>
 
 static IMP OriginalSetPivotRenderer;
+static IMP OriginalSetFloatingPivotRenderer;
 static IMP OriginalPivotItemLayout;
 static IMP OriginalPivotItemSetSelected;
 static IMP OriginalPivotItemTraitChanged;
@@ -512,10 +513,14 @@ static NSInteger YTKACETabOrderIndex(NSString *token, NSArray *order) {
         if (![value isKindOfClass:NSString.class]) continue;
         NSString *entry = [value lowercaseString];
         if ([canonical isEqualToString:entry] ||
-            [canonical isEqualToString:YTKACECanonicalTabToken(entry)] ||
-            [token containsString:entry]) {
+            [canonical isEqualToString:YTKACECanonicalTabToken(entry)]) {
             return (NSInteger)index;
         }
+    }
+    for (NSUInteger index = 0; index < order.count; index++) {
+        id value = order[index];
+        if (![value isKindOfClass:NSString.class]) continue;
+        if ([token containsString:[value lowercaseString]]) return (NSInteger)index;
     }
     return NSIntegerMax;
 }
@@ -682,11 +687,34 @@ static void YTKACESetPivotRenderer(id receiver, SEL selector, id renderer) {
         }
     }
 
-    if (OriginalSetPivotRenderer != NULL) {
-        ((void (*)(id, SEL, id))OriginalSetPivotRenderer)(
-            receiver, selector, renderer
-        );
+    static Class floatingClass;
+    if (floatingClass == Nil) floatingClass = NSClassFromString(@"YTFloatingPivotBarView");
+    BOOL floating = floatingClass != Nil && [receiver isKindOfClass:floatingClass];
+    if (floating) {
+        NSArray *tabs = renderer != nil ? YTKACETabItems(renderer, NULL) : nil;
+        YTKACEDebugLog(@"tabbar", @"floating bar renderer tabs=%lu", (unsigned long)tabs.count);
     }
+    IMP original = floating ? OriginalSetFloatingPivotRenderer : OriginalSetPivotRenderer;
+    if (original != NULL) {
+        ((void (*)(id, SEL, id))original)(receiver, selector, renderer);
+    }
+}
+
+static BOOL YTKACETabLabelsHidden(UIView *item) {
+    BOOL hidden = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
+    static Class floatingClass;
+    if (floatingClass == Nil) floatingClass = NSClassFromString(@"YTFloatingPivotBarView");
+    SEL getter = NSSelectorFromString(@"hideLabel");
+    SEL setter = NSSelectorFromString(@"setHideLabel:");
+    if (floatingClass == Nil || ![item respondsToSelector:getter] || ![item respondsToSelector:setter]) return hidden;
+    UIView *bar = item.superview;
+    while (bar != nil && ![bar isKindOfClass:floatingClass]) bar = bar.superview;
+    if (bar == nil) return hidden;
+    if (((BOOL (*)(id, SEL))objc_msgSend)(item, getter) != hidden) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(item, setter, hidden);
+        [item setNeedsLayout];
+    }
+    return hidden;
 }
 
 static void YTKACESetLabelsHidden(UIView *view, BOOL hidden) {
@@ -936,7 +964,7 @@ static void YTKACEApplyDownloadIcon(UIView *view) {
     ) boolValue];
     BOOL definiteOther = (token.length != 0 && !exactIdentifier) ||
         (text.length != 0 && !exactLabel);
-    BOOL hideLabel = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
+    BOOL hideLabel = YTKACETabLabelsHidden(view);
     if (definiteOther) {
         YTKACERestorePivotItem(view, nativeLabel, hideLabel);
         return;
@@ -1137,7 +1165,7 @@ static void YTKACEApplyExtraTabIcon(UIView *view) {
     icon.tintColor = YTKACETabForegroundColor(view);
     icon.hidden = NO;
     CGFloat size = 24.0;
-    BOOL hideLabel = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
+    BOOL hideLabel = YTKACETabLabelsHidden(view);
     icon.frame = CGRectMake(
         (CGRectGetWidth(view.bounds) - size) * 0.5,
         hideLabel ? (CGRectGetHeight(view.bounds) - size) * 0.5 : 4.0,
@@ -1284,7 +1312,7 @@ static void YTKACERestyleSelectedTab(UIView *item) {
 }
 
 static void YTKACEApplyPivotItemPresentation(UIView *view) {
-    BOOL hideLabels = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
+    BOOL hideLabels = YTKACETabLabelsHidden(view);
     YTKACESetLabelsHidden(view, hideLabels);
     YTKACEApplyDownloadIcon(view);
     YTKACEApplyExtraTabIcon(view);
@@ -1300,9 +1328,8 @@ static void YTKACEPivotButtonLayout(UIView *receiver, SEL selector) {
         UIView *tintItem = YTKACEPivotItemAncestor(receiver);
         if (tintItem != nil) YTKACEApplyTabTint(tintItem);
     }
-    if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden")) return;
     UIView *item = YTKACEPivotItemAncestor(receiver);
-    if (item == nil || CGRectIsEmpty(item.bounds)) return;
+    if (item == nil || CGRectIsEmpty(item.bounds) || !YTKACETabLabelsHidden(item)) return;
     YTKACESetLabelsHidden(receiver, YES);
     UIImageView *icon = nil;
     for (UIView *child in receiver.subviews) {
@@ -3792,6 +3819,13 @@ void YTKACEInstallTabBarHooks(void) {
                               @"setRenderer:",
                               (IMP)YTKACESetPivotRenderer,
                               &OriginalSetPivotRenderer);
+    Method floatingSetter = class_getInstanceMethod(NSClassFromString(@"YTFloatingPivotBarView"),
+                                                    @selector(setRenderer:));
+    const char *floatingTypes = floatingSetter != NULL ? method_getTypeEncoding(floatingSetter) : NULL;
+    BOOL floatingHooked = floatingTypes != NULL && strncmp(floatingTypes, "v24@0:8@16", 10) == 0 &&
+        YTKACEInstallInstanceHook(@"YTFloatingPivotBarView", @"setRenderer:",
+                                  (IMP)YTKACESetPivotRenderer, &OriginalSetFloatingPivotRenderer);
+    YTKACEDownloadLog(@"tabbar", @"floating bar hook=%d types=%s", floatingHooked, floatingTypes ?: "-");
     YTKACEInstallInstanceHook(@"YTPivotBarItemView",
                               @"layoutSubviews",
                               (IMP)YTKACEPivotItemLayout,
