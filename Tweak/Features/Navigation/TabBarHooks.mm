@@ -37,6 +37,7 @@ static NSString * const YTKACEPivotIdentifier = @"FEYTKACE";
 static NSInteger const YTKACEExtraIconTag = 0x59414349;
 static NSInteger const YTKACEExtraLabelTag = 0x5941434A;
 static BOOL YTKACEStartupApplied;
+static NSString *YTKACEFirstVisiblePivot;
 
 static BOOL YTKACENavigationRefreshScheduled;
 
@@ -678,6 +679,8 @@ static void YTKACESetPivotRenderer(id receiver, SEL selector, id renderer) {
                 }];
             }
 
+            NSString *firstIdentifier = filtered.count != 0 ? YTKACERawTabIdentifier(filtered.firstObject, 0) : nil;
+            if (firstIdentifier.length != 0) YTKACEFirstVisiblePivot = [firstIdentifier copy];
             SEL setter = NSSelectorFromString(setterName);
             if ([items isKindOfClass:NSMutableArray.class]) {
                 [(NSMutableArray *)items setArray:filtered];
@@ -3388,6 +3391,9 @@ static BOOL YTKACEApplyPivotBarGlass(UIView *receiver, UIView *blur) {
     CGFloat barWidth = CGRectGetWidth(receiver.bounds);
     CGFloat margin = expanded ? 14.0 : 21.0;
     CGFloat glassWidth = barWidth - margin * 2.0;
+    CGRect screen = (receiver.window.screen ?: UIScreen.mainScreen).bounds;
+    CGFloat shortSide = MIN(CGRectGetWidth(screen), CGRectGetHeight(screen));
+    if (shortSide > 0.0) glassWidth = MIN(glassWidth, shortSide - margin * 2.0);
     if (tabs > 0 && tabs <= 4) {
         glassWidth = MIN(glassWidth, 86.0 * (CGFloat)tabs + 16.0);
     }
@@ -3617,6 +3623,17 @@ static NSString *YTKACEStartupPivotIdentifier(NSString *token) {
     return YTKACEStartupIdentifiers[token];
 }
 
+static NSString *YTKACEWantedStartupPivot(void) {
+    NSString *identifier = YTKACEStartupPivotIdentifier(YTKACEStartupTabToken());
+    if (identifier.length != 0) return identifier;
+    if (YTKACEMasterEnabled() &&
+        [NSUserDefaults.standardUserDefaults boolForKey:@"YTKACE.Preference.Tabs.Hidden.Home"] &&
+        YTKACEFirstVisiblePivot.length != 0 && ![YTKACEFirstVisiblePivot isEqualToString:@"FEwhat_to_watch"]) {
+        return YTKACEFirstVisiblePivot;
+    }
+    return nil;
+}
+
 static __weak id YTKACEPivotBarControllerRef;
 
 static id YTKACEPivotControllerForView(UIView *view) {
@@ -3649,9 +3666,9 @@ static BOOL YTKACENavigateToPivot(id controller, NSString *identifier) {
 
 static void YTKACEApplyStartupTab(UIView *receiver) {
     if (YTKACEStartupApplied) return;
-    NSString *token = YTKACEStartupTabToken();
-    if (token.length == 0) {
-        YTKACEStartupApplied = YES;
+    NSString *identifier = YTKACEWantedStartupPivot();
+    if (identifier.length == 0) {
+        if (YTKACEFirstVisiblePivot.length != 0) YTKACEStartupApplied = YES;
         return;
     }
     static NSTimeInterval firstSeen = 0.0;
@@ -3662,14 +3679,29 @@ static void YTKACEApplyStartupTab(UIView *receiver) {
         return;
     }
 
-    NSString *identifier = YTKACEStartupPivotIdentifier(token);
     id controller = YTKACEPivotControllerForView(receiver);
-    if (identifier.length == 0) return;
 
     id target = controller ?: receiver;
     SEL current = NSSelectorFromString(@"selectedPivotIdentifier");
     if ([target respondsToSelector:current]) {
         id selected = ((id (*)(id, SEL))objc_msgSend)(target, current);
+        if ([selected isKindOfClass:NSString.class] &&
+            [selected caseInsensitiveCompare:identifier] == NSOrderedSame &&
+            [NSUserDefaults.standardUserDefaults boolForKey:@"YTKACE.Preference.Tabs.Hidden.Home"]) {
+            SEL selectItem = NSSelectorFromString(@"selectItemWithPivotIdentifier:");
+            SEL setSelected = NSSelectorFromString(@"setSelectedPivotIdentifier:");
+            if ([controller respondsToSelector:selectItem])
+                ((void (*)(id, SEL, id))objc_msgSend)(controller, selectItem, @"FEwhat_to_watch");
+            if ([controller respondsToSelector:setSelected])
+                ((void (*)(id, SEL, id))objc_msgSend)(controller, setSelected, @"FEwhat_to_watch");
+            @try {
+                [controller setValue:@"FEwhat_to_watch" forKey:@"_pivotIdentifier"];
+            } @catch (__unused NSException *exception) {
+            }
+            YTKACENavigateToPivot(controller, identifier);
+            YTKACEStartupApplied = YES;
+            return;
+        }
         if ([selected isKindOfClass:NSString.class] &&
             [selected caseInsensitiveCompare:identifier] == NSOrderedSame) {
             YTKACEStartupApplied = YES;
@@ -3699,7 +3731,7 @@ static void YTKACESetDefaultSelectedPivot(id receiver, SEL selector, id identifi
 
 static void YTKACEScheduleStartupTab(id controller) {
     if (YTKACEStartupApplied) return;
-    if (YTKACEStartupTabToken().length == 0) {
+    if (YTKACEWantedStartupPivot().length == 0 && YTKACEFirstVisiblePivot.length != 0) {
         YTKACEStartupApplied = YES;
         return;
     }
