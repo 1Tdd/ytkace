@@ -995,3 +995,27 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE использует данные Spo
 "Hide live streams from the Shorts feed." = "Скрывать прямые трансляции из ленты Shorts.";
 
 "Default leaves YouTube's own tab bar as is." = "По умолчанию панель вкладок YouTube остаётся без изменений.";
+"Report AI Channels" = "Жаловаться на ИИ-каналы";
+"Adds Report AI Channel to the ⋯ menu of videos." = "Добавляет «Пожаловаться на ИИ-канал» в меню ⋯ видео.";
+"Report Name" = "Имя для жалоб";
+"Sent with your reports to AiSList." = "Отправляется с вашими жалобами в AiSList.";
+"Report AI Channel" = "Пожаловаться на ИИ-канал";
+"Report as AI channel" = "Пожаловаться как на ИИ-канал";
+"Finding channel…" = "Поиск канала…";
+"Could not find this channel's handle" = "Не удалось найти идентификатор канала";
+"Reported to AiSList" = "Жалоба отправлена в AiSList";
+"This channel was already reported" = "На этот канал уже жаловались";
+"Too many reports. Try again later." = "Слишком много жалоб. Попробуйте позже.";
+"AiSList could not accept this report" = "AiSList не смог принять жалобу";
+"Could not reach AiSList" = "Не удалось связаться с AiSList";
+"Clean Copied Links" = "Очищать скопированные ссылки";
+"Removes tracking like si= from links you copy or share." = "Удаляет отслеживание вроде si= из ссылок, которые вы копируете или отправляете.";
+"Remove Play on Different Device" = "Убрать «Воспроизвести на другом устройстве»";
+"Remove Play Next in Queue" = "Убрать «Воспроизвести следующим»";
+"Remove Play Last in Queue" = "Убрать «Воспроизвести последним»";
+"VIDEO MENU" = "МЕНЮ ВИДЕО";
+"Remove Save to Watch Later" = "Убрать «Смотреть позже»";
+"Remove Save to Playlist" = "Убрать «Сохранить в плейлист»";
+"Remove Not Interested" = "Убрать «Не интересует»";
+"Remove Don't Recommend Channel" = "Убрать «Не рекомендовать канал»";
+"Also removes YTKACE's download from this menu." = "Также убирает загрузку YTKACE из этого меню.";

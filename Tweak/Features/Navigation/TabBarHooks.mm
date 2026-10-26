@@ -11,6 +11,7 @@
 #import <objc/runtime.h>
 
 static IMP OriginalSetPivotRenderer;
+static IMP OriginalSetFloatingPivotRenderer;
 static IMP OriginalPivotItemLayout;
 static IMP OriginalPivotItemSetSelected;
 static IMP OriginalPivotItemTraitChanged;
@@ -36,6 +37,7 @@ static NSString * const YTKACEPivotIdentifier = @"FEYTKACE";
 static NSInteger const YTKACEExtraIconTag = 0x59414349;
 static NSInteger const YTKACEExtraLabelTag = 0x5941434A;
 static BOOL YTKACEStartupApplied;
+static NSString *YTKACEFirstVisiblePivot;
 
 static BOOL YTKACENavigationRefreshScheduled;
 
@@ -512,10 +514,14 @@ static NSInteger YTKACETabOrderIndex(NSString *token, NSArray *order) {
         if (![value isKindOfClass:NSString.class]) continue;
         NSString *entry = [value lowercaseString];
         if ([canonical isEqualToString:entry] ||
-            [canonical isEqualToString:YTKACECanonicalTabToken(entry)] ||
-            [token containsString:entry]) {
+            [canonical isEqualToString:YTKACECanonicalTabToken(entry)]) {
             return (NSInteger)index;
         }
+    }
+    for (NSUInteger index = 0; index < order.count; index++) {
+        id value = order[index];
+        if (![value isKindOfClass:NSString.class]) continue;
+        if ([token containsString:[value lowercaseString]]) return (NSInteger)index;
     }
     return NSIntegerMax;
 }
@@ -673,6 +679,8 @@ static void YTKACESetPivotRenderer(id receiver, SEL selector, id renderer) {
                 }];
             }
 
+            NSString *firstIdentifier = filtered.count != 0 ? YTKACERawTabIdentifier(filtered.firstObject, 0) : nil;
+            if (firstIdentifier.length != 0) YTKACEFirstVisiblePivot = [firstIdentifier copy];
             SEL setter = NSSelectorFromString(setterName);
             if ([items isKindOfClass:NSMutableArray.class]) {
                 [(NSMutableArray *)items setArray:filtered];
@@ -682,11 +690,34 @@ static void YTKACESetPivotRenderer(id receiver, SEL selector, id renderer) {
         }
     }
 
-    if (OriginalSetPivotRenderer != NULL) {
-        ((void (*)(id, SEL, id))OriginalSetPivotRenderer)(
-            receiver, selector, renderer
-        );
+    static Class floatingClass;
+    if (floatingClass == Nil) floatingClass = NSClassFromString(@"YTFloatingPivotBarView");
+    BOOL floating = floatingClass != Nil && [receiver isKindOfClass:floatingClass];
+    if (floating) {
+        NSArray *tabs = renderer != nil ? YTKACETabItems(renderer, NULL) : nil;
+        YTKACEDebugLog(@"tabbar", @"floating bar renderer tabs=%lu", (unsigned long)tabs.count);
     }
+    IMP original = floating ? OriginalSetFloatingPivotRenderer : OriginalSetPivotRenderer;
+    if (original != NULL) {
+        ((void (*)(id, SEL, id))original)(receiver, selector, renderer);
+    }
+}
+
+static BOOL YTKACETabLabelsHidden(UIView *item) {
+    BOOL hidden = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
+    static Class floatingClass;
+    if (floatingClass == Nil) floatingClass = NSClassFromString(@"YTFloatingPivotBarView");
+    SEL getter = NSSelectorFromString(@"hideLabel");
+    SEL setter = NSSelectorFromString(@"setHideLabel:");
+    if (floatingClass == Nil || ![item respondsToSelector:getter] || ![item respondsToSelector:setter]) return hidden;
+    UIView *bar = item.superview;
+    while (bar != nil && ![bar isKindOfClass:floatingClass]) bar = bar.superview;
+    if (bar == nil) return hidden;
+    if (((BOOL (*)(id, SEL))objc_msgSend)(item, getter) != hidden) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(item, setter, hidden);
+        [item setNeedsLayout];
+    }
+    return hidden;
 }
 
 static void YTKACESetLabelsHidden(UIView *view, BOOL hidden) {
@@ -936,7 +967,7 @@ static void YTKACEApplyDownloadIcon(UIView *view) {
     ) boolValue];
     BOOL definiteOther = (token.length != 0 && !exactIdentifier) ||
         (text.length != 0 && !exactLabel);
-    BOOL hideLabel = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
+    BOOL hideLabel = YTKACETabLabelsHidden(view);
     if (definiteOther) {
         YTKACERestorePivotItem(view, nativeLabel, hideLabel);
         return;
@@ -1137,7 +1168,7 @@ static void YTKACEApplyExtraTabIcon(UIView *view) {
     icon.tintColor = YTKACETabForegroundColor(view);
     icon.hidden = NO;
     CGFloat size = 24.0;
-    BOOL hideLabel = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
+    BOOL hideLabel = YTKACETabLabelsHidden(view);
     icon.frame = CGRectMake(
         (CGRectGetWidth(view.bounds) - size) * 0.5,
         hideLabel ? (CGRectGetHeight(view.bounds) - size) * 0.5 : 4.0,
@@ -1284,7 +1315,7 @@ static void YTKACERestyleSelectedTab(UIView *item) {
 }
 
 static void YTKACEApplyPivotItemPresentation(UIView *view) {
-    BOOL hideLabels = YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden");
+    BOOL hideLabels = YTKACETabLabelsHidden(view);
     YTKACESetLabelsHidden(view, hideLabels);
     YTKACEApplyDownloadIcon(view);
     YTKACEApplyExtraTabIcon(view);
@@ -1300,9 +1331,8 @@ static void YTKACEPivotButtonLayout(UIView *receiver, SEL selector) {
         UIView *tintItem = YTKACEPivotItemAncestor(receiver);
         if (tintItem != nil) YTKACEApplyTabTint(tintItem);
     }
-    if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Tabs.LabelsHidden")) return;
     UIView *item = YTKACEPivotItemAncestor(receiver);
-    if (item == nil || CGRectIsEmpty(item.bounds)) return;
+    if (item == nil || CGRectIsEmpty(item.bounds) || !YTKACETabLabelsHidden(item)) return;
     YTKACESetLabelsHidden(receiver, YES);
     UIImageView *icon = nil;
     for (UIView *child in receiver.subviews) {
@@ -3368,6 +3398,9 @@ static BOOL YTKACEApplyPivotBarGlass(UIView *receiver, UIView *blur) {
     CGFloat barWidth = CGRectGetWidth(receiver.bounds);
     CGFloat margin = expanded ? 14.0 : 21.0;
     CGFloat glassWidth = barWidth - margin * 2.0;
+    CGRect screen = (receiver.window.screen ?: UIScreen.mainScreen).bounds;
+    CGFloat shortSide = MIN(CGRectGetWidth(screen), CGRectGetHeight(screen));
+    if (shortSide > 0.0) glassWidth = MIN(glassWidth, shortSide - margin * 2.0);
     if (tabs > 0 && tabs <= 4) {
         glassWidth = MIN(glassWidth, 86.0 * (CGFloat)tabs + 16.0);
     }
@@ -3597,6 +3630,17 @@ static NSString *YTKACEStartupPivotIdentifier(NSString *token) {
     return YTKACEStartupIdentifiers[token];
 }
 
+static NSString *YTKACEWantedStartupPivot(void) {
+    NSString *identifier = YTKACEStartupPivotIdentifier(YTKACEStartupTabToken());
+    if (identifier.length != 0) return identifier;
+    if (YTKACEMasterEnabled() &&
+        [NSUserDefaults.standardUserDefaults boolForKey:@"YTKACE.Preference.Tabs.Hidden.Home"] &&
+        YTKACEFirstVisiblePivot.length != 0 && ![YTKACEFirstVisiblePivot isEqualToString:@"FEwhat_to_watch"]) {
+        return YTKACEFirstVisiblePivot;
+    }
+    return nil;
+}
+
 static __weak id YTKACEPivotBarControllerRef;
 
 static id YTKACEPivotControllerForView(UIView *view) {
@@ -3629,9 +3673,9 @@ static BOOL YTKACENavigateToPivot(id controller, NSString *identifier) {
 
 static void YTKACEApplyStartupTab(UIView *receiver) {
     if (YTKACEStartupApplied) return;
-    NSString *token = YTKACEStartupTabToken();
-    if (token.length == 0) {
-        YTKACEStartupApplied = YES;
+    NSString *identifier = YTKACEWantedStartupPivot();
+    if (identifier.length == 0) {
+        if (YTKACEFirstVisiblePivot.length != 0) YTKACEStartupApplied = YES;
         return;
     }
     static NSTimeInterval firstSeen = 0.0;
@@ -3642,14 +3686,29 @@ static void YTKACEApplyStartupTab(UIView *receiver) {
         return;
     }
 
-    NSString *identifier = YTKACEStartupPivotIdentifier(token);
     id controller = YTKACEPivotControllerForView(receiver);
-    if (identifier.length == 0) return;
 
     id target = controller ?: receiver;
     SEL current = NSSelectorFromString(@"selectedPivotIdentifier");
     if ([target respondsToSelector:current]) {
         id selected = ((id (*)(id, SEL))objc_msgSend)(target, current);
+        if ([selected isKindOfClass:NSString.class] &&
+            [selected caseInsensitiveCompare:identifier] == NSOrderedSame &&
+            [NSUserDefaults.standardUserDefaults boolForKey:@"YTKACE.Preference.Tabs.Hidden.Home"]) {
+            SEL selectItem = NSSelectorFromString(@"selectItemWithPivotIdentifier:");
+            SEL setSelected = NSSelectorFromString(@"setSelectedPivotIdentifier:");
+            if ([controller respondsToSelector:selectItem])
+                ((void (*)(id, SEL, id))objc_msgSend)(controller, selectItem, @"FEwhat_to_watch");
+            if ([controller respondsToSelector:setSelected])
+                ((void (*)(id, SEL, id))objc_msgSend)(controller, setSelected, @"FEwhat_to_watch");
+            @try {
+                [controller setValue:@"FEwhat_to_watch" forKey:@"_pivotIdentifier"];
+            } @catch (__unused NSException *exception) {
+            }
+            YTKACENavigateToPivot(controller, identifier);
+            YTKACEStartupApplied = YES;
+            return;
+        }
         if ([selected isKindOfClass:NSString.class] &&
             [selected caseInsensitiveCompare:identifier] == NSOrderedSame) {
             YTKACEStartupApplied = YES;
@@ -3679,7 +3738,7 @@ static void YTKACESetDefaultSelectedPivot(id receiver, SEL selector, id identifi
 
 static void YTKACEScheduleStartupTab(id controller) {
     if (YTKACEStartupApplied) return;
-    if (YTKACEStartupTabToken().length == 0) {
+    if (YTKACEWantedStartupPivot().length == 0 && YTKACEFirstVisiblePivot.length != 0) {
         YTKACEStartupApplied = YES;
         return;
     }
@@ -3804,6 +3863,13 @@ void YTKACEInstallTabBarHooks(void) {
                               @"setRenderer:",
                               (IMP)YTKACESetPivotRenderer,
                               &OriginalSetPivotRenderer);
+    Method floatingSetter = class_getInstanceMethod(NSClassFromString(@"YTFloatingPivotBarView"),
+                                                    @selector(setRenderer:));
+    const char *floatingTypes = floatingSetter != NULL ? method_getTypeEncoding(floatingSetter) : NULL;
+    BOOL floatingHooked = floatingTypes != NULL && strncmp(floatingTypes, "v24@0:8@16", 10) == 0 &&
+        YTKACEInstallInstanceHook(@"YTFloatingPivotBarView", @"setRenderer:",
+                                  (IMP)YTKACESetPivotRenderer, &OriginalSetFloatingPivotRenderer);
+    YTKACEDownloadLog(@"tabbar", @"floating bar hook=%d types=%s", floatingHooked, floatingTypes ?: "-");
     YTKACEInstallInstanceHook(@"YTPivotBarItemView",
                               @"layoutSubviews",
                               (IMP)YTKACEPivotItemLayout,

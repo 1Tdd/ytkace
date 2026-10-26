@@ -1006,3 +1006,27 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 数据。
 "Hide live streams from the Shorts feed." = "从 Shorts 信息流中隐藏直播。";
 
 "Default leaves YouTube's own tab bar as is." = "默认保留 YouTube 自带的标签栏。";
+"Report AI Channels" = "举报 AI 频道";
+"Adds Report AI Channel to the ⋯ menu of videos." = "在视频的 ⋯ 菜单中添加“举报 AI 频道”。";
+"Report Name" = "举报名称";
+"Sent with your reports to AiSList." = "会随举报一起发送给 AiSList。";
+"Report AI Channel" = "举报 AI 频道";
+"Report as AI channel" = "举报为 AI 频道";
+"Finding channel…" = "正在查找频道…";
+"Could not find this channel's handle" = "找不到此频道的标识名";
+"Reported to AiSList" = "已举报至 AiSList";
+"This channel was already reported" = "此频道已被举报";
+"Too many reports. Try again later." = "举报次数过多，请稍后再试。";
+"AiSList could not accept this report" = "AiSList 无法接受此举报";
+"Could not reach AiSList" = "无法连接 AiSList";
+"Clean Copied Links" = "清理复制的链接";
+"Removes tracking like si= from links you copy or share." = "移除你复制或分享的链接中的 si= 等跟踪参数。";
+"Remove Play on Different Device" = "移除“在其他设备上播放”";
+"Remove Play Next in Queue" = "移除“下一个播放”";
+"Remove Play Last in Queue" = "移除“最后播放”";
+"VIDEO MENU" = "视频菜单";
+"Remove Save to Watch Later" = "移除“保存到稍后观看”";
+"Remove Save to Playlist" = "移除“保存到播放列表”";
+"Remove Not Interested" = "移除“不感兴趣”";
+"Remove Don't Recommend Channel" = "移除“不推荐此频道”";
+"Also removes YTKACE's download from this menu." = "同时会从此菜单移除 YTKACE 的下载。";

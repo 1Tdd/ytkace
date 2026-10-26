@@ -995,3 +995,27 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 資料。
 "Hide live streams from the Shorts feed." = "從 Shorts 動態消息中隱藏直播。";
 
 "Default leaves YouTube's own tab bar as is." = "預設保留 YouTube 原本的分頁列。";
+"Report AI Channels" = "檢舉 AI 頻道";
+"Adds Report AI Channel to the ⋯ menu of videos." = "在影片的 ⋯ 選單中加入「檢舉 AI 頻道」。";
+"Report Name" = "檢舉名稱";
+"Sent with your reports to AiSList." = "會隨檢舉一起傳送給 AiSList。";
+"Report AI Channel" = "檢舉 AI 頻道";
+"Report as AI channel" = "檢舉為 AI 頻道";
+"Finding channel…" = "正在尋找頻道…";
+"Could not find this channel's handle" = "找不到此頻道的帳號代碼";
+"Reported to AiSList" = "已檢舉至 AiSList";
+"This channel was already reported" = "此頻道已被檢舉";
+"Too many reports. Try again later." = "檢舉次數過多，請稍後再試。";
+"AiSList could not accept this report" = "AiSList 無法接受此檢舉";
+"Could not reach AiSList" = "無法連線至 AiSList";
+"Clean Copied Links" = "清理複製的連結";
+"Removes tracking like si= from links you copy or share." = "移除你複製或分享的連結中的 si= 等追蹤參數。";
+"Remove Play on Different Device" = "移除「在其他裝置上播放」";
+"Remove Play Next in Queue" = "移除「下一個播放」";
+"Remove Play Last in Queue" = "移除「最後播放」";
+"VIDEO MENU" = "影片選單";
+"Remove Save to Watch Later" = "移除「儲存至稍後觀看」";
+"Remove Save to Playlist" = "移除「儲存至播放清單」";
+"Remove Not Interested" = "移除「不感興趣」";
+"Remove Don't Recommend Channel" = "移除「不推薦此頻道」";
+"Also removes YTKACE's download from this menu." = "也會從此選單移除 YTKACE 的下載。";

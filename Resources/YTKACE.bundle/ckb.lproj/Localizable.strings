@@ -995,3 +995,27 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE داتای SponsorBlock بەکارد�
 "Hide live streams from the Shorts feed." = "شاردنەوەی پەخشی ڕاستەوخۆ لە فیدی شۆرتس.";
 
 "Default leaves YouTube's own tab bar as is." = "بنەڕەت شریتی تابی یوتیوب وەک خۆی دەهێڵێتەوە.";
+"Report AI Channels" = "ڕاپۆرتکردنی کەناڵەکانی AI";
+"Adds Report AI Channel to the ⋯ menu of videos." = "«ڕاپۆرتکردنی کەناڵی AI» زیاد دەکات بۆ لیستی ⋯ ی ڤیدیۆکان.";
+"Report Name" = "ناوی ڕاپۆرت";
+"Sent with your reports to AiSList." = "لەگەڵ ڕاپۆرتەکانت بۆ AiSList دەنێردرێت.";
+"Report AI Channel" = "ڕاپۆرتکردنی کەناڵی AI";
+"Report as AI channel" = "ڕاپۆرتکردن وەک کەناڵی AI";
+"Finding channel…" = "گەڕان بەدوای کەناڵ…";
+"Could not find this channel's handle" = "ناسنامەی ئەم کەناڵە نەدۆزرایەوە";
+"Reported to AiSList" = "ڕاپۆرت کرا بۆ AiSList";
+"This channel was already reported" = "ئەم کەناڵە پێشتر ڕاپۆرت کراوە";
+"Too many reports. Try again later." = "ڕاپۆرتی زۆر. دواتر هەوڵ بدەرەوە.";
+"AiSList could not accept this report" = "AiSList نەیتوانی ئەم ڕاپۆرتە وەربگرێت";
+"Could not reach AiSList" = "پەیوەندی بە AiSList ەوە نەکرا";
+"Clean Copied Links" = "پاککردنەوەی بەستەرە کۆپیکراوەکان";
+"Removes tracking like si= from links you copy or share." = "شوێنکەوتنی وەک si= لە ئەو بەستەرانە لادەبات کە کۆپی یان هاوبەشیان دەکەیت.";
+"Remove Play on Different Device" = "لابردنی «لێدان لە ئامێرێکی تر»";
+"Remove Play Next in Queue" = "لابردنی «لێدانی دواتر»";
+"Remove Play Last in Queue" = "لابردنی «لێدانی کۆتایی»";
+"VIDEO MENU" = "لیستی ڤیدیۆ";
+"Remove Save to Watch Later" = "لابردنی «پاشەکەوت بۆ دواتر سەیرکردن»";
+"Remove Save to Playlist" = "لابردنی «پاشەکەوت لە لیستی لێدان»";
+"Remove Not Interested" = "لابردنی «بەلامەوە گرنگ نییە»";
+"Remove Don't Recommend Channel" = "لابردنی «کەناڵ پێشنیار مەکە»";
+"Also removes YTKACE's download from this menu." = "هەروەها داگرتنی YTKACE لەم لیستە لادەبات.";

@@ -16,11 +16,10 @@ static const void *YTKACEDoubleTapAssociation = &YTKACEDoubleTapAssociation;
 static const void *YTKACEPrevNextParentAssociation = &YTKACEPrevNextParentAssociation;
 static const void *YTKACEProductHiddenAssociation = &YTKACEProductHiddenAssociation;
 static IMP OriginalVideoOverlayLayout;
-static IMP OriginalForceHidePreviousNext;
-static IMP OriginalPreviousButtonShouldHide;
-static IMP OriginalNextButtonShouldHide;
-static IMP OriginalRemoveNextPaddle;
-static IMP OriginalRemovePreviousPaddle;
+static IMP OriginalShouldHidePreviousButton;
+static IMP OriginalShouldHideNextButton;
+static IMP OriginalSetPreviousButtonEnabled;
+static IMP OriginalSetNextButtonEnabled;
 static IMP OriginalDidUpdatePlayerOverlayContent;
 static IMP OriginalHasProductsInVideoOverlay;
 static IMP OriginalProductsInVideoOverlay;
@@ -98,18 +97,6 @@ static void YTKACESetPreviousNextContainerEnabled(UIView *view, BOOL enabled) {
     }
 }
 
-static void YTKACESetControlTreeEnabled(UIView *view, BOOL enabled) {
-    if ([view isKindOfClass:UIControl.class]) {
-        UIControl *control = (UIControl *)view;
-        control.enabled = enabled;
-        control.userInteractionEnabled = enabled;
-        control.alpha = enabled ? 1.0 : 0.35;
-    }
-    for (UIView *subview in view.subviews) {
-        YTKACESetControlTreeEnabled(subview, enabled);
-    }
-}
-
 static void YTKACESetOverlayHidden(UIView *view, BOOL hidden) {
     if (view == nil ||
         [view.accessibilityIdentifier hasPrefix:@"YTKACE"]) {
@@ -137,6 +124,28 @@ static void YTKACESetOverlayHidden(UIView *view, BOOL hidden) {
                                  nil,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+}
+
+static UIView *YTKACEOverlayIvarView(id owner, const char *ivarName) {
+    if (owner == nil || ivarName == NULL) return nil;
+    Ivar ivar = class_getInstanceVariable(object_getClass(owner), ivarName);
+    const char *type = ivar != NULL ? ivar_getTypeEncoding(ivar) : NULL;
+    if (type == NULL || type[0] != '@') return nil;
+    id value = object_getIvar(owner, ivar);
+    return [value isKindOfClass:UIView.class] ? value : nil;
+}
+
+static void YTKACEApplyPreviousNextVisibility(id controlsOverlay, BOOL hidden) {
+    YTKACESetOverlayHidden(
+        YTKACEOverlayIvarView(controlsOverlay, "_previousButtonView"), hidden);
+    YTKACESetOverlayHidden(
+        YTKACEOverlayIvarView(controlsOverlay, "_nextButtonView"), hidden);
+    YTKACESetOverlayHidden(
+        YTKACEOverlayIvarView(controlsOverlay, "_previousButtonViewFrostedGlassView"),
+        hidden);
+    YTKACESetOverlayHidden(
+        YTKACEOverlayIvarView(controlsOverlay, "_nextButtonViewFrostedGlassView"),
+        hidden);
 }
 
 static BOOL YTKACEIsDarkOverlayView(UIView *view) {
@@ -208,11 +217,10 @@ static BOOL YTKACEOverlayShouldHide(UIView *view) {
     BOOL checkEnd = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.EndScreenHidden");
     BOOL checkPlayPause = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PlayPauseHidden");
     BOOL checkMore = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.MoreButtonHidden");
-    BOOL checkPrevNext = YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden");
 
     if (!checkQuick && !checkContinue && !checkRelated && !checkAutoplay &&
         !checkCaption && !checkCast && !checkWatermark && !checkInfo &&
-        !checkEnd && !checkPlayPause && !checkMore && !checkPrevNext) {
+        !checkEnd && !checkPlayPause && !checkMore) {
         return NO;
     }
 
@@ -229,7 +237,6 @@ static BOOL YTKACEOverlayShouldHide(UIView *view) {
     if (checkEnd && YTKACEOverlayTokenMatches(token, endScreenNeedles)) return YES;
     if (checkPlayPause && YTKACEOverlayTokenMatches(token, playPauseNeedles)) return YES;
     if (checkMore && YTKACEOverlayTokenMatches(token, moreButtonNeedles)) return YES;
-    if (checkPrevNext && YTKACEOverlayTokenMatches(token, YTKACEPreviousNextTokens())) return YES;
     return NO;
 }
 
@@ -708,13 +715,6 @@ static void YTKACEApplyOverlaySelectors(id overlay) {
         @"watermarkView": @"YTKACE.Preference.Overlay.WatermarkHidden",
         @"endscreenView": @"YTKACE.Preference.Overlay.EndScreenHidden",
         @"playPauseButton": @"YTKACE.Preference.Overlay.PlayPauseHidden",
-        @"previousButton": @"YTKACE.Preference.Overlay.PreviousNextHidden",
-        @"nextButton": @"YTKACE.Preference.Overlay.PreviousNextHidden",
-        @"previousButtonView": @"YTKACE.Preference.Overlay.PreviousNextHidden",
-        @"nextButtonView": @"YTKACE.Preference.Overlay.PreviousNextHidden",
-        @"minimizedPanelPreviousButton": @"YTKACE.Preference.Overlay.PreviousNextHidden",
-        @"minimizedPanelNextButton": @"YTKACE.Preference.Overlay.PreviousNextHidden",
-        @"replayNextButton": @"YTKACE.Preference.Overlay.PreviousNextHidden",
         @"overflowButton": @"YTKACE.Preference.Overlay.MoreButtonHidden",
         @"settingsButton": @"YTKACE.Preference.Overlay.MoreButtonHidden"
     };
@@ -727,12 +727,6 @@ static void YTKACEApplyOverlaySelectors(id overlay) {
         if ([value isKindOfClass:UIView.class]) {
             YTKACESetOverlayHidden(value,
                                    YTKACEFeatureEnabled(selectors[name]));
-            if ([name.lowercaseString containsString:@"previous"] ||
-                [name.lowercaseString containsString:@"next"]) {
-                BOOL disabled = YTKACEOverlayPreference(
-                    @"YTKACE.Preference.Overlay.PreviousNextDisabled");
-                YTKACESetControlTreeEnabled(value, !disabled);
-            }
         }
     }
 }
@@ -918,40 +912,36 @@ static CGFloat YTKACETimelyShelfHeightHook(id receiver, SEL selector) {
         ((CGFloat (*)(id, SEL))original)(receiver, selector);
 }
 
-static BOOL YTKACEForceHidePreviousNext(id receiver, SEL selector) {
+static BOOL YTKACEShouldHidePreviousButton(id receiver, SEL selector) {
     if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden")) return YES;
-    return OriginalForceHidePreviousNext == NULL
+    return OriginalShouldHidePreviousButton == NULL
         ? NO
-        : ((BOOL (*)(id, SEL))OriginalForceHidePreviousNext)(
+        : ((BOOL (*)(id, SEL))OriginalShouldHidePreviousButton)(
             receiver, selector);
 }
 
-static BOOL YTKACEPreviousButtonShouldHide(id receiver, SEL selector) {
+static BOOL YTKACEShouldHideNextButton(id receiver, SEL selector) {
     if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden")) return YES;
-    return OriginalPreviousButtonShouldHide == NULL
+    return OriginalShouldHideNextButton == NULL
         ? NO
-        : ((BOOL (*)(id, SEL))OriginalPreviousButtonShouldHide)(
+        : ((BOOL (*)(id, SEL))OriginalShouldHideNextButton)(
             receiver, selector);
 }
 
-static BOOL YTKACENextButtonShouldHide(id receiver, SEL selector) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden")) return YES;
-    return OriginalNextButtonShouldHide == NULL
-        ? NO
-        : ((BOOL (*)(id, SEL))OriginalNextButtonShouldHide)(
-            receiver, selector);
+static void YTKACESetPreviousButtonEnabled(id receiver, SEL selector, BOOL enabled) {
+    ((void (*)(id, SEL, BOOL))OriginalSetPreviousButtonEnabled)(
+        receiver, selector, enabled);
+    YTKACEApplyPreviousNextVisibility(
+        receiver,
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden"));
 }
 
-static BOOL YTKACERemoveNextPaddle(id receiver, SEL selector) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden")) return YES;
-    return OriginalRemoveNextPaddle != NULL &&
-        ((BOOL (*)(id, SEL))OriginalRemoveNextPaddle)(receiver, selector);
-}
-
-static BOOL YTKACERemovePreviousPaddle(id receiver, SEL selector) {
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden")) return YES;
-    return OriginalRemovePreviousPaddle != NULL &&
-        ((BOOL (*)(id, SEL))OriginalRemovePreviousPaddle)(receiver, selector);
+static void YTKACESetNextButtonEnabled(id receiver, SEL selector, BOOL enabled) {
+    ((void (*)(id, SEL, BOOL))OriginalSetNextButtonEnabled)(
+        receiver, selector, enabled);
+    YTKACEApplyPreviousNextVisibility(
+        receiver,
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden"));
 }
 
 static NSString *const YTKACEFullscreenActionsKey =
@@ -1021,6 +1011,9 @@ void YTKACEInstallOverlayVisibilityHooks(void) {
         }
         YTKACEApplyOverlaySelectors(overlay);
         YTKACEApplyProductVisibility(overlay);
+        YTKACEApplyPreviousNextVisibility(
+            overlay,
+            YTKACEFeatureEnabled(@"YTKACE.Preference.Overlay.PreviousNextHidden"));
     });
     YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayView",
                               @"layoutSubviews",
@@ -1083,23 +1076,19 @@ void YTKACEInstallOverlayVisibilityHooks(void) {
                               (IMP)YTKACETimelyShelfHeightHook,
                               &OriginalTimelyShelfHeightInput);
     YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayViewController",
-                              @"forceHidePreviousAndNextButtons",
-                              (IMP)YTKACEForceHidePreviousNext,
-                              &OriginalForceHidePreviousNext);
+                              @"shouldHidePreviousButton",
+                              (IMP)YTKACEShouldHidePreviousButton,
+                              &OriginalShouldHidePreviousButton);
     YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayViewController",
-                              @"previousButtonShouldHide",
-                              (IMP)YTKACEPreviousButtonShouldHide,
-                              &OriginalPreviousButtonShouldHide);
-    YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayViewController",
-                              @"nextButtonShouldHide",
-                              (IMP)YTKACENextButtonShouldHide,
-                              &OriginalNextButtonShouldHide);
-    YTKACEInstallInstanceHook(@"YTColdConfig",
-                              @"removeNextPaddleForSingletonVideos",
-                              (IMP)YTKACERemoveNextPaddle,
-                              &OriginalRemoveNextPaddle);
-    YTKACEInstallInstanceHook(@"YTColdConfig",
-                              @"removePreviousPaddleForSingletonVideos",
-                              (IMP)YTKACERemovePreviousPaddle,
-                              &OriginalRemovePreviousPaddle);
+                              @"shouldHideNextButton",
+                              (IMP)YTKACEShouldHideNextButton,
+                              &OriginalShouldHideNextButton);
+    YTKACEInstallInstanceHook(@"YTMainAppControlsOverlayView",
+                              @"setPreviousButtonEnabled:",
+                              (IMP)YTKACESetPreviousButtonEnabled,
+                              &OriginalSetPreviousButtonEnabled);
+    YTKACEInstallInstanceHook(@"YTMainAppControlsOverlayView",
+                              @"setNextButtonEnabled:",
+                              (IMP)YTKACESetNextButtonEnabled,
+                              &OriginalSetNextButtonEnabled);
 }

@@ -977,3 +977,27 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE usa datos de SponsorBlock.\nCon licen
 "Hide live streams from the Shorts feed." = "Oculta las transmisiones en vivo del feed de Shorts.";
 
 "Default leaves YouTube's own tab bar as is." = "Predeterminado deja la barra de pestañas de YouTube como está.";
+"Report AI Channels" = "Denunciar canales de IA";
+"Adds Report AI Channel to the ⋯ menu of videos." = "Añade Denunciar canal de IA al menú ⋯ de los videos.";
+"Report Name" = "Nombre para denuncias";
+"Sent with your reports to AiSList." = "Se envía con tus denuncias a AiSList.";
+"Report AI Channel" = "Denunciar canal de IA";
+"Report as AI channel" = "Denunciar como canal de IA";
+"Finding channel…" = "Buscando canal…";
+"Could not find this channel's handle" = "No se encontró el identificador de este canal";
+"Reported to AiSList" = "Denunciado a AiSList";
+"This channel was already reported" = "Este canal ya fue denunciado";
+"Too many reports. Try again later." = "Demasiadas denuncias. Inténtalo más tarde.";
+"AiSList could not accept this report" = "AiSList no pudo aceptar esta denuncia";
+"Could not reach AiSList" = "No se pudo conectar con AiSList";
+"Clean Copied Links" = "Limpiar enlaces copiados";
+"Removes tracking like si= from links you copy or share." = "Quita el rastreo como si= de los enlaces que copias o compartes.";
+"Remove Play on Different Device" = "Quitar Reproducir en otro dispositivo";
+"Remove Play Next in Queue" = "Quitar Reproducir a continuación";
+"Remove Play Last in Queue" = "Quitar Reproducir al final de la cola";
+"VIDEO MENU" = "MENÚ DEL VIDEO";
+"Remove Save to Watch Later" = "Quitar Guardar en Ver más tarde";
+"Remove Save to Playlist" = "Quitar Guardar en lista";
+"Remove Not Interested" = "Quitar No me interesa";
+"Remove Don't Recommend Channel" = "Quitar No recomendar canal";
+"Also removes YTKACE's download from this menu." = "También quita la descarga de YTKACE de este menú.";

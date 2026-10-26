@@ -950,3 +950,27 @@
 "Hide live streams from the Shorts feed." = "Ocultar transmissões ao vivo do feed de Shorts.";
 
 "Default leaves YouTube's own tab bar as is." = "Padrão mantém a barra de abas do próprio YouTube.";
+"Report AI Channels" = "Denunciar canais de IA";
+"Adds Report AI Channel to the ⋯ menu of videos." = "Adiciona Denunciar canal de IA ao menu ⋯ dos vídeos.";
+"Report Name" = "Nome nas denúncias";
+"Sent with your reports to AiSList." = "Enviado com suas denúncias ao AiSList.";
+"Report AI Channel" = "Denunciar canal de IA";
+"Report as AI channel" = "Denunciar como canal de IA";
+"Finding channel…" = "Procurando canal…";
+"Could not find this channel's handle" = "Não foi possível encontrar o identificador deste canal";
+"Reported to AiSList" = "Denunciado ao AiSList";
+"This channel was already reported" = "Este canal já foi denunciado";
+"Too many reports. Try again later." = "Denúncias demais. Tente mais tarde.";
+"AiSList could not accept this report" = "O AiSList não aceitou esta denúncia";
+"Could not reach AiSList" = "Não foi possível acessar o AiSList";
+"Clean Copied Links" = "Limpar links copiados";
+"Removes tracking like si= from links you copy or share." = "Remove rastreamento como si= dos links que você copia ou compartilha.";
+"Remove Play on Different Device" = "Remover Assistir em outro dispositivo";
+"Remove Play Next in Queue" = "Remover Reproduzir a seguir";
+"Remove Play Last in Queue" = "Remover Reproduzir por último";
+"VIDEO MENU" = "MENU DO VÍDEO";
+"Remove Save to Watch Later" = "Remover Salvar em Assistir mais tarde";
+"Remove Save to Playlist" = "Remover Salvar na playlist";
+"Remove Not Interested" = "Remover Não tenho interesse";
+"Remove Don't Recommend Channel" = "Remover Não recomendar o canal";
+"Also removes YTKACE's download from this menu." = "Também remove o download do YTKACE deste menu.";
