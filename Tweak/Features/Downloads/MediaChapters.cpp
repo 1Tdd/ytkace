@@ -87,7 +87,7 @@ std::string caption(const std::vector<Chapter> &chapters) {
         if (clean.empty()) continue;
         if (!result.empty()) result += '\n';
         if (seconds >= 3600) result += std::to_string(seconds / 3600) + ':';
-        result += twoDigits((seconds / 60) % 60) + ':' + twoDigits(seconds % 60) + ' ' + clean;
+        result += twoDigits((seconds / 60) % 60) + ':' + twoDigits(seconds % 60) + " - " + clean;
         previous = seconds;
     }
     return result;

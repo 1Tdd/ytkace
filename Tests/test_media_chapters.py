@@ -87,14 +87,14 @@ class MediaChapterTests(unittest.TestCase):
                     self.ffmpeg('-i', str(source), '-vn', '-c:a', 'libmp3lame' if extension == 'mp3' else 'copy', str(media))
                 output = self.embed(media, 'caption.' + extension, 'caption-source')
                 before = output.read_bytes()
-                self.assertEqual(self.read_caption(output), '00:00 Introduzione\n00:02 Caffè & musica 日本語\n00:05 Finale')
+                self.assertEqual(self.read_caption(output), '00:00 - Introduzione\n00:02 - Caffè & musica 日本語\n00:05 - Finale')
                 self.assertEqual(output.read_bytes(), before)
 
     def test_share_caption_uses_edited_timeline(self):
         source = self.directory / 'long-cut-source.mp4'
         self.ffmpeg('-stream_loop', '4', '-i', str(self.video), '-t', '7', '-c', 'copy', str(source))
         output = self.embed(source, 'caption-cuts.mp4', 'caption-cut-source')
-        self.assertEqual(self.read_caption(output), '00:00 Introduzione\n00:02 Finale')
+        self.assertEqual(self.read_caption(output), '00:00 - Introduzione\n00:02 - Finale')
 
     def test_missing_chapters_provide_no_extra_text(self):
         self.assertEqual(self.read_caption(self.video), '')

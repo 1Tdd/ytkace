@@ -27,7 +27,8 @@ and sharing multiple files keeps their timelines separate. Copying requires an
 explicit choice; **Share file only** leaves the clipboard alone.
 
 The video's **Copy Information → Copy chapters** action copies timestamp/title
-lines directly from the selected video without requiring a download. This also
+lines in the form `00:03 - Intro` directly from the selected video without
+requiring a download. All chapter copy actions use the same separator. This also
 works before downloading straight to Photos. These are the original video times;
 if a download removes segments, copy from the saved file for the adjusted times.
 The library's native and fallback item menus both expose **Copy chapters**.
