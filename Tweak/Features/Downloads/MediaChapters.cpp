@@ -67,7 +67,7 @@ int write(const std::string &inputPath, const std::string &outputPath,
         if (!finalChapters.empty() && !s.output->chapters) throw Failure{AVERROR(ENOMEM), "Allocate chapters"};
         for (const auto &chapter : finalChapters) {
             // Millisecond boundaries are shared by MOV chapters and ID3 CHAP.
-            if (chapter.end >= std::numeric_limits<int64_t>::max() / 1000.0) continue;
+            if (chapter.end >= static_cast<double>(std::numeric_limits<int64_t>::max()) / 1000.0) continue;
             int64_t start = std::llround(chapter.start * 1000.0), end = std::llround(chapter.end * 1000.0);
             if (end <= start) continue;
             AVChapter *entry = static_cast<AVChapter *>(av_mallocz(sizeof(AVChapter)));

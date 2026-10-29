@@ -30,8 +30,10 @@ int main(int argc, char **argv) {
         cuts = {{.6, .8}, {.75, 1.0}};
     }
     std::string message;
+    unsigned checks = 0;
     int result = write(argv[1], argv[2], chapters, cuts,
-        [&]() { return std::string(argv[3]) == "cancel"; }, message);
+        [&]() { return std::string(argv[3]) == "cancel" ||
+            (std::string(argv[3]) == "cancel-read" && ++checks > 2); }, message);
     if (result < 0) { std::cerr << message << '\n'; return 1; }
     return 0;
 }

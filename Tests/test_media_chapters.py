@@ -105,6 +105,17 @@ class MediaChapterTests(unittest.TestCase):
         info = self.assert_chapters(self.embed(source, 'chapter-captions.mp4'))
         self.assertTrue(any(s['codec_name'] == 'mov_text' and s['tags']['language'] == 'ita' for s in info['streams']))
 
+    def test_mov_cover_art_survives(self):
+        cover = self.directory / 'mov-cover.jpg'
+        self.ffmpeg('-f', 'lavfi', '-i', 'color=c=blue:s=64x64', '-frames:v', '1', '-threads', '1', str(cover))
+        for extension in ('mp4', 'm4a'):
+            with self.subTest(extension=extension):
+                source = self.directory / ('cover-source.' + extension)
+                self.ffmpeg('-i', str(self.video), '-i', str(cover), '-map', '0:a', '-map', '1:v',
+                            '-c', 'copy', '-disposition:v', 'attached_pic', str(source))
+                info = self.assert_chapters(self.embed(source, 'cover-chapters.' + extension))
+                self.assertTrue(any(s['disposition'].get('attached_pic') == 1 for s in info['streams']))
+
     def test_actual_cuts_remove_chapter_and_shift_remaining_times(self):
         output = self.embed(self.video, 'cut-chapters.mp4', 'cuts')
         self.assert_chapters(output, titles=('Introduzione', 'Finale'), starts=(0, .6))
@@ -117,6 +128,7 @@ class MediaChapterTests(unittest.TestCase):
 
     def test_cancel_preserves_input_and_removes_output(self):
         self.embed(self.video, 'cancel.mp4', 'cancel', success=False)
+        self.embed(self.video, 'cancel-read.mp4', 'cancel-read', success=False)
         self.assertTrue(self.video.exists())
 
     def test_invalid_input_does_not_leave_partial_output(self):

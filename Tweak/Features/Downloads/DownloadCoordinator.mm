@@ -2141,8 +2141,10 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     if (job.thumbnailURL == nil) { finish(); return; }
     NSURL *imageURL = [base URLByAppendingPathExtension:@"jpg"];
     NSString *identifier = job.identifier;
+    NSURLRequest *request = [NSURLRequest requestWithURL:job.thumbnailURL
+        cachePolicy:NSURLRequestUseProtocolCachePolicy timeoutInterval:20.0];
     NSURLSessionDataTask *task = [NSURLSession.sharedSession
-        dataTaskWithURL:job.thumbnailURL completionHandler:^(NSData *data,
+        dataTaskWithRequest:request completionHandler:^(NSData *data,
             NSURLResponse *response, NSError *error) {
         (void)response;
         if (error == nil && data.length != 0) {
