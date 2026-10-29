@@ -1487,6 +1487,10 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
                              symbol:@"square.and.arrow.up" handler:^(__unused UIAlertAction *action) {
             [self shareURL:url sourceView:sourceView];
         }] ?: NSNull.null,
+        [self nativeActionWithTitle:YTKACELocalized(@"Copy chapters") asset:@"yt_outline_copy_24pt"
+                             symbol:@"list.number" handler:^(__unused UIAlertAction *action) {
+            [self copyChaptersForURL:url];
+        }] ?: NSNull.null,
         [self nativeActionWithTitle:YTKACELocalized(@"Delete") asset:@"delete_24pt_3x_Normal"
                              symbol:@"trash" handler:^(__unused UIAlertAction *action) {
             [self deleteURL:url];
@@ -1540,11 +1544,7 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
         })];
     [menu addAction:YTKACEMenuAction(YTKACELocalized(@"Copy chapters"), @"list.number", UIAlertActionStyleDefault,
         ^(__unused UIAlertAction *action) {
-            YTKACEChapterTextForMediaURL(url, ^(NSString *text) {
-                if (text.length == 0) { YTKACEShowNotice(YTKACELocalized(@"No chapters found")); return; }
-                UIPasteboard.generalPasteboard.string = text;
-                YTKACEShowNotice(YTKACELocalized(@"Chapters copied"));
-            });
+            [self copyChaptersForURL:url];
         })];
     [menu addAction:YTKACEMenuAction(YTKACELocalized(@"Delete"), @"trash", UIAlertActionStyleDestructive,
         ^(__unused UIAlertAction *action) {
@@ -1610,6 +1610,14 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
     if (image != nil) {
         UIImageWriteToSavedPhotosAlbum(image, nil, nil, NULL);
     }
+}
+
+- (void)copyChaptersForURL:(NSURL *)url {
+    YTKACEChapterTextForMediaURL(url, ^(NSString *text) {
+        if (text.length == 0) { YTKACEShowNotice(YTKACELocalized(@"No chapters found")); return; }
+        UIPasteboard.generalPasteboard.string = text;
+        YTKACEShowNotice(YTKACELocalized(@"Chapters copied"));
+    });
 }
 
 - (void)shareURL:(NSURL *)url sourceView:(UIView *)sourceView {

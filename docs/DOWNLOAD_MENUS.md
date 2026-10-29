@@ -26,6 +26,13 @@ same list without opening a share sheet. No separate text attachment is sent,
 and sharing multiple files keeps their timelines separate. Copying requires an
 explicit choice; **Share file only** leaves the clipboard alone.
 
+The video's **Copy Information → Copy chapters** action copies timestamp/title
+lines directly from the selected video without requiring a download. This also
+works before downloading straight to Photos. These are the original video times;
+if a download removes segments, copy from the saved file for the adjusted times.
+The library's native and fallback item menus both expose **Copy chapters**.
+If no chapters are available, a notice appears and the clipboard is left alone.
+
 Community posts have their own panel, opened by holding the post. It includes
 copy/translate text, save/copy the post as an image, and image actions. When
 multiple images are available in the post's loaded nodes, the panel offers

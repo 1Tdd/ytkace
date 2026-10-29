@@ -2,6 +2,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+FOUNDATION_EXPORT NSString *YTKACEChapterTextFromChapters(NSArray<NSDictionary *> *chapters);
+
 // Completions run on the main queue. Empty text means no readable chapters.
 FOUNDATION_EXPORT void YTKACEChapterTextForMediaURL(NSURL *URL,
     void (^completion)(NSString *text));
