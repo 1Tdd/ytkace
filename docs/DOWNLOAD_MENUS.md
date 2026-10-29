@@ -6,6 +6,16 @@ tabs, quality and size choices, audio language, captions, SponsorBlock cuts,
 and destination. Audio-only mode includes bitrate selection and title/artist
 metadata, which is written into the M4A file.
 
+When chapters are available, **Keep chapters** is enabled by default in both
+video and audio mode. Turn it off to omit them. Titles and start/end times are
+embedded in MP4/M4A chapter tables or MP3 ID3 CHAP frames, including shared files
+and files prepared for Photos. Chapters come from the selected video's player
+response, description timestamps, or its active player; another video's active
+chapters are never used. Actual SponsorBlock cuts shift chapter boundaries and
+remove chapters cut away completely. Chapter embedding runs after conversion,
+captions and artwork so these steps cannot discard the chapter table. Retry
+retains the choice; playlist downloads preserve available chapters automatically.
+
 Community posts have their own panel, opened by holding the post. It includes
 copy/translate text, save/copy the post as an image, and image actions. When
 multiple images are available in the post's loaded nodes, the panel offers

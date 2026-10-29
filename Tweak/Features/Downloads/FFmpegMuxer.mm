@@ -1,5 +1,6 @@
 #import "FFmpegMuxer.h"
 #include "MediaConversion.h"
+#include "MediaChapters.h"
 #include "../SponsorBlock/SponsorTimeline.h"
 #include <limits>
 #import <copyfile.h>
@@ -1153,6 +1154,36 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
             }
         }
         dispatch_async(dispatch_get_main_queue(), ^{ completion(failure); });
+    });
+}
+
++ (void)embedChapters:(NSArray<NSDictionary *> *)chapters
+      removedSegments:(NSArray<NSDictionary *> *)removedSegments
+              mediaURL:(NSURL *)mediaURL
+             cancelled:(BOOL (^)(void))cancelled
+            completion:(YTKACEFFmpegCompletion)completion {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        std::vector<YTKACEMediaChapters::Chapter> entries;
+        for (NSDictionary *chapter in chapters) {
+            YTKACEMedia::Interval range;
+            NSString *title = chapter[@"title"];
+            if (YTKACEReadSponsorInterval(chapter, range) && [title isKindOfClass:NSString.class])
+                entries.push_back({title.UTF8String ?: "", range.start, range.end});
+        }
+        NSURL *temporary = [mediaURL.URLByDeletingLastPathComponent URLByAppendingPathComponent:
+            [NSString stringWithFormat:@".%@-chapters.%@", NSUUID.UUID.UUIDString, mediaURL.pathExtension]];
+        std::string message;
+        int result = YTKACEMediaChapters::write(mediaURL.fileSystemRepresentation,
+            temporary.fileSystemRepresentation, entries, YTKACESponsorCutTimeline(removedSegments),
+            [cancelled]() { return (bool)cancelled(); }, message);
+        NSError *error = result < 0 ? YTKACEFFmpegError(result, @"Embed chapters") : nil;
+        if (!error) {
+            copyfile(mediaURL.fileSystemRepresentation, temporary.fileSystemRepresentation, NULL, COPYFILE_XATTR);
+            [NSFileManager.defaultManager replaceItemAtURL:mediaURL withItemAtURL:temporary
+                backupItemName:nil options:0 resultingItemURL:nil error:&error];
+        }
+        [NSFileManager.defaultManager removeItemAtURL:temporary error:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
     });
 }
 

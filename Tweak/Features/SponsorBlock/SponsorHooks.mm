@@ -1542,6 +1542,14 @@ static NSArray<YTKACEVideoChapter *> *YTKACEParseChaptersFromDescription(NSStrin
     return YTKACEBuildChaptersFromMarkers(parsed, duration);
 }
 
+NSArray<YTKACEVideoChapter *> *YTKACEVideoChaptersFromResponse(id response, NSString *description, double duration) {
+    NSMutableArray<NSDictionary *> *markers = [NSMutableArray array];
+    NSHashTable *visited = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    YTKACEExtractChaptersFromAnyObject(response, markers, visited, 0);
+    NSArray<YTKACEVideoChapter *> *chapters = YTKACEBuildChaptersFromMarkers(markers, duration);
+    return chapters.count ? chapters : YTKACEParseChaptersFromDescription(description, duration);
+}
+
 NSString *YTKACESponsorCurrentVideoDescription(void) {
     id details = YTKACESponsorCurrentVideoDetails();
     if (details != nil) {
