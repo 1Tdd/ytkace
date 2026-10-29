@@ -68,6 +68,42 @@ class MediaChapterTests(unittest.TestCase):
     def test_cut_timeline(self):
         subprocess.run([str(self.binary), 'timeline'], check=True)
 
+    def test_caption_formatting(self):
+        subprocess.run([str(self.binary), 'caption'], check=True)
+
+    def read_caption(self, path, success=True):
+        result = subprocess.run([str(self.binary), 'read', str(path)], capture_output=True, text=True)
+        self.assertEqual(result.returncode == 0, success, result.stderr)
+        return result.stdout
+
+    def test_saved_files_provide_share_captions(self):
+        source = self.directory / 'long-source.mp4'
+        self.ffmpeg('-stream_loop', '4', '-i', str(self.video), '-t', '7', '-c', 'copy', str(source))
+        for extension in ('mp4', 'm4a', 'mp3'):
+            with self.subTest(extension=extension):
+                media = source
+                if extension != 'mp4':
+                    media = self.directory / ('long-source.' + extension)
+                    self.ffmpeg('-i', str(source), '-vn', '-c:a', 'libmp3lame' if extension == 'mp3' else 'copy', str(media))
+                output = self.embed(media, 'caption.' + extension, 'caption-source')
+                before = output.read_bytes()
+                self.assertEqual(self.read_caption(output), '00:00 Introduzione\n00:02 Caffè & musica 日本語\n00:05 Finale')
+                self.assertEqual(output.read_bytes(), before)
+
+    def test_share_caption_uses_edited_timeline(self):
+        source = self.directory / 'long-cut-source.mp4'
+        self.ffmpeg('-stream_loop', '4', '-i', str(self.video), '-t', '7', '-c', 'copy', str(source))
+        output = self.embed(source, 'caption-cuts.mp4', 'caption-cut-source')
+        self.assertEqual(self.read_caption(output), '00:00 Introduzione\n00:02 Finale')
+
+    def test_missing_chapters_provide_no_extra_text(self):
+        self.assertEqual(self.read_caption(self.video), '')
+
+    def test_unreadable_files_fail_without_caption_text(self):
+        source = self.directory / 'unreadable.mp4'
+        source.write_bytes(b'broken')
+        self.assertEqual(self.read_caption(source, success=False), '')
+
     def test_mp4_retains_media_and_unicode_chapters(self):
         output = self.embed(self.video, 'chapters.mp4')
         info = self.assert_chapters(output)

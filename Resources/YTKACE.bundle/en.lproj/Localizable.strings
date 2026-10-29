@@ -1342,3 +1342,12 @@ Licensed under CC BY-NC-SA 4.0.";
 "Keep chapters" = "Keep chapters";
 "%lu chapters" = "%lu chapters";
 "Could not embed chapters. The media file was kept." = "Could not embed chapters. The media file was kept.";
+
+/* Chapter sharing */
+"Copy chapters" = "Copy chapters";
+"Chapters copied" = "Chapters copied";
+"No chapters found" = "No chapters found";
+"Share chapters" = "Share chapters";
+"Some players use caption text for chapters. Copy the chapter list, then paste it into the video or audio caption before sending." = "Some players use caption text for chapters. Copy the chapter list, then paste it into the video or audio caption before sending.";
+"Copy chapters and share" = "Copy chapters and share";
+"Share file only" = "Share file only";

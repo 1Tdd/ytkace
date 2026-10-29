@@ -5,6 +5,24 @@
 
 int main(int argc, char **argv) {
     using namespace YTKACEMediaChapters;
+    if (argc == 2 && std::string(argv[1]) == "caption") {
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        auto text = caption({{"End", 3661.9, 4000}, {" Intro\n title\t", 0, 60},
+            {"Duplicate", .8, 60}, {" Caffè & 日本語\r\n", 65.8, 120},
+            {"Invalid", nan, 80}, {"Negative", -2, 3}, {"Empty", 4, 4}});
+        assert(text == "00:00 Intro title\n01:05 Caffè & 日本語\n1:01:01 End");
+        assert(caption({}).empty());
+        assert(caption({{" \n\t", 0, 10}}).empty());
+        assert(caption({{"One\xe2\x80\xa8Two\xc2\x85Three", 0, 10}}) == "00:00 One Two Three");
+        return 0;
+    }
+    if (argc == 3 && std::string(argv[1]) == "read") {
+        std::vector<Chapter> chapters;
+        std::string message;
+        if (read(argv[2], chapters, message) < 0) { std::cerr << message << '\n'; return 1; }
+        std::cout << caption(chapters);
+        return 0;
+    }
     if (argc == 2 && std::string(argv[1]) == "timeline") {
         const double nan = std::numeric_limits<double>::quiet_NaN();
         auto chapters = adjusted({{"Finale", 20, 30}, {"Intro", 0, 10}, {"Ad", 10, 20},
@@ -28,6 +46,12 @@ int main(int argc, char **argv) {
     if (std::string(argv[3]) == "cuts") {
         chapters = {{"Introduzione", 0, .6}, {"Ad", .6, 1.0}, {"Finale", 1.0, 2.1}};
         cuts = {{.6, .8}, {.75, 1.0}};
+    }
+    if (std::string(argv[3]) == "caption-source")
+        chapters = {{"Introduzione", 0, 2.4}, {"Caffè & musica 日本語", 2.4, 5.2}, {"Finale", 5.2, 100}};
+    if (std::string(argv[3]) == "caption-cut-source") {
+        chapters = {{"Introduzione", 0, 2.4}, {"Ad", 2.4, 4.4}, {"Finale", 4.4, 9}};
+        cuts = {{2.4, 4.4}};
     }
     std::string message;
     unsigned checks = 0;

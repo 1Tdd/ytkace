@@ -37,4 +37,9 @@ int write(const std::string &input, const std::string &output,
           const std::vector<Chapter> &chapters,
           const std::vector<YTKACEMedia::Interval> &removed,
           const std::function<bool()> &cancelled, std::string &message);
+
+// Read the final embedded timeline, including from previously saved files.
+int read(const std::string &input, std::vector<Chapter> &chapters, std::string &message);
+// Plain timestamp/title lines for recipients that use message captions.
+std::string caption(const std::vector<Chapter> &chapters);
 }

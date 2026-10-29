@@ -3,6 +3,7 @@
 #import "../../YTKACE.h"
 #import "DownloadLog.h"
 #import "DownloadSponsor.h"
+#import "MediaChapterSharing.h"
 #include "../SponsorBlock/SponsorTimeline.h"
 #import "DownloadProgressView.h"
 #import "FFmpegMuxer.h"
@@ -2484,15 +2485,17 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
     dispatch_async(dispatch_get_main_queue(), ^{
         UIViewController *top = [self topViewController];
         if (top == nil) return;
-        UIActivityViewController *controller =
-            [[UIActivityViewController alloc] initWithActivityItems:urls
-                                             applicationActivities:nil];
-        UIView *anchor = [self sheetAnchorForView:sourceView];
-        controller.popoverPresentationController.sourceView = anchor;
-        controller.popoverPresentationController.sourceRect = anchor.bounds;
-        YTKACEDownloadLog(@"save", @"share sheet batch count=%lu",
-            (unsigned long)urls.count);
-        [top presentViewController:controller animated:YES completion:nil];
+        YTKACEPrepareMediaShareItems(urls, top, ^(NSArray *items) {
+            UIActivityViewController *controller =
+                [[UIActivityViewController alloc] initWithActivityItems:items
+                                                 applicationActivities:nil];
+            UIView *anchor = [self sheetAnchorForView:sourceView];
+            controller.popoverPresentationController.sourceView = anchor;
+            controller.popoverPresentationController.sourceRect = anchor.bounds;
+            YTKACEDownloadLog(@"save", @"share sheet batch count=%lu",
+                (unsigned long)urls.count);
+            [top presentViewController:controller animated:YES completion:nil];
+        });
     });
 }
 
@@ -2505,14 +2508,16 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
     dispatch_async(dispatch_get_main_queue(), ^{
         UIViewController *top = [self topViewController];
         if (top == nil) return;
-        UIActivityViewController *controller =
-            [[UIActivityViewController alloc] initWithActivityItems:@[url]
-                                             applicationActivities:nil];
-        UIView *anchor = [self sheetAnchorForView:self.downloadSourceView];
-        controller.popoverPresentationController.sourceView = anchor;
-        controller.popoverPresentationController.sourceRect = anchor.bounds;
-        YTKACEDownloadLog(@"save", @"share sheet path=%@", url.lastPathComponent);
-        [top presentViewController:controller animated:YES completion:nil];
+        YTKACEPrepareMediaShareItems(@[url], top, ^(NSArray *items) {
+            UIActivityViewController *controller =
+                [[UIActivityViewController alloc] initWithActivityItems:items
+                                                 applicationActivities:nil];
+            UIView *anchor = [self sheetAnchorForView:self.downloadSourceView];
+            controller.popoverPresentationController.sourceView = anchor;
+            controller.popoverPresentationController.sourceRect = anchor.bounds;
+            YTKACEDownloadLog(@"save", @"share sheet path=%@", url.lastPathComponent);
+            [top presentViewController:controller animated:YES completion:nil];
+        });
     });
 }
 
