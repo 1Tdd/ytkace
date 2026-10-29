@@ -1,6 +1,20 @@
 #import "MediaChapterSharing.h"
 #include "MediaChapters.h"
+#include "../SponsorBlock/SponsorTimeline.h"
 #import "../../Runtime/Localization.h"
+
+NSString *YTKACEChapterTextFromChapters(NSArray<NSDictionary *> *chapters) {
+    std::vector<YTKACEMediaChapters::Chapter> entries;
+    for (id chapter in chapters) {
+        YTKACEMedia::Interval range;
+        if (!YTKACEReadSponsorInterval(chapter, range)) continue;
+        NSString *title = chapter[@"title"];
+        if (![title isKindOfClass:NSString.class]) continue;
+        entries.push_back({title.UTF8String ?: "", range.start, range.end});
+    }
+    const auto text = YTKACEMediaChapters::caption(entries);
+    return [NSString stringWithUTF8String:text.c_str()] ?: @"";
+}
 
 void YTKACEChapterTextForMediaURL(NSURL *URL, void (^completion)(NSString *)) {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{

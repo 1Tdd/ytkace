@@ -1080,6 +1080,13 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         action.enabled = [values[i] length] > 0;
         [copy addObject:action];
     }
+    [copy addObject:[YTKACEMediaAction action:@"media.copy.chapters" title:YTKACELocalized(@"Copy chapters")
+        symbol:@"list.number" handler:^{
+            NSString *text = YTKACEChapterTextFromChapters([weakSelf chaptersForResponse:response]);
+            if (text.length == 0) { YTKACEShowNotice(YTKACELocalized(@"No chapters found")); return; }
+            UIPasteboard.generalPasteboard.string = text;
+            YTKACEShowNotice(YTKACELocalized(@"Chapters copied"));
+        }]];
     YTKACEMediaAction *transcript = [YTKACEMediaAction group:@"media.transcripts" title:YTKACELocalized(@"Copy transcript") symbol:@"doc.on.doc" children:transcripts];
     transcript.enabled = transcripts.count > 0;
     [copy addObject:transcript];
