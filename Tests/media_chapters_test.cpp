@@ -10,10 +10,10 @@ int main(int argc, char **argv) {
         auto text = caption({{"End", 3661.9, 4000}, {" Intro\n title\t", 0, 60},
             {"Duplicate", .8, 60}, {" Caffè & 日本語\r\n", 65.8, 120},
             {"Invalid", nan, 80}, {"Negative", -2, 3}, {"Empty", 4, 4}});
-        assert(text == "00:00 Intro title\n01:05 Caffè & 日本語\n1:01:01 End");
+        assert(text == "00:00 - Intro title\n01:05 - Caffè & 日本語\n1:01:01 - End");
         assert(caption({}).empty());
         assert(caption({{" \n\t", 0, 10}}).empty());
-        assert(caption({{"One\xe2\x80\xa8Two\xc2\x85Three", 0, 10}}) == "00:00 One Two Three");
+        assert(caption({{"One\xe2\x80\xa8Two\xc2\x85Three", 0, 10}}) == "00:00 - One Two Three");
         return 0;
     }
     if (argc == 3 && std::string(argv[1]) == "read") {
