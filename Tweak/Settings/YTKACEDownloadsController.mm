@@ -1,4 +1,5 @@
 #import "YTKACEDownloadsController.h"
+#import "../Features/Downloads/MediaChapterSharing.h"
 #import <Photos/Photos.h>
 #import "../Features/Downloads/DownloadCoordinator.h"
 #import "../Features/Downloads/DownloadLog.h"
@@ -1537,6 +1538,14 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
         ^(__unused UIAlertAction *action) {
             [self shareURL:url sourceView:sourceView];
         })];
+    [menu addAction:YTKACEMenuAction(YTKACELocalized(@"Copy chapters"), @"list.number", UIAlertActionStyleDefault,
+        ^(__unused UIAlertAction *action) {
+            YTKACEChapterTextForMediaURL(url, ^(NSString *text) {
+                if (text.length == 0) { YTKACEShowNotice(YTKACELocalized(@"No chapters found")); return; }
+                UIPasteboard.generalPasteboard.string = text;
+                YTKACEShowNotice(YTKACELocalized(@"Chapters copied"));
+            });
+        })];
     [menu addAction:YTKACEMenuAction(YTKACELocalized(@"Delete"), @"trash", UIAlertActionStyleDestructive,
         ^(__unused UIAlertAction *action) {
             [self deleteURL:url];
@@ -1604,14 +1613,16 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
 }
 
 - (void)shareURL:(NSURL *)url sourceView:(UIView *)sourceView {
-    UIActivityViewController *share =
-        [[UIActivityViewController alloc] initWithActivityItems:@[url]
-                                         applicationActivities:nil];
-    if (share.popoverPresentationController != nil) {
-        share.popoverPresentationController.sourceView = sourceView;
-        share.popoverPresentationController.sourceRect = sourceView.bounds;
-    }
-    [self presentViewController:share animated:YES completion:nil];
+    YTKACEPrepareMediaShareItems(@[url], self, ^(NSArray *items) {
+        UIActivityViewController *share =
+            [[UIActivityViewController alloc] initWithActivityItems:items
+                                             applicationActivities:nil];
+        if (share.popoverPresentationController != nil) {
+            share.popoverPresentationController.sourceView = sourceView;
+            share.popoverPresentationController.sourceRect = sourceView.bounds;
+        }
+        [self presentViewController:share animated:YES completion:nil];
+    });
 }
 
 - (void)deleteURL:(NSURL *)url {

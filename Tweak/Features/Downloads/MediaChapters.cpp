@@ -28,6 +28,71 @@ struct Session {
 };
 }
 
+int read(const std::string &inputPath, std::vector<Chapter> &chapters, std::string &message) {
+    chapters.clear();
+    try {
+        Session s;
+        check(avformat_open_input(&s.input, inputPath.c_str(), nullptr, nullptr), "Open chapter input");
+        check(avformat_find_stream_info(s.input, nullptr), "Read chapter input");
+        double duration = s.input->duration > 0 && s.input->duration != AV_NOPTS_VALUE
+            ? s.input->duration / static_cast<double>(AV_TIME_BASE) : 0.0;
+        for (unsigned i = 0; i < s.input->nb_chapters; ++i) {
+            AVChapter *entry = s.input->chapters[i];
+            const AVDictionaryEntry *title = av_dict_get(entry->metadata, "title", nullptr, 0);
+            if (!title || entry->time_base.num <= 0 || entry->time_base.den <= 0 || entry->start == AV_NOPTS_VALUE) continue;
+            double start = entry->start * av_q2d(entry->time_base);
+            double end = entry->end == AV_NOPTS_VALUE ? 0.0 : entry->end * av_q2d(entry->time_base);
+            if (end <= start && i + 1 < s.input->nb_chapters) {
+                AVChapter *next = s.input->chapters[i + 1];
+                end = next->start * av_q2d(next->time_base);
+            }
+            if (end <= start) end = duration;
+            chapters.push_back({title->value, start, end});
+        }
+        chapters = adjusted(chapters, {}, duration);
+        return 0;
+    } catch (const Failure &failure) {
+        char error[AV_ERROR_MAX_STRING_SIZE] = {};
+        av_strerror(failure.code, error, sizeof(error));
+        message = std::string(failure.stage) + ": " + error;
+        chapters.clear();
+        return failure.code;
+    } catch (const std::exception &error) {
+        message = error.what(); chapters.clear(); return AVERROR(ENOMEM);
+    }
+}
+
+std::string caption(const std::vector<Chapter> &chapters) {
+    std::string result;
+    int64_t previous = -1;
+    const auto twoDigits = [](int64_t value) { return (value < 10 ? "0" : "") + std::to_string(value); };
+    for (const auto &chapter : adjusted(chapters, {}, 0.0)) {
+        if (chapter.start >= static_cast<double>(std::numeric_limits<int64_t>::max())) continue;
+        int64_t seconds = static_cast<int64_t>(std::floor(chapter.start));
+        if (seconds <= previous) continue;
+        std::string title = chapter.title;
+        // A title must stay on one line so it cannot introduce extra timestamps.
+        for (const std::string separator : {"\xc2\x85", "\xe2\x80\xa8", "\xe2\x80\xa9"}) {
+            size_t pos = 0;
+            while ((pos = title.find(separator, pos)) != std::string::npos) title.replace(pos, separator.size(), " ");
+        }
+        std::string clean;
+        bool space = false;
+        for (unsigned char c : title) {
+            if (c <= 0x20 || c == 0x7f) { space = !clean.empty(); continue; }
+            if (space) clean += ' ';
+            space = false;
+            clean += static_cast<char>(c);
+        }
+        if (clean.empty()) continue;
+        if (!result.empty()) result += '\n';
+        if (seconds >= 3600) result += std::to_string(seconds / 3600) + ':';
+        result += twoDigits((seconds / 60) % 60) + ':' + twoDigits(seconds % 60) + ' ' + clean;
+        previous = seconds;
+    }
+    return result;
+}
+
 int write(const std::string &inputPath, const std::string &outputPath,
           const std::vector<Chapter> &chapters,
           const std::vector<YTKACEMedia::Interval> &removed,

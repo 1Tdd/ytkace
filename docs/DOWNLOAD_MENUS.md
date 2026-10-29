@@ -16,6 +16,16 @@ remove chapters cut away completely. Chapter embedding runs after conversion,
 captions and artwork so these steps cannot discard the chapter table. Retry
 retains the choice; playlist downloads preserve available chapters automatically.
 
+Sharing a single downloaded file with chapters offers **Copy chapters and share**.
+Paste the copied timestamp/title list into the destination's video or audio
+caption before sending. Some players use that caption for chapter navigation;
+embedded metadata alone cannot populate another application's message caption.
+The list is read from the final embedded timeline, so it also works for existing
+downloads and reflects cuts. **Copy chapters** in the library menu copies the
+same list without opening a share sheet. No separate text attachment is sent,
+and sharing multiple files keeps their timelines separate. Copying requires an
+explicit choice; **Share file only** leaves the clipboard alone.
+
 Community posts have their own panel, opened by holding the post. It includes
 copy/translate text, save/copy the post as an image, and image actions. When
 multiple images are available in the post's loaded nodes, the panel offers

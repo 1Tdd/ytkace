@@ -31,6 +31,7 @@ YTKACE_FILES = \
 	Tweak/Features/Downloads/FFmpegMuxer.mm \
 	Tweak/Features/Downloads/MediaConversion.cpp \
 	Tweak/Features/Downloads/MediaChapters.cpp \
+	Tweak/Features/Downloads/MediaChapterSharing.mm \
 	Tweak/Features/Downloads/YTKACEBackupManager.mm \
 	Tweak/Features/Downloads/YTKACEMediaImporter.mm \
 	Tweak/Features/Downloads/MediaArtwork.mm \

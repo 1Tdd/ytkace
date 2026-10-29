@@ -1321,3 +1321,12 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Keep chapters" = "Mantieni capitoli";
 "%lu chapters" = "%lu capitoli";
 "Could not embed chapters. The media file was kept." = "Impossibile incorporare i capitoli. Il file multimediale è stato conservato.";
+
+/* Chapter sharing */
+"Copy chapters" = "Copia capitoli";
+"Chapters copied" = "Capitoli copiati";
+"No chapters found" = "Nessun capitolo trovato";
+"Share chapters" = "Condividi capitoli";
+"Some players use caption text for chapters. Copy the chapter list, then paste it into the video or audio caption before sending." = "Alcuni lettori usano la didascalia per i capitoli. Copia l’elenco dei capitoli e incollalo nella didascalia del video o dell’audio prima di inviare.";
+"Copy chapters and share" = "Copia capitoli e condividi";
+"Share file only" = "Condividi solo il file";
