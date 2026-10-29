@@ -8,6 +8,11 @@ typedef void (^YTKACEFFmpegProgress)(double fraction);
 FOUNDATION_EXPORT void YTKACEFFmpegCancelConversion(NSString *identifier);
 
 @interface YTKACEFFmpegMuxer : NSObject
++ (void)embedChapters:(NSArray<NSDictionary *> *)chapters
+      removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
+              mediaURL:(NSURL *)mediaURL
+             cancelled:(BOOL (^)(void))cancelled
+            completion:(YTKACEFFmpegCompletion)completion;
 + (void)convertMediaURL:(NSURL *)inputURL
               outputURL:(NSURL *)outputURL
              identifier:(NSString *)identifier

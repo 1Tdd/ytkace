@@ -22,6 +22,8 @@ NSString * _Nullable YTKACESponsorCurrentVideoDescription(void);
 NSString * _Nullable YTKACESponsorCurrentChannelTitle(void);
 NSArray<NSDictionary<NSString *, id> *> *YTKACESponsorCurrentSegments(void);
 NSArray<YTKACEVideoChapter *> *YTKACESponsorCurrentChapters(void);
+NSArray<YTKACEVideoChapter *> *YTKACEVideoChaptersFromResponse(id _Nullable response,
+    NSString * _Nullable description, double duration);
 void YTKACESponsorSeek(double time);
 void YTKACEPlayYouTubePlayer(void);
 void YTKACEPauseYouTubePlayer(void);

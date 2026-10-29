@@ -40,6 +40,8 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     if (self) {
         _videoTitle = [title copy] ?: @"";
         _metadata = @{@"title": _videoTitle, @"artist": @""};
+        _chapters = @[];
+        _keepChapters = YES;
         _encodingPreset = @"skip";
         _audioFormat = @"m4a";
         _videoOptions = [videoOptions copy] ?: @[];
@@ -211,6 +213,16 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
         YTKACEMediaAction *metadata = [YTKACEMediaAction action:@"download.metadata" title:YTKACELocalized(@"Edit metadata") symbol:@"square.and.pencil" handler:^{ [weakSelf editMetadata]; }];
         metadata.dismissesSheet = NO;
         [rows addObject:metadata];
+    }
+    if (self.chapters.count > 0) {
+        YTKACEMediaAction *chapters = [self choice:@"download.chapters"
+            title:YTKACELocalized(@"Keep chapters") selected:self.keepChapters handler:^{
+                weakSelf.keepChapters = !weakSelf.keepChapters;
+                [weakSelf rebuildForm];
+            }];
+        chapters.symbol = @"list.number";
+        chapters.detail = [NSString stringWithFormat:YTKACELocalized(@"%lu chapters"), (unsigned long)self.chapters.count];
+        [rows addObject:chapters];
     }
     NSMutableArray *tracks = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];

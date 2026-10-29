@@ -21,6 +21,7 @@
 #import "DownloadOptionsSheet.h"
 #import "../SponsorBlock/SponsorClient.h"
 #import "../SponsorBlock/SponsorPreferences.h"
+#import "../SponsorBlock/SponsorHooks.h"
 
 #import <AVKit/AVKit.h>
 #import <UIKit/UIKit.h>
@@ -53,6 +54,7 @@
 @property(nonatomic, assign) BOOL sharesFile;
 @property(nonatomic, assign) BOOL captionSelectionExplicit;
 @property(nonatomic, copy) NSDictionary<NSString *, NSString *> *metadata;
+@property(nonatomic, copy) NSArray<NSDictionary *> *chapters;
 @property(nonatomic, copy) NSString *encodingPreset;
 @property(nonatomic, copy) NSString *audioFormat;
 @property(nonatomic, assign) BOOL audioNormalized;
@@ -855,6 +857,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         YTKACEDownloadJob *job = [YTKACEDownloadJob new];
         job.identifier = NSUUID.UUID.UUIDString;
         job.metadata = weakController.metadata;
+        job.chapters = weakController.keepChapters ? weakController.chapters : @[];
         job.encodingPreset = weakController.encodingPreset;
         job.audioFormat = weakController.audioFormat;
         job.title = [weakSelf safeFilename:job.metadata[@"title"] ?: [YTKACEStreamResolver titleFromPlayerResponse:response]];
@@ -898,6 +901,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     weakController = controller;
     controller.metadata = @{@"title": videoTitle, @"artist": [YTKACEStreamResolver authorFromPlayerResponse:capturedResponse] ?: @""};
     controller.duration = [self durationForResponse:capturedResponse];
+    controller.chapters = [self chaptersForResponse:capturedResponse];
 
     UIViewController *top = [self topViewController];
     [top presentViewController:controller animated:YES completion:^{
@@ -975,6 +979,20 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         if (isfinite(value) && value > 0) return value;
     }
     return 0;
+}
+
+- (NSArray<NSDictionary *> *)chaptersForResponse:(id)response {
+    NSString *videoID = [YTKACEStreamResolver videoIDFromPlayerResponse:response];
+    NSArray<YTKACEVideoChapter *> *chapters = @[];
+    if (videoID.length && [videoID isEqualToString:YTKACESponsorCurrentVideoID()])
+        chapters = YTKACESponsorCurrentChapters();
+    if (chapters.count == 0) chapters = YTKACEVideoChaptersFromResponse(response,
+        [YTKACEStreamResolver descriptionFromPlayerResponse:response], [self durationForResponse:response]);
+    NSMutableArray *result = [NSMutableArray array];
+    for (YTKACEVideoChapter *chapter in chapters) {
+        [result addObject:@{@"title": chapter.title, @"start": @(chapter.startTime), @"end": @(chapter.endTime)}];
+    }
+    return result;
 }
 
 - (void)thumbnailAction:(NSInteger)action response:(id)response sourceView:(UIView *)sourceView {
@@ -1593,6 +1611,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     job.category = audioOnly ? @"Audio" : category;
     job.playerResponse = response;
     job.videoOption = videoOption;
+    job.chapters = [self chaptersForResponse:response];
     job.audioOption = audioOption;
     job.audioOnly = audioOnly;
     job.savesToPhotos = self.pendingSavesToPhotos;
@@ -1659,6 +1678,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     job.captionLanguage = old.captionLanguage;
     job.captionSelectionExplicit = old.captionSelectionExplicit;
     job.metadata = old.metadata;
+    job.chapters = old.chapters;
     job.encodingPreset = old.encodingPreset;
     job.audioFormat = old.audioFormat;
     job.removedSegments = old.removedSegments;
@@ -2080,6 +2100,25 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 
 - (void)writeMetadataForJob:(YTKACEDownloadJob *)job
                 destination:(NSURL *)destination {
+    [self writeMetadataForJob:job destination:destination completion:nil];
+}
+
+- (void)attachChaptersForJob:(YTKACEDownloadJob *)job
+                destination:(NSURL *)destination
+                 completion:(YTKACEFFmpegCompletion)completion {
+    if (job.chapters.count == 0) { completion(nil); return; }
+    [YTKACEFFmpegMuxer embedChapters:job.chapters removedSegments:job.removedSegments
+        mediaURL:destination cancelled:^BOOL { return job.cancelled; }
+        completion:^(NSError *error) {
+            YTKACEDownloadLog(job.identifier, @"chapters count=%lu error=%@",
+                (unsigned long)job.chapters.count, error.localizedDescription ?: @"none");
+            completion(error);
+        }];
+}
+
+- (void)writeMetadataForJob:(YTKACEDownloadJob *)job
+                destination:(NSURL *)destination
+                 completion:(nullable YTKACEFFmpegCompletion)completion {
     NSURL *base = [destination URLByDeletingPathExtension];
     NSString *videoID = job.videoID;
     NSString *author = job.author;
@@ -2091,7 +2130,15 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         }
     };
     attachSponsor();
-    if (job.thumbnailURL == nil) return;
+    void (^finish)(void) = ^{
+        [self attachChaptersForJob:job destination:destination completion:^(NSError *error) {
+            attachSponsor();
+            [NSNotificationCenter.defaultCenter postNotificationName:@"YTKACEDownloadLibraryChanged" object:nil];
+            if (completion) completion(error);
+            else if (error && !job.cancelled) YTKACEShowNotice(YTKACELocalized(@"Could not embed chapters. The media file was kept."));
+        }];
+    };
+    if (job.thumbnailURL == nil) { finish(); return; }
     NSURL *imageURL = [base URLByAppendingPathExtension:@"jpg"];
     NSString *identifier = job.identifier;
     NSURLSessionDataTask *task = [NSURLSession.sharedSession
@@ -2113,14 +2160,12 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
                         YTKACEDownloadLog(identifier, @"thumbnail sidecar kept error=%@",
                             embedError.localizedDescription);
                     }
-                    attachSponsor();
-                    [NSNotificationCenter.defaultCenter
-                        postNotificationName:@"YTKACEDownloadLibraryChanged" object:nil];
+                    finish();
                 }];
         } else {
             YTKACEDownloadLog(identifier, @"thumbnail failed error=%@",
                 error.localizedDescription ?: @"empty response");
-            attachSponsor();
+            dispatch_async(dispatch_get_main_queue(), finish);
         }
     }];
     [task resume];
@@ -2264,18 +2309,16 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
                                         libraryURL:destination];
                 }];
             } else {
-                [strongSelf writeMetadataForJob:job destination:destination];
-                [YTKACEDownloadProgressView.sharedView finishJob:job.identifier
-                    success:YES message:YTKACELocalized(@"Complete")];
-                YTKACEDownloadLog(job.identifier, @"saved path=%@",
-                                  destination.path);
-                [NSNotificationCenter.defaultCenter
-                    postNotificationName:@"YTKACEDownloadLibraryChanged"
-                                  object:nil];
-                if (job.sharesFile) {
-                    [strongSelf presentShareSheetForURL:destination];
-                }
-                [strongSelf.activeJobs removeObjectForKey:job.identifier];
+                [strongSelf writeMetadataForJob:job destination:destination completion:^(NSError *metadataError) {
+                    [YTKACEDownloadProgressView.sharedView finishJob:job.identifier
+                        success:metadataError == nil && !job.cancelled
+                        message:YTKACELocalized(job.cancelled ? @"Cancelled" : (metadataError ? @"Failed" : @"Complete"))];
+                    YTKACEDownloadLog(job.identifier, @"saved path=%@", destination.path);
+                    if (metadataError && !job.cancelled) YTKACEShowNotice(YTKACELocalized(@"Could not embed chapters. The media file was kept."));
+                    if (job.sharesFile && !metadataError && !job.cancelled)
+                        [strongSelf presentShareSheetForURL:destination];
+                    [strongSelf.activeJobs removeObjectForKey:job.identifier];
+                }];
             }
         }];
         return;
@@ -2365,6 +2408,22 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
 - (void)deliverToPhotosJob:(YTKACEDownloadJob *)job
                  importURL:(NSURL *)importURL
                 libraryURL:(NSURL *)libraryURL {
+    [self attachChaptersForJob:job destination:importURL completion:^(NSError *error) {
+        if (error) {
+            if (![importURL isEqual:libraryURL]) [NSFileManager.defaultManager removeItemAtURL:importURL error:nil];
+            [self writeMetadataForJob:job destination:libraryURL];
+            [YTKACEDownloadProgressView.sharedView finishJob:job.identifier success:NO
+                message:YTKACELocalized(job.cancelled ? @"Cancelled" : @"Failed")];
+            [self.activeJobs removeObjectForKey:job.identifier];
+            return;
+        }
+        [self deliverChapteredToPhotosJob:job importURL:importURL libraryURL:libraryURL];
+    }];
+}
+
+- (void)deliverChapteredToPhotosJob:(YTKACEDownloadJob *)job
+                          importURL:(NSURL *)importURL
+                         libraryURL:(NSURL *)libraryURL {
     {
         if (job.cancelled) {
             if (![importURL isEqual:libraryURL]) [NSFileManager.defaultManager removeItemAtURL:importURL error:nil];

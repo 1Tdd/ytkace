@@ -1316,3 +1316,8 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Remove Not Interested" = "Rimuovi Non mi interessa";
 "Remove Don't Recommend Channel" = "Rimuovi Non consigliare il canale";
 "Also removes YTKACE's download from this menu." = "Rimuove anche il download di YTKACE da questo menu.";
+
+/* Download chapters */
+"Keep chapters" = "Mantieni capitoli";
+"%lu chapters" = "%lu capitoli";
+"Could not embed chapters. The media file was kept." = "Impossibile incorporare i capitoli. Il file multimediale è stato conservato.";
