@@ -111,7 +111,6 @@
 "Import" = "İçe Aktar";
 "Keep Controls Visible" = "Denetimleri Görünür Tut";
 "Keep Play Button Visible" = "Oynat Düğmesini Görünür Tut";
-"Keep Timeline Visible" = "Zaman Çizelgesini Görünür Tut";
 "LAYOUT" = "DÜZEN";
 "Last Used" = "Son Kullanılan";
 "Layout" = "Düzen";
@@ -174,6 +173,8 @@
 "Remove Dislike" = "Beğenme Düğmesini Gizle";
 "Remove Download" = "İndir Düğmesini Gizle";
 "Remove End Screen" = "Bitiş Ekranını Gizle";
+"Remove Autoplay Prompt" = "Otomatik Oynatma İstemini Gizle";
+"Hides the Suggested video and Suggested music prompts at the end of a video." = "Video sonunda çıkan Önerilen video ve Önerilen müzik istemlerini gizler.";
 "Remove Fullscreen Actions" = "Tam Ekran İşlemlerini Gizle";
 "Remove Horizontal Shelves" = "Yatay Rafları Gizle";
 "Remove Hype" = "Hype Düğmesini Gizle";
@@ -192,9 +193,9 @@
 "Remove Previous/Next" = "Önceki/Sonraki Düğmelerini Gizle";
 "Remove Products" = "Ürünleri Gizle";
 "Remove Quick Actions" = "Hızlı İşlemleri Gizle";
-"Remove Related Videos" = "İlgili Videoları Gizle";
 "Remove Remix" = "Remix Düğmesini Gizle";
 "Remove Report" = "Bildir Düğmesini Gizle";
+"Remove Listen with YouTube Music" = "YouTube Music'te Dinle Düğmesini Gizle";
 "Remove Save" = "Kaydet Düğmesini Gizle";
 "Remove Search" = "Aramayı Gizle";
 "Remove Settings Button" = "Ayarlar Düğmesini Gizle";
@@ -425,7 +426,6 @@
 "Hide Previous & Next" = "Önceki ve Sonraki'yi Gizle";
 "Hide Product Recommendations" = "Ürün Önerilerini Gizle";
 "Hide Quick Actions" = "Hızlı İşlemleri Gizle";
-"Hide Related Videos" = "İlgili Videoları Gizle";
 "Hide Search" = "Aramayı Gizle";
 "Hide Search History" = "Arama Geçmişini Gizle";
 "Hide Shorts from Feed" = "Akıştaki Shorts'u Gizle";
@@ -1019,3 +1019,5 @@ CC BY-NC-SA 4.0 ile lisanslanmıştır.";
 "Remove Not Interested" = "İlgilenmiyorum'u kaldır";
 "Remove Don't Recommend Channel" = "Kanalı önerme'yi kaldır";
 "Also removes YTKACE's download from this menu." = "YTKACE indirmesini de bu menüden kaldırır.";
+"Open Links Directly" = "Bağlantıları doğrudan aç";
+"Skips YouTube's redirect page when you open a link from a description or comment." = "Açıklama veya yorumdaki bir bağlantıyı açarken YouTube'un yönlendirme sayfasını atlar.";

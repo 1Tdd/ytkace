@@ -111,7 +111,6 @@
 "Import" = "Nhập";
 "Keep Controls Visible" = "Luôn hiện điều khiển";
 "Keep Play Button Visible" = "Luôn hiện nút phát";
-"Keep Timeline Visible" = "Luôn hiện dòng thời gian";
 "LAYOUT" = "BỐ CỤC";
 "Last Used" = "Dùng gần đây nhất";
 "Layout" = "Bố cục";
@@ -174,6 +173,8 @@
 "Remove Dislike" = "Ẩn Không thích";
 "Remove Download" = "Ẩn Tải xuống";
 "Remove End Screen" = "Ẩn màn hình kết thúc";
+"Remove Autoplay Prompt" = "Ẩn lời nhắc tự động phát";
+"Hides the Suggested video and Suggested music prompts at the end of a video." = "Ẩn lời nhắc Video đề xuất và Nhạc đề xuất ở cuối video.";
 "Remove Fullscreen Actions" = "Ẩn thao tác toàn màn hình";
 "Remove Horizontal Shelves" = "Ẩn các hàng cuộn ngang";
 "Remove Hype" = "Ẩn Hype";
@@ -192,9 +193,9 @@
 "Remove Previous/Next" = "Ẩn Trước/Tiếp";
 "Remove Products" = "Ẩn Sản phẩm";
 "Remove Quick Actions" = "Ẩn thao tác nhanh";
-"Remove Related Videos" = "Ẩn video liên quan";
 "Remove Remix" = "Ẩn Phối lại";
 "Remove Report" = "Ẩn Báo cáo";
+"Remove Listen with YouTube Music" = "Ẩn Nghe bằng YouTube Music";
 "Remove Save" = "Ẩn Lưu";
 "Remove Search" = "Ẩn Tìm kiếm";
 "Remove Settings Button" = "Ẩn nút cài đặt";
@@ -425,7 +426,6 @@
 "Hide Previous & Next" = "Ẩn Trước và Tiếp";
 "Hide Product Recommendations" = "Ẩn đề xuất sản phẩm";
 "Hide Quick Actions" = "Ẩn thao tác nhanh";
-"Hide Related Videos" = "Ẩn video liên quan";
 "Hide Search" = "Ẩn tìm kiếm";
 "Hide Search History" = "Ẩn nhật ký tìm kiếm";
 "Hide Shorts from Feed" = "Ẩn Shorts khỏi bảng tin";
@@ -1019,3 +1019,5 @@ Cấp phép theo CC BY-NC-SA 4.0.";
 "Remove Not Interested" = "Xóa Không quan tâm";
 "Remove Don't Recommend Channel" = "Xóa Không đề xuất kênh";
 "Also removes YTKACE's download from this menu." = "Cũng xóa mục tải xuống của YTKACE khỏi menu này.";
+"Open Links Directly" = "Mở liên kết trực tiếp";
+"Skips YouTube's redirect page when you open a link from a description or comment." = "Bỏ qua trang chuyển hướng của YouTube khi bạn mở liên kết từ mô tả hoặc bình luận.";

@@ -111,7 +111,6 @@
 "Import" = "読み込む";
 "Keep Controls Visible" = "コントロールを常に表示";
 "Keep Play Button Visible" = "再生ボタンを常に表示";
-"Keep Timeline Visible" = "シークバーを常に表示";
 "LAYOUT" = "レイアウト";
 "Last Used" = "前回と同じ";
 "Layout" = "レイアウト";
@@ -174,6 +173,8 @@
 "Remove Dislike" = "低評価を非表示";
 "Remove Download" = "「ダウンロード」を非表示";
 "Remove End Screen" = "終了画面を非表示";
+"Remove Autoplay Prompt" = "自動再生の案内を非表示";
+"Hides the Suggested video and Suggested music prompts at the end of a video." = "動画の最後に表示される「おすすめの動画」と「おすすめの音楽」の案内を非表示にします。";
 "Remove Fullscreen Actions" = "全画面表示のボタンを非表示";
 "Remove Horizontal Shelves" = "横並びのセクションを非表示";
 "Remove Hype" = "「Hype」を非表示";
@@ -192,9 +193,9 @@
 "Remove Previous/Next" = "前へ/次へを非表示";
 "Remove Products" = "商品を非表示";
 "Remove Quick Actions" = "クイック操作を非表示";
-"Remove Related Videos" = "関連動画を非表示";
 "Remove Remix" = "「リミックス」を非表示";
 "Remove Report" = "「報告」を非表示";
+"Remove Listen with YouTube Music" = "「YouTube Music で聴く」を非表示";
 "Remove Save" = "「保存」を非表示";
 "Remove Search" = "検索を非表示";
 "Remove Settings Button" = "設定ボタンを非表示";
@@ -425,7 +426,6 @@
 "Hide Previous & Next" = "前へ/次へを非表示";
 "Hide Product Recommendations" = "おすすめの商品を非表示";
 "Hide Quick Actions" = "クイック操作を非表示";
-"Hide Related Videos" = "関連動画を非表示";
 "Hide Search" = "検索を非表示";
 "Hide Search History" = "検索履歴を非表示";
 "Hide Shorts from Feed" = "フィードのショートを非表示";
@@ -1019,3 +1019,5 @@ CC BY-NC-SA 4.0 でライセンスされています。";
 "Remove Not Interested" = "「興味なし」を削除";
 "Remove Don't Recommend Channel" = "「チャンネルをおすすめに表示しない」を削除";
 "Also removes YTKACE's download from this menu." = "このメニューからYTKACEのダウンロードも削除します。";
+"Open Links Directly" = "リンクを直接開く";
+"Skips YouTube's redirect page when you open a link from a description or comment." = "説明やコメントのリンクを開くときにYouTubeのリダイレクトページをスキップします。";

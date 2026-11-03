@@ -111,7 +111,6 @@
 "Import" = "Importa";
 "Keep Controls Visible" = "Mantieni visibili i controlli";
 "Keep Play Button Visible" = "Mantieni visibile il pulsante Play";
-"Keep Timeline Visible" = "Mantieni visibile la timeline";
 "LAYOUT" = "LAYOUT";
 "Last Used" = "Ultima usata";
 "Layout" = "Layout";
@@ -174,6 +173,8 @@
 "Remove Dislike" = "Nascondi Non mi piace";
 "Remove Download" = "Nascondi Scarica";
 "Remove End Screen" = "Nascondi schermata finale";
+"Remove Autoplay Prompt" = "Nascondi avviso di riproduzione automatica";
+"Hides the Suggested video and Suggested music prompts at the end of a video." = "Nasconde gli avvisi Video suggerito e Musica suggerita alla fine di un video.";
 "Remove Fullscreen Actions" = "Nascondi azioni a schermo intero";
 "Remove Horizontal Shelves" = "Nascondi sezioni orizzontali";
 "Remove Hype" = "Nascondi Hype";
@@ -192,9 +193,9 @@
 "Remove Previous/Next" = "Nascondi Precedente/Successivo";
 "Remove Products" = "Nascondi prodotti";
 "Remove Quick Actions" = "Nascondi azioni rapide";
-"Remove Related Videos" = "Nascondi video correlati";
 "Remove Remix" = "Nascondi Remix";
 "Remove Report" = "Nascondi Segnala";
+"Remove Listen with YouTube Music" = "Nascondi Ascolta con YouTube Music";
 "Remove Save" = "Nascondi Salva";
 "Remove Search" = "Nascondi Cerca";
 "Remove Settings Button" = "Nascondi pulsante impostazioni";
@@ -425,7 +426,6 @@
 "Hide Previous & Next" = "Nascondi Precedente e Successivo";
 "Hide Product Recommendations" = "Nascondi consigli sui prodotti";
 "Hide Quick Actions" = "Nascondi azioni rapide";
-"Hide Related Videos" = "Nascondi video correlati";
 "Hide Search" = "Nascondi ricerca";
 "Hide Search History" = "Nascondi cronologia ricerche";
 "Hide Shorts from Feed" = "Nascondi Shorts dal feed";
@@ -1336,3 +1336,5 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Saving image %lu of %lu…" = "Salvataggio immagine %lu di %lu…";
 
 "Saved %lu images. %@" = "Salvate %lu immagini. %@";
+"Open Links Directly" = "Apri i link direttamente";
+"Skips YouTube's redirect page when you open a link from a description or comment." = "Salta la pagina di reindirizzamento di YouTube quando apri un link da una descrizione o da un commento.";

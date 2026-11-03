@@ -116,7 +116,6 @@
 "Import" = "导入";
 "Keep Controls Visible" = "始终显示控件";
 "Keep Play Button Visible" = "始终显示播放按钮";
-"Keep Timeline Visible" = "始终显示进度条";
 "LAYOUT" = "布局";
 "Last Used" = "上次使用";
 "Layout" = "布局";
@@ -182,6 +181,8 @@
 "Remove Dislike" = "移除踩";
 "Remove Download" = "移除下载";
 "Remove End Screen" = "移除片尾画面";
+"Remove Autoplay Prompt" = "移除自动播放提示";
+"Hides the Suggested video and Suggested music prompts at the end of a video." = "隐藏视频结束时的“推荐视频”和“推荐音乐”提示。";
 "Remove Frosted Tab Bar" = "移除毛玻璃标签栏";
 "Remove Fullscreen Actions" = "移除全屏操作按钮";
 "Remove Horizontal Shelves" = "隐藏横向板块";
@@ -201,9 +202,9 @@
 "Remove Previous/Next" = "移除上一个/下一个";
 "Remove Products" = "移除商品";
 "Remove Quick Actions" = "移除快捷操作";
-"Remove Related Videos" = "移除相关视频";
 "Remove Remix" = "移除混剪";
 "Remove Report" = "移除举报";
+"Remove Listen with YouTube Music" = "移除在 YouTube Music 中收听";
 "Remove Save" = "移除收藏";
 "Remove Search" = "移除搜索";
 "Remove Settings Button" = "移除设置按钮";
@@ -436,7 +437,6 @@
 "Hide Previous & Next" = "隐藏上/下集按钮";
 "Hide Product Recommendations" = "隐藏商品推荐";
 "Hide Quick Actions" = "隐藏快捷操作";
-"Hide Related Videos" = "隐藏相关视频";
 "Hide Search" = "隐藏搜索";
 "Hide Search History" = "隐藏搜索历史";
 "Hide Shorts from Feed" = "信息流中隐藏短视频";
@@ -1030,3 +1030,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 数据。
 "Remove Not Interested" = "移除“不感兴趣”";
 "Remove Don't Recommend Channel" = "移除“不推荐此频道”";
 "Also removes YTKACE's download from this menu." = "同时会从此菜单移除 YTKACE 的下载。";
+"Open Links Directly" = "直接打开链接";
+"Skips YouTube's redirect page when you open a link from a description or comment." = "打开说明或评论中的链接时跳过 YouTube 的跳转页面。";

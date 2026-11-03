@@ -37,6 +37,7 @@ void YTKACEInstallSpeedHooks(void);
 double YTKACEStartPlaybackRate(void);
 void YTKACEInstallLoopHooks(void);
 void YTKACEInstallLinkCleaningHooks(void);
+void YTKACEInstallHapticHooks(void);
 void YTKACEInstallAutoplayHooks(void);
 void YTKACEOpenPausedVideoActivated(id player);
 void YTKACEInstallCaptionHooks(void);
@@ -58,6 +59,7 @@ void YTKACEFetchCaptionCues(id playerResponse,
 void YTKACECaptionsSnapshot(id player);
 void YTKACECaptionsRestore(id player);
 void YTKACEApplyPreferredCaptionLanguage(id player);
+NSInteger YTKACECaptionsMode(void);
 void YTKACEInstallSleepTimerHooks(void);
 void YTKACEInstallDoubleTapHooks(void);
 void YTKACEInstallVideoZoomHooks(void);

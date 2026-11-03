@@ -111,7 +111,6 @@
 "Import" = "Importar";
 "Keep Controls Visible" = "Mantener controles visibles";
 "Keep Play Button Visible" = "Mantener botón de reproducir visible";
-"Keep Timeline Visible" = "Mantener cronología visible";
 "LAYOUT" = "DISEÑO";
 "Last Used" = "Último usado";
 "Layout" = "Diseño";
@@ -174,6 +173,8 @@
 "Remove Dislike" = "Ocultar No me gusta";
 "Remove Download" = "Ocultar Descargar";
 "Remove End Screen" = "Ocultar pantalla final";
+"Remove Autoplay Prompt" = "Ocultar aviso de reproducción automática";
+"Hides the Suggested video and Suggested music prompts at the end of a video." = "Oculta los avisos de vídeo sugerido y música sugerida al final de un vídeo.";
 "Remove Fullscreen Actions" = "Ocultar acciones en pantalla completa";
 "Remove Horizontal Shelves" = "Ocultar secciones horizontales";
 "Remove Hype" = "Ocultar Hype";
@@ -192,9 +193,9 @@
 "Remove Previous/Next" = "Ocultar anterior/siguiente";
 "Remove Products" = "Ocultar productos";
 "Remove Quick Actions" = "Ocultar acciones rápidas";
-"Remove Related Videos" = "Ocultar vídeos relacionados";
 "Remove Remix" = "Ocultar Remix";
 "Remove Report" = "Ocultar Denunciar";
+"Remove Listen with YouTube Music" = "Ocultar Escuchar en YouTube Music";
 "Remove Save" = "Ocultar Guardar";
 "Remove Search" = "Ocultar búsqueda";
 "Remove Settings Button" = "Ocultar botón de ajustes";
@@ -425,7 +426,6 @@
 "Hide Previous & Next" = "Ocultar anterior y siguiente";
 "Hide Product Recommendations" = "Ocultar productos recomendados";
 "Hide Quick Actions" = "Ocultar acciones rápidas";
-"Hide Related Videos" = "Ocultar vídeos relacionados";
 "Hide Search" = "Ocultar búsqueda";
 "Hide Search History" = "Ocultar historial de búsqueda";
 "Hide Shorts from Feed" = "Ocultar Shorts del feed";
@@ -1001,3 +1001,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE usa datos de SponsorBlock.\nCon licen
 "Remove Not Interested" = "Quitar No me interesa";
 "Remove Don't Recommend Channel" = "Quitar No recomendar canal";
 "Also removes YTKACE's download from this menu." = "También quita la descarga de YTKACE de este menú.";
+"Open Links Directly" = "Abrir enlaces directamente";
+"Skips YouTube's redirect page when you open a link from a description or comment." = "Omite la página de redirección de YouTube al abrir un enlace de una descripción o un comentario.";

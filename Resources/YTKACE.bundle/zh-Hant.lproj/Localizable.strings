@@ -111,7 +111,6 @@
 "Import" = "匯入";
 "Keep Controls Visible" = "一律顯示控制項";
 "Keep Play Button Visible" = "一律顯示播放按鈕";
-"Keep Timeline Visible" = "一律顯示時間軸";
 "LAYOUT" = "版面配置";
 "Last Used" = "上次使用";
 "Layout" = "版面配置";
@@ -174,6 +173,8 @@
 "Remove Dislike" = "隱藏「不喜歡」";
 "Remove Download" = "隱藏「下載」";
 "Remove End Screen" = "隱藏結束畫面";
+"Remove Autoplay Prompt" = "隱藏自動播放提示";
+"Hides the Suggested video and Suggested music prompts at the end of a video." = "隱藏影片結束時的「推薦影片」和「推薦音樂」提示。";
 "Remove Fullscreen Actions" = "隱藏全螢幕操作按鈕";
 "Remove Horizontal Shelves" = "隱藏橫向區塊";
 "Remove Hype" = "隱藏「Hype」";
@@ -192,9 +193,9 @@
 "Remove Previous/Next" = "隱藏上一部/下一部";
 "Remove Products" = "隱藏商品";
 "Remove Quick Actions" = "隱藏快速動作";
-"Remove Related Videos" = "隱藏相關影片";
 "Remove Remix" = "隱藏「Remix」";
 "Remove Report" = "隱藏「檢舉」";
+"Remove Listen with YouTube Music" = "隱藏「在 YouTube Music 中收聽」";
 "Remove Save" = "隱藏「儲存」";
 "Remove Search" = "隱藏搜尋";
 "Remove Settings Button" = "隱藏設定按鈕";
@@ -425,7 +426,6 @@
 "Hide Previous & Next" = "隱藏上一部與下一部";
 "Hide Product Recommendations" = "隱藏商品推薦";
 "Hide Quick Actions" = "隱藏快速動作";
-"Hide Related Videos" = "隱藏相關影片";
 "Hide Search" = "隱藏搜尋";
 "Hide Search History" = "隱藏搜尋記錄";
 "Hide Shorts from Feed" = "從動態中隱藏 Shorts";
@@ -1019,3 +1019,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE 使用 SponsorBlock 資料。
 "Remove Not Interested" = "移除「不感興趣」";
 "Remove Don't Recommend Channel" = "移除「不推薦此頻道」";
 "Also removes YTKACE's download from this menu." = "也會從此選單移除 YTKACE 的下載。";
+"Open Links Directly" = "直接開啟連結";
+"Skips YouTube's redirect page when you open a link from a description or comment." = "開啟說明或留言中的連結時略過 YouTube 的跳轉頁面。";

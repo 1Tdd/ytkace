@@ -111,7 +111,6 @@
 "Import" = "هاوردەکردن";
 "Keep Controls Visible" = "کۆنترۆڵەکان هەمیشە دیار بن";
 "Keep Play Button Visible" = "دوگمەی لێدان هەمیشە دیار بێت";
-"Keep Timeline Visible" = "هێڵی کات هەمیشە دیار بێت";
 "LAYOUT" = "ڕیزبەندی";
 "Last Used" = "دوایین بەکارهاتوو";
 "Layout" = "ڕیزبەندی";
@@ -174,6 +173,8 @@
 "Remove Dislike" = "لابردنی ناپەسەند";
 "Remove Download" = "لابردنی داگرتن";
 "Remove End Screen" = "لابردنی شاشەی کۆتایی";
+"Remove Autoplay Prompt" = "لابردنی پەیامی پەخشی خۆکار";
+"Hides the Suggested video and Suggested music prompts at the end of a video." = "پەیامەکانی ڤیدیۆی پێشنیارکراو و مۆسیقای پێشنیارکراو لە کۆتایی ڤیدیۆدا دەشارێتەوە.";
 "Remove Fullscreen Actions" = "لابردنی دوگمەکانی پڕ بە شاشە";
 "Remove Horizontal Shelves" = "لابردنی ڕەفە ئاسۆییەکان";
 "Remove Hype" = "لابردنی Hype";
@@ -192,9 +193,9 @@
 "Remove Previous/Next" = "لابردنی پێشوو/دواتر";
 "Remove Products" = "لابردنی بەرهەمەکان";
 "Remove Quick Actions" = "لابردنی کردارە خێراکان";
-"Remove Related Videos" = "لابردنی ڤیدیۆ پەیوەندیدارەکان";
 "Remove Remix" = "لابردنی ڕیمیکس";
 "Remove Report" = "لابردنی ڕاپۆرت";
+"Remove Listen with YouTube Music" = "لابردنی گوێگرتن لە YouTube Music";
 "Remove Save" = "لابردنی پاشەکەوت";
 "Remove Search" = "لابردنی گەڕان";
 "Remove Settings Button" = "لابردنی دوگمەی ڕێکخستنەکان";
@@ -425,7 +426,6 @@
 "Hide Previous & Next" = "شاردنەوەی پێشوو و دواتر";
 "Hide Product Recommendations" = "شاردنەوەی پێشنیاری بەرهەم";
 "Hide Quick Actions" = "شاردنەوەی کردارە خێراکان";
-"Hide Related Videos" = "شاردنەوەی ڤیدیۆ پەیوەندیدارەکان";
 "Hide Search" = "شاردنەوەی گەڕان";
 "Hide Search History" = "شاردنەوەی مێژووی گەڕان";
 "Hide Shorts from Feed" = "شاردنەوەی Shorts لە فید";
@@ -1019,3 +1019,5 @@ Licensed under CC BY-NC-SA 4.0." = "YTKACE داتای SponsorBlock بەکارد�
 "Remove Not Interested" = "لابردنی «بەلامەوە گرنگ نییە»";
 "Remove Don't Recommend Channel" = "لابردنی «کەناڵ پێشنیار مەکە»";
 "Also removes YTKACE's download from this menu." = "هەروەها داگرتنی YTKACE لەم لیستە لادەبات.";
+"Open Links Directly" = "کردنەوەی بەستەرەکان ڕاستەوخۆ";
+"Skips YouTube's redirect page when you open a link from a description or comment." = "پەڕەی ئاڕاستەکردنەوەی یوتیوب تێدەپەڕێنێت کاتێک بەستەرێک لە وەسف یان لێدوانێکەوە دەکەیتەوە.";

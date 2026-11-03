@@ -2047,7 +2047,7 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
             YTKACEToggleDetail(@"Keep Controls Visible", @"Player controls never fade out.",
                                @"YTKACE.Preference.Overlay.AlwaysShowControls"),
             YTKACEToggle(@"Keep Play Button Visible", @"YTKACE.Preference.Overlay.AlwaysShowPlayPause", @"", @""),
-            YTKACEToggle(@"Keep Timeline Visible", @"YTKACE.Preference.Overlay.ProgressAlwaysVisible", @"", @""),
+            YTKACEToggle(@"Keep Progress Bar Visible", @"YTKACE.Preference.Overlay.ProgressAlwaysVisible", @"", @""),
             YTKACEToggleDetail(@"Remove Player Dimming",
                                @"Stop the video from darkening when the controls show.",
                                @"YTKACE.Preference.Overlay.DimmingRemoved"),
@@ -2073,6 +2073,13 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
             YTKACEToggle(@"Remove Info Cards", @"YTKACE.Preference.Overlay.InfoCardsHidden", @"", @""),
             YTKACEToggle(@"Remove Channel Watermark", @"YTKACE.Preference.Overlay.WatermarkHidden", @"", @""),
             YTKACEToggle(@"Remove End Screen", @"YTKACE.Preference.Overlay.EndScreenHidden", @"", @""),
+            YTKACEToggleDetail(@"Remove Autoplay Prompt",
+                               @"Hides the Suggested video and Suggested music prompts at the end of a video.",
+                               @"YTKACE.Preference.Overlay.AutoplayPromptHidden"),
+            YTKACEToggleDetail(@"Remove More Videos",
+                               @"Disable the edge swipe up in fullscreen that "
+                                "reveals the More videos row.",
+                               @"YTKACE.Preference.Overlay.MoreVideosHidden"),
             YTKACEToggleDetail(@"Remove Fullscreen Actions",
                                @"Hide the row of buttons under the progress bar in fullscreen.",
                                @"YTKACE.Preference.Overlay.FullscreenActionsHidden"),
@@ -2152,7 +2159,6 @@ static NSDictionary *YTKACEWatchPageDefinition(void) {
     return YTKACEPageDefinition(@"watch", @"Watch Page", @[
         @[
             YTKACEToggle(@"Remove Suggested Videos", @"YTKACE.Preference.Overlay.SuggestedVideosHidden", @"", @""),
-            YTKACEToggle(@"Remove Related Videos", @"YTKACE.Preference.Overlay.RelatedVideosHidden", @"", @""),
             YTKACEToggleDetail(@"Remove Comments", @"Hide the comments box under the video.",
                                @"YTKACE.Preference.Overlay.CommentsHidden"),
             YTKACEToggle(@"Remove Comment Preview", @"YTKACE.Preference.Overlay.CommentPreviewsHidden", @"", @""),
@@ -2225,7 +2231,8 @@ static NSDictionary *YTKACEFeedDefinition(void) {
             YTKACEToggle(@"Remove Share", @"YTKACE.Preference.Menu.ShareHidden", @"", @""),
             YTKACEToggle(@"Remove Not Interested", @"YTKACE.Preference.Menu.NotInterestedHidden", @"", @""),
             YTKACEToggle(@"Remove Don't Recommend Channel", @"YTKACE.Preference.Menu.DontRecommendHidden", @"", @""),
-            YTKACEToggle(@"Remove Report", @"YTKACE.Preference.Menu.ReportHidden", @"", @"")
+            YTKACEToggle(@"Remove Report", @"YTKACE.Preference.Menu.ReportHidden", @"", @""),
+            YTKACEToggle(@"Remove Listen with YouTube Music", @"YTKACE.Preference.Menu.YouTubeMusicHidden", @"", @"")
         ],
         @[
             YTKACEToggleDetail(@"Hide AI Channels",
@@ -2362,7 +2369,9 @@ static NSDictionary *YTKACEGeneralDefinition(void) {
             YTKACEToggleDetail(@"Force Left-to-Right Layout", @"Keep a left-to-right layout in right-to-left languages.",
                                @"YTKACE.Preference.App.RTLDisabled"),
             YTKACEToggleDetail(@"Block Drag and Drop", @"Stop thumbnails and text from being dragged.",
-                               @"YTKACE.Preference.App.DragDropDisabled")
+                               @"YTKACE.Preference.App.DragDropDisabled"),
+            YTKACEToggleDetail(@"Turn Off Haptics", @"Stops vibration feedback in YouTube, including YTKACE's own.",
+                               @"YTKACE.Preference.App.HapticsDisabled")
         ],
         @[
             YTKACEToggleDetail(@"Use iOS Share Sheet", @"Use the iOS share sheet instead of YouTube's.",
@@ -2373,6 +2382,9 @@ static NSDictionary *YTKACEGeneralDefinition(void) {
             YTKACEToggleDetail(@"Clean Copied Links",
                                @"Removes tracking like si= from links you copy or share.",
                                @"YTKACE.Preference.Sharing.CleanLinks"),
+            YTKACEToggleDetail(@"Open Links Directly",
+                               @"Skips YouTube's redirect page when you open a link from a description or comment.",
+                               @"YTKACE.Preference.Sharing.DirectLinks"),
             YTKACEToggle(@"Hold Avatar to Enlarge", @"YTKACE.Preference.Profiles.Preview", @"", @""),
             YTKACEToggleDetail(@"Save Post Images",
                 @"Adds a save button when you open an image from a community post.",
