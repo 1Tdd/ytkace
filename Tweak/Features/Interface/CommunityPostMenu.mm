@@ -1,5 +1,6 @@
 #import "CommunityPostMenu.h"
 #import "PostTranslation.h"
+#import "PostImages.h"
 #import "../../UI/MediaActionSheet.h"
 #import "../../UI/MediaExport.h"
 #import "../../UI/Notice.h"
@@ -15,31 +16,63 @@ static id YTKACEPostValue(id object, NSString *name) {
     return ((id (*)(id, SEL))objc_msgSend)(object, selector);
 }
 
-static NSURL *YTKACEPostOriginalURL(NSURL *URL) {
-    NSURLComponents *parts = [NSURLComponents componentsWithURL:URL resolvingAgainstBaseURL:NO];
-    NSString *host = parts.host.lowercaseString;
-    if (!([host hasSuffix:@".ggpht.com"] || [host hasSuffix:@".googleusercontent.com"])) return URL;
-    NSRange options = [parts.path rangeOfString:@"=" options:NSBackwardsSearch];
-    if (options.location != NSNotFound) parts.path = [[parts.path substringToIndex:options.location] stringByAppendingString:@"=s0"];
-    return parts.URL ?: URL;
-}
-
 static NSArray<NSURL *> *YTKACEPostImages(id node) {
-    NSMutableArray *pending = [NSMutableArray arrayWithObject:node];
+    if (!node) return @[];
+    NSMutableArray *pending = [NSMutableArray arrayWithObject:@[node, @NO]];
     NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
-    NSMutableOrderedSet *URLs = [NSMutableOrderedSet orderedSet];
-    for (NSUInteger i = 0; i < pending.count && i < 384; i++) {
-        id item = pending[i];
-        if ([seen containsObject:item]) continue;
-        [seen addObject:item];
-        id value = YTKACEPostValue(item, @"URL");
+    NSHashTable *seenAttachments = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    NSMutableArray *URLs = [NSMutableArray array];
+    NSMutableArray *metadataURLs = [NSMutableArray array];
+    NSUInteger protoReads = 0, protoCharacters = 0;
+    for (NSUInteger i = 0; i < pending.count && i < 512; i++) {
+        id item = pending[i][0];
+        BOOL attachment = [pending[i][1] boolValue];
+        NSString *name = NSStringFromClass([item class]);
+        id identifier = YTKACEPostValue(item, @"accessibilityIdentifier");
+        NSString *token = [identifier isKindOfClass:NSString.class] ? [identifier lowercaseString] : @"";
+        attachment |= [name containsString:@"BackstageImage"] || [token containsString:@"post_attachment"] ||
+            [token containsString:@"image_carousel"];
+        if ([name isEqualToString:@"ELMCollectionNode"]) {
+            SEL vertical = NSSelectorFromString(@"isVertical");
+            NSMethodSignature *signature = [item methodSignatureForSelector:vertical];
+            if (signature.numberOfArguments == 2 && strcmp(signature.methodReturnType, @encode(BOOL)) == 0)
+                attachment |= !((BOOL (*)(id, SEL))objc_msgSend)(item, vertical);
+        }
+        NSHashTable *visited = attachment ? seenAttachments : seen;
+        if ([visited containsObject:item]) continue;
+        [visited addObject:item];
+        id value = YTKACEPostValue(item, @"URL") ?: YTKACEPostValue(item, @"url");
         NSURL *URL = [value isKindOfClass:NSURL.class] ? value : ([value isKindOfClass:NSString.class] ? [NSURL URLWithString:value] : nil);
-        UIView *view = YTKACEPostValue(item, @"view");
-        if (URL && [view isKindOfClass:UIView.class] && CGRectGetWidth(view.bounds) >= 100 && CGRectGetHeight(view.bounds) >= 70) [URLs addObject:URL];
-        id children = YTKACEPostValue(item, @"subnodes");
-        if ([children isKindOfClass:NSArray.class] && pending.count + [children count] <= 384) [pending addObjectsFromArray:children];
+        if (URL) {
+            UIView *view = attachment ? nil : YTKACEPostValue(item, @"view");
+            if (attachment || ([view isKindOfClass:UIView.class] && CGRectGetWidth(view.bounds) >= 100 && CGRectGetHeight(view.bounds) >= 70))
+                [URLs addObject:URL];
+        }
+        // ELM keeps offscreen carousel entries in its element tree before creating image views.
+        if (attachment && [name isEqualToString:@"ELMElement"] && protoReads++ < 64 && protoCharacters < 4 * 1024 * 1024) {
+            id proto = YTKACEPostValue(item, @"protoText");
+            if ([proto isKindOfClass:NSString.class]) {
+                protoCharacters += [proto length];
+                [metadataURLs addObjectsFromArray:YTKACEPostImageURLsInProto(proto)];
+            }
+        }
+        for (NSString *key in @[@"subnodes", @"childElements", @"element", @"entry", @"model",
+                                @"backstagePostRenderer", @"communityPostRenderer", @"postRenderer",
+                                @"backstageAttachment", @"backstageImageRenderer", @"postMultiImageRenderer",
+                                @"image", @"imagesArray", @"sourcesArray", @"thumbnailsArray"]) {
+            id children = YTKACEPostValue(item, key);
+            if (!children || children == item) continue;
+            BOOL childAttachment = attachment || [key isEqualToString:@"backstageAttachment"] ||
+                [key isEqualToString:@"backstageImageRenderer"] || [key isEqualToString:@"postMultiImageRenderer"];
+            NSArray *values = [children isKindOfClass:NSArray.class] ? children : @[children];
+            for (id child in values) {
+                if (pending.count >= 512) break;
+                [pending addObject:@[child, @(childAttachment)]];
+            }
+        }
     }
-    return URLs.array;
+    [metadataURLs addObjectsFromArray:URLs];
+    return YTKACEUniquePostImageURLs(metadataURLs);
 }
 
 static NSURL *YTKACEPostLink(id node) {
@@ -70,6 +103,8 @@ static NSURL *YTKACEPostLink(id node) {
 @property(nonatomic, strong) UIImage *postSnapshot;
 @property(nonatomic, strong) NSURL *postURL;
 @property(nonatomic, copy) NSArray<NSURL *> *imageURLs;
+@property(nonatomic, strong) NSURL *currentImageURL;
+@property(nonatomic, assign) BOOL savingImages;
 @end
 
 @implementation YTKACECommunityPostSheet
@@ -79,27 +114,43 @@ static NSURL *YTKACEPostLink(id node) {
     });
 }
 - (void)imageAction:(NSInteger)action URL:(NSURL *)URL {
-    YTKACELoadImage(YTKACEPostOriginalURL(URL), URL, ^(NSData *data, NSError *error) {
+    YTKACELoadImage(YTKACEPostOriginalImageURL(URL), URL, ^(NSData *data, NSError *error) {
         if (!data) { YTKACEShowNotice(error.localizedDescription); return; }
         if (action == 0) [self saveData:@[data]];
         else if (action == 1) YTKACEPreviewImage(data, YTKACEMediaPresenter(self.anchor));
         else { UIPasteboard.generalPasteboard.image = [UIImage imageWithData:data]; YTKACEShowNotice(YTKACELocalized(@"Image copied")); }
     });
 }
-- (void)saveImages:(NSArray<NSURL *> *)URLs atIndex:(NSUInteger)index data:(NSMutableArray<NSData *> *)data failed:(NSUInteger)failed {
+- (void)saveImages:(NSArray<NSURL *> *)URLs atIndex:(NSUInteger)index saved:(NSUInteger)saved failed:(NSUInteger)failed {
     if (index == URLs.count) {
-        if (!data.count) { YTKACEShowNotice(YTKACELocalized(@"The image could not be saved.")); return; }
-        YTKACESavePhotoData(data, ^(BOOL success, NSError *error) {
-            NSString *message = failed ? [NSString stringWithFormat:YTKACELocalized(@"Saved %lu images; %lu could not be loaded."), (unsigned long)data.count, (unsigned long)failed] : YTKACELocalized(@"Saved to Photos");
-            YTKACEShowNotice(success ? message : error.localizedDescription);
-        });
+        self.savingImages = NO;
+        NSString *message = !saved ? YTKACELocalized(@"The image could not be saved.") :
+            (failed ? [NSString stringWithFormat:YTKACELocalized(@"Saved %lu images; %lu could not be loaded."), (unsigned long)saved, (unsigned long)failed] :
+                [NSString stringWithFormat:YTKACELocalized(@"Saved %lu images."), (unsigned long)saved]);
+        YTKACEShowNotice(message);
         return;
     }
+    YTKACEShowNotice([NSString stringWithFormat:YTKACELocalized(@"Saving image %lu of %lu…"),
+        (unsigned long)index + 1, (unsigned long)URLs.count]);
     NSURL *URL = URLs[index];
-    YTKACELoadImage(YTKACEPostOriginalURL(URL), URL, ^(NSData *image, __unused NSError *error) {
-        if (image) [data addObject:image];
-        [self saveImages:URLs atIndex:index + 1 data:data failed:failed + (image ? 0 : 1)];
+    YTKACELoadImage(YTKACEPostOriginalImageURL(URL), URL, ^(NSData *image, __unused NSError *error) {
+        if (!image) { [self saveImages:URLs atIndex:index + 1 saved:saved failed:failed + 1]; return; }
+        // Save one at a time so a carousel of full-resolution images does not accumulate in RAM.
+        YTKACESavePhotoData(@[image], ^(BOOL success, NSError *saveError) {
+            if (!success) {
+                self.savingImages = NO;
+                YTKACEShowNotice([NSString stringWithFormat:YTKACELocalized(@"Saved %lu images. %@"),
+                    (unsigned long)saved, saveError.localizedDescription ?: YTKACELocalized(@"The image could not be saved.")]);
+                return;
+            }
+            [self saveImages:URLs atIndex:index + 1 saved:saved + 1 failed:failed];
+        });
     });
+}
+- (void)saveAllImages {
+    if (self.savingImages) return;
+    self.savingImages = YES;
+    [self saveImages:[self.imageURLs copy] atIndex:0 saved:0 failed:0];
 }
 - (NSArray<YTKACEMediaAction *> *)actionsForImage:(NSURL *)URL identifier:(NSString *)identifier {
     __weak YTKACECommunityPostSheet *weakSelf = self;
@@ -137,12 +188,12 @@ static NSURL *YTKACEPostLink(id node) {
         [rows addObject:[YTKACEMediaAction group:@"post.snapshot" title:YTKACELocalized(@"Post as image") symbol:@"photo.on.rectangle" children:actions]];
     }
     if (self.imageURLs.count && YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) {
-        [rows addObject:[YTKACEMediaAction group:@"post.image" title:YTKACELocalized(@"Image") symbol:@"photo" children:[self actionsForImage:self.imageURLs.firstObject identifier:@"post.image"]]];
+        [rows addObject:[YTKACEMediaAction group:@"post.image" title:YTKACELocalized(@"Image") symbol:@"photo" children:[self actionsForImage:self.currentImageURL ?: self.imageURLs.firstObject identifier:@"post.image"]]];
         if (self.imageURLs.count > 1) {
-            NSMutableArray *images = [NSMutableArray arrayWithObject:[YTKACEMediaAction action:@"post.images.saveAll" title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square" handler:^{
-                YTKACEShowNotice(YTKACELocalized(@"Saving images…"));
-                [weakSelf saveImages:weakSelf.imageURLs atIndex:0 data:[NSMutableArray array] failed:0];
-            }]];
+            [rows addObject:[YTKACEMediaAction action:@"post.images.saveAll"
+                title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square"
+                handler:^{ [weakSelf saveAllImages]; }]];
+            NSMutableArray *images = [NSMutableArray array];
             for (NSUInteger i = 0; i < self.imageURLs.count; i++) {
                 NSString *identifier = [NSString stringWithFormat:@"post.images.%lu", (unsigned long)i];
                 [images addObject:[YTKACEMediaAction group:identifier title:[NSString stringWithFormat:YTKACELocalized(@"Image %lu"), (unsigned long)i + 1] symbol:nil children:[self actionsForImage:self.imageURLs[i] identifier:identifier]]];
@@ -166,10 +217,10 @@ void YTKACEPresentCommunityPostMenu(UIView *postView, id node, NSString *text, N
     sheet.anchor = postView;
     sheet.postText = text;
     sheet.postURL = YTKACEPostLink(node);
-    NSMutableOrderedSet *images = [NSMutableOrderedSet orderedSet];
+    NSMutableArray *images = [YTKACEPostImages(node) mutableCopy];
     if (currentImage) [images addObject:currentImage];
-    [images addObjectsFromArray:YTKACEPostImages(node)];
-    sheet.imageURLs = images.array;
+    sheet.imageURLs = YTKACEUniquePostImageURLs(images);
+    sheet.currentImageURL = currentImage;
     CGSize size = postView.bounds.size;
     if (size.width > 0 && size.height > 0 && size.width <= 4096 && size.height <= 12000) {
         UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];

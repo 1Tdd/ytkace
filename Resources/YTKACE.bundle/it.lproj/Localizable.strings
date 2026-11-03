@@ -1330,3 +1330,9 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Some players use caption text for chapters. Copy the chapter list, then paste it into the video or audio caption before sending." = "Alcuni lettori usano la didascalia per i capitoli. Copia l’elenco dei capitoli e incollalo nella didascalia del video o dell’audio prima di inviare.";
 "Copy chapters and share" = "Copia capitoli e condividi";
 "Share file only" = "Condividi solo il file";
+
+"Saved %lu images." = "Salvate %lu immagini.";
+
+"Saving image %lu of %lu…" = "Salvataggio immagine %lu di %lu…";
+
+"Saved %lu images. %@" = "Salvate %lu immagini. %@";

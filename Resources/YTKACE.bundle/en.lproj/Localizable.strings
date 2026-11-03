@@ -1351,3 +1351,9 @@ Licensed under CC BY-NC-SA 4.0.";
 "Some players use caption text for chapters. Copy the chapter list, then paste it into the video or audio caption before sending." = "Some players use caption text for chapters. Copy the chapter list, then paste it into the video or audio caption before sending.";
 "Copy chapters and share" = "Copy chapters and share";
 "Share file only" = "Share file only";
+
+"Saved %lu images." = "Saved %lu images.";
+
+"Saving image %lu of %lu…" = "Saving image %lu of %lu…";
+
+"Saved %lu images. %@" = "Saved %lu images. %@";

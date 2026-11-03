@@ -27,3 +27,9 @@ clang++ $(gnustep-config --objc-flags) \
   "$ROOT/Tweak/Features/Interface/PostTranslation.mm" "$ROOT/Tests/post_translation_test.mm" \
   -o "$OUTPUT/post-translation-test" $(gnustep-config --base-libs)
 "$OUTPUT/post-translation-test"
+
+clang++ $(gnustep-config --objc-flags) \
+  -I"$OBJC_RUNTIME/include" -L"$OBJC_RUNTIME" -std=c++17 \
+  "$ROOT/Tweak/Features/Interface/PostImages.mm" "$ROOT/Tests/post_images_test.mm" \
+  -o "$OUTPUT/post-images-test" $(gnustep-config --base-libs)
+"$OUTPUT/post-images-test"
