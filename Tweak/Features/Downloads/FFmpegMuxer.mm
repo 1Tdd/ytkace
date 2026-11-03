@@ -1,6 +1,7 @@
 #import "FFmpegMuxer.h"
 #include "MediaConversion.h"
 #include "MP4TextStyle.h"
+#include "MediaChapters.h"
 #include "../SponsorBlock/SponsorTimeline.h"
 #include <limits>
 #import <copyfile.h>
@@ -1181,6 +1182,42 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL, int width, int height) 
             if (!failure && progress) progress(1.0);
             completion(failure);
         });
+    });
+}
+
++ (void)embedChapters:(NSArray<NSDictionary *> *)chapters
+      removedSegments:(NSArray<NSDictionary *> *)removedSegments
+              mediaURL:(NSURL *)mediaURL
+             cancelled:(BOOL (^)(void))cancelled
+              progress:(nullable YTKACEFFmpegProgress)progress
+            completion:(YTKACEFFmpegCompletion)completion {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        const CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
+        std::vector<YTKACEMediaChapters::Chapter> entries;
+        for (NSDictionary *chapter in chapters) {
+            YTKACEMedia::Interval range;
+            NSString *title = chapter[@"title"];
+            if (YTKACEReadSponsorInterval(chapter, range) && [title isKindOfClass:NSString.class])
+                entries.push_back({title.UTF8String ?: "", range.start, range.end});
+        }
+        NSURL *temporary = [mediaURL.URLByDeletingLastPathComponent URLByAppendingPathComponent:
+            [NSString stringWithFormat:@".%@-chapters.%@", NSUUID.UUID.UUIDString, mediaURL.pathExtension]];
+        std::string message;
+        int result = YTKACEMediaChapters::write(mediaURL.fileSystemRepresentation,
+            temporary.fileSystemRepresentation, entries, YTKACESponsorCutTimeline(removedSegments),
+            [cancelled]() { return cancelled && cancelled(); }, message,
+            [progress](double fraction) {
+                if (progress) dispatch_async(dispatch_get_main_queue(), ^{ progress(fraction); });
+            });
+        YTKACEDownloadLog(@"chapters", @"copy elapsed=%.2fs", CFAbsoluteTimeGetCurrent() - started);
+        NSError *error = result < 0 ? YTKACEFFmpegError(result, @"Embed chapters") : nil;
+        if (!error) {
+            copyfile(mediaURL.fileSystemRepresentation, temporary.fileSystemRepresentation, NULL, COPYFILE_XATTR);
+            [NSFileManager.defaultManager replaceItemAtURL:mediaURL withItemAtURL:temporary
+                backupItemName:nil options:0 resultingItemURL:nil error:&error];
+        }
+        [NSFileManager.defaultManager removeItemAtURL:temporary error:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(error); });
     });
 }
 

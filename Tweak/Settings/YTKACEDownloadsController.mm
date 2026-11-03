@@ -1,4 +1,5 @@
 #import "YTKACEDownloadsController.h"
+#import "../Features/Downloads/MediaChapterSharing.h"
 #import <Photos/Photos.h>
 #import "../Features/Downloads/DownloadCoordinator.h"
 #import "../Features/Downloads/DownloadLog.h"
@@ -1486,6 +1487,10 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
                              symbol:@"square.and.arrow.up" handler:^(__unused UIAlertAction *action) {
             [self shareURL:url sourceView:sourceView];
         }] ?: NSNull.null,
+        [self nativeActionWithTitle:YTKACELocalized(@"Copy chapters") asset:@"yt_outline_copy_24pt"
+                             symbol:@"list.number" handler:^(__unused UIAlertAction *action) {
+            [self copyChaptersForURL:url];
+        }] ?: NSNull.null,
         [self nativeActionWithTitle:YTKACELocalized(@"Delete") asset:@"delete_24pt_3x_Normal"
                              symbol:@"trash" handler:^(__unused UIAlertAction *action) {
             [self deleteURL:url];
@@ -1536,6 +1541,10 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
     [menu addAction:YTKACEMenuAction(YTKACELocalized(@"Share"), @"square.and.arrow.up", UIAlertActionStyleDefault,
         ^(__unused UIAlertAction *action) {
             [self shareURL:url sourceView:sourceView];
+        })];
+    [menu addAction:YTKACEMenuAction(YTKACELocalized(@"Copy chapters"), @"list.number", UIAlertActionStyleDefault,
+        ^(__unused UIAlertAction *action) {
+            [self copyChaptersForURL:url];
         })];
     [menu addAction:YTKACEMenuAction(YTKACELocalized(@"Delete"), @"trash", UIAlertActionStyleDestructive,
         ^(__unused UIAlertAction *action) {
@@ -1603,15 +1612,25 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
     }
 }
 
+- (void)copyChaptersForURL:(NSURL *)url {
+    YTKACEChapterTextForMediaURL(url, ^(NSString *text) {
+        if (text.length == 0) { YTKACEShowNotice(YTKACELocalized(@"No chapters found")); return; }
+        UIPasteboard.generalPasteboard.string = text;
+        YTKACEShowNotice(YTKACELocalized(@"Chapters copied"));
+    });
+}
+
 - (void)shareURL:(NSURL *)url sourceView:(UIView *)sourceView {
-    UIActivityViewController *share =
-        [[UIActivityViewController alloc] initWithActivityItems:@[url]
-                                         applicationActivities:nil];
-    if (share.popoverPresentationController != nil) {
-        share.popoverPresentationController.sourceView = sourceView;
-        share.popoverPresentationController.sourceRect = sourceView.bounds;
-    }
-    [self presentViewController:share animated:YES completion:nil];
+    YTKACEPrepareMediaShareItems(@[url], self, ^(NSArray *items) {
+        UIActivityViewController *share =
+            [[UIActivityViewController alloc] initWithActivityItems:items
+                                             applicationActivities:nil];
+        if (share.popoverPresentationController != nil) {
+            share.popoverPresentationController.sourceView = sourceView;
+            share.popoverPresentationController.sourceRect = sourceView.bounds;
+        }
+        [self presentViewController:share animated:YES completion:nil];
+    });
 }
 
 - (void)deleteURL:(NSURL *)url {

@@ -6,6 +6,34 @@ tabs, quality and size choices, audio language, captions, SponsorBlock cuts,
 and destination. Audio-only mode includes bitrate selection and title/artist
 metadata, which is written into the M4A file.
 
+When chapters are available, **Keep chapters** is enabled by default in both
+video and audio mode. Turn it off to omit them. Titles and start/end times are
+embedded in MP4/M4A chapter tables or MP3 ID3 CHAP frames, including shared files
+and files prepared for Photos. Chapters come from the selected video's player
+response, description timestamps, or its active player; another video's active
+chapters are never used. Actual SponsorBlock cuts shift chapter boundaries and
+remove chapters cut away completely. Chapter embedding runs after conversion,
+captions and artwork so these steps cannot discard the chapter table. Retry
+retains the choice; playlist downloads preserve available chapters automatically.
+
+Sharing a single downloaded file with chapters offers **Copy chapters and share**.
+Paste the copied timestamp/title list into the destination's video or audio
+caption before sending. Some players use that caption for chapter navigation;
+embedded metadata alone cannot populate another application's message caption.
+The list is read from the final embedded timeline, so it also works for existing
+downloads and reflects cuts. **Copy chapters** in the library menu copies the
+same list without opening a share sheet. No separate text attachment is sent,
+and sharing multiple files keeps their timelines separate. Copying requires an
+explicit choice; **Share file only** leaves the clipboard alone.
+
+The video's **Copy Information → Copy chapters** action copies timestamp/title
+lines in the form `00:03 - Intro` directly from the selected video without
+requiring a download. All chapter copy actions use the same separator. This also
+works before downloading straight to Photos. These are the original video times;
+if a download removes segments, copy from the saved file for the adjusted times.
+The library's native and fallback item menus both expose **Copy chapters**.
+If no chapters are available, a notice appears and the clipboard is left alone.
+
 Community posts have their own panel, opened by holding the post. It includes
 copy/translate text, save/copy the post as an image, and image actions. When
 multiple images are available in the post's loaded nodes, the panel offers
