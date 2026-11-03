@@ -532,7 +532,7 @@ static BOOL YTKACEExtractStoredZip(NSURL *URL, NSURL *destination, NSError **err
     return YES;
 }
 
-static void YTKACERestoreDownloads(NSURL *source, NSURL *destination) {
+static BOOL YTKACERestoreDownloads(NSURL *source, NSURL *destination, NSError **error) {
     NSFileManager *manager = NSFileManager.defaultManager;
     NSDirectoryEnumerator<NSURL *> *items = [manager enumeratorAtURL:source
         includingPropertiesForKeys:@[NSURLIsDirectoryKey]
@@ -560,11 +560,15 @@ static void YTKACERestoreDownloads(NSURL *source, NSURL *destination) {
         for (NSUInteger index = categoryIndex + 1; index < components.count; index++) {
             target = [target URLByAppendingPathComponent:components[index]];
         }
-        [manager createDirectoryAtURL:target.URLByDeletingLastPathComponent
-          withIntermediateDirectories:YES attributes:nil error:nil];
-        [manager removeItemAtURL:target error:nil];
-        [manager copyItemAtURL:URL toURL:target error:nil];
+        if (![manager createDirectoryAtURL:target.URLByDeletingLastPathComponent
+            withIntermediateDirectories:YES attributes:nil error:error]) return NO;
+        // Extracted files are on the same volume. Replace atomically without deleting the library copy first.
+        if ([manager fileExistsAtPath:target.path]) {
+            if (![manager replaceItemAtURL:target withItemAtURL:URL backupItemName:nil
+                options:0 resultingItemURL:nil error:error]) return NO;
+        } else if (![manager moveItemAtURL:URL toURL:target error:error]) return NO;
     }
+    return YES;
 }
 
 @implementation YTKACEBackupManager
@@ -625,11 +629,11 @@ static void YTKACERestoreDownloads(NSURL *source, NSURL *destination) {
             if ([manager fileExistsAtPath:restoredDownloads.path]) {
                 [manager createDirectoryAtURL:downloads withIntermediateDirectories:YES
                                    attributes:nil error:nil];
-                YTKACERestoreDownloads(restoredDownloads, downloads);
+                YTKACERestoreDownloads(restoredDownloads, downloads, &error);
             }
             NSDictionary *settings = [NSDictionary dictionaryWithContentsOfURL:
                 [temporary URLByAppendingPathComponent:@"SettingsBackup.plist"]];
-            YTKACEApplyBackupSettings(settings);
+            if (error == nil) YTKACEApplyBackupSettings(settings);
         }
         [manager removeItemAtURL:temporary error:nil];
         dispatch_async(dispatch_get_main_queue(), ^{

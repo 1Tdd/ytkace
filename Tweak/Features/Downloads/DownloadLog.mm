@@ -88,15 +88,28 @@ static void YTKACEWriteLogLine(NSString *identifier, NSString *message) {
         NSDate.date, identifier.length == 0 ? @"download" : identifier, message];
     dispatch_async(YTKACEDownloadLogQueue(), ^{
         NSURL *URL = YTKACEDownloadLogURL();
-        NSData *existing = [NSData dataWithContentsOfURL:URL] ?: NSData.data;
-        NSMutableData *data = [existing mutableCopy];
-        [data appendData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        if (data.length > YTKACEDownloadLogLimit) {
-            NSUInteger keep = YTKACEDownloadLogLimit * 3 / 4;
-            NSData *tail = [data subdataWithRange:NSMakeRange(data.length - keep, keep)];
-            data = [tail mutableCopy];
+        NSData *lineData = [line dataUsingEncoding:NSUTF8StringEncoding];
+        NSFileManager *manager = NSFileManager.defaultManager;
+        if (![manager fileExistsAtPath:URL.path]) [manager createFileAtPath:URL.path contents:nil attributes:nil];
+        NSFileHandle *handle = [NSFileHandle fileHandleForWritingToURL:URL error:nil];
+        unsigned long long length = 0;
+        if (![handle seekToEndReturningOffset:&length error:nil]) { [handle closeAndReturnError:nil]; return; }
+        if (length + lineData.length > YTKACEDownloadLogLimit) {
+            [handle closeAndReturnError:nil];
+            NSData *existing = [NSData dataWithContentsOfURL:URL] ?: NSData.data;
+            NSUInteger keep = MIN(existing.length, YTKACEDownloadLogLimit * 3 / 4);
+            NSUInteger start = existing.length - keep;
+            const uint8_t *bytes = (const uint8_t *)existing.bytes;
+            // Keep complete UTF-8 lines so the log remains readable after rotation.
+            while (start < existing.length && bytes[start] != '\n') ++start;
+            if (start < existing.length) ++start;
+            NSData *tail = [existing subdataWithRange:NSMakeRange(start, existing.length - start)];
+            if (![tail writeToURL:URL atomically:YES]) return;
+            handle = [NSFileHandle fileHandleForWritingToURL:URL error:nil];
+            if (![handle seekToEndReturningOffset:&length error:nil]) { [handle closeAndReturnError:nil]; return; }
         }
-        [data writeToURL:URL atomically:YES];
+        [handle writeData:lineData error:nil];
+        [handle closeAndReturnError:nil];
     });
 }
 

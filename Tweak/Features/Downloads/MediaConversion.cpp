@@ -359,7 +359,7 @@ int convert(const std::string &inputPath, const std::string &outputPath, const O
         s.output->interrupt_callback = {Session::interrupt, &s};
         check(avio_open(&s.output->pb, outputPath.c_str(), AVIO_FLAG_WRITE), "Open output file");
         AVDictionary *muxOptions = nullptr;
-        if (!mp3) av_dict_set(&muxOptions, "movflags", "+faststart", 0);
+        // These files are played from local storage; avoid a full faststart rewrite.
         int header = avformat_write_header(s.output, &muxOptions); av_dict_free(&muxOptions);
         check(header, "Write conversion header");
         double lastProgress = -1;
@@ -389,6 +389,7 @@ int convert(const std::string &inputPath, const std::string &outputPath, const O
             s.encode(s.audioEncoder, s.audioOut, nullptr);
         }
         s.stopIfCancelled(); check(av_write_trailer(s.output), "Finish conversion");
+        check(avio_closep(&s.output->pb), "Close converted file");
         if (progress) progress(1);
         result = 0;
     } catch (const Failure &failure) {
@@ -450,7 +451,8 @@ int embedMP3Artwork(const std::string &inputPath, const std::string &outputPath,
             av_packet_unref(s.packet);
         }
         if (result != AVERROR_EOF) check(result, "Read MP3 packet");
-        check(av_write_trailer(s.output), "Finish MP3 artwork"); result = 0;
+        check(av_write_trailer(s.output), "Finish MP3 artwork");
+        check(avio_closep(&s.output->pb), "Close MP3 artwork"); result = 0;
     } catch (const Failure &failure) {
         char error[AV_ERROR_MAX_STRING_SIZE] = {};
         av_strerror(failure.code, error, sizeof(error));

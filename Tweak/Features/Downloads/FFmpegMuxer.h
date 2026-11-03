@@ -50,6 +50,12 @@ FOUNDATION_EXPORT void YTKACEFFmpegCancelConversion(NSString *identifier);
       removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
           appliedCuts:(nullable void (^)(NSArray<NSDictionary *> *cuts))handler
            completion:(YTKACEFFmpegCompletion)completion;
++ (void)remuxVideoURL:(NSURL *)videoURL audioURL:(NSURL *)audioURL outputURL:(NSURL *)outputURL
+      removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
+          appliedCuts:(nullable void (^)(NSArray<NSDictionary *> *cuts))handler
+            cancelled:(nullable BOOL (^)(void))cancelled
+             progress:(nullable YTKACEFFmpegProgress)progress
+           completion:(YTKACEFFmpegCompletion)completion;
 + (void)normalizeMediaURL:(NSURL *)mediaURL
                 outputURL:(NSURL *)outputURL
                completion:(YTKACEFFmpegCompletion)completion;
@@ -62,6 +68,11 @@ FOUNDATION_EXPORT void YTKACEFFmpegCancelConversion(NSString *identifier);
                        cues:(NSArray<NSDictionary *> *)cues
                    language:(nullable NSString *)language
                   outputURL:(NSURL *)outputURL
+                 completion:(YTKACEFFmpegCompletion)completion;
++ (void)muxSubtitlesIntoURL:(NSURL *)mediaURL cues:(NSArray<NSDictionary *> *)cues
+                   language:(nullable NSString *)language outputURL:(NSURL *)outputURL
+                  cancelled:(nullable BOOL (^)(void))cancelled
+                   progress:(nullable YTKACEFFmpegProgress)progress
                  completion:(YTKACEFFmpegCompletion)completion;
 + (void)embedArtworkData:(NSData *)artworkData
                  mediaURL:(NSURL *)mediaURL

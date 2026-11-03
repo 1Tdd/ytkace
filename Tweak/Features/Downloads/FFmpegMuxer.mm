@@ -1,5 +1,6 @@
 #import "FFmpegMuxer.h"
 #include "MediaConversion.h"
+#include "MP4TextStyle.h"
 #include "../SponsorBlock/SponsorTimeline.h"
 #include <limits>
 #import <copyfile.h>
@@ -99,7 +100,8 @@ static NSArray *YTKACEAppliedCutSegments(const std::vector<YTKACECutInterval> &c
 }
 
 // Resume video at a keyframe; use the same cut for audio and metadata.
-static int YTKACESnapCutIntervalsToKeyframes(std::vector<YTKACECutInterval> &cuts, AVFormatContext *video, int streamIndex) {
+static int YTKACESnapCutIntervalsToKeyframes(std::vector<YTKACECutInterval> &cuts, AVFormatContext *video,
+                                            int streamIndex, BOOL (^cancelled)(void) = nil) {
     if (cuts.empty()) return 0;
     AVStream *stream = video->streams[streamIndex];
     AVPacket *packet = av_packet_alloc();
@@ -118,6 +120,7 @@ static int YTKACESnapCutIntervalsToKeyframes(std::vector<YTKACECutInterval> &cut
         int64_t lastEnd = cut.endUs;
         bool found = false;
         while ((result = YTKACEReadPacket(video, streamIndex, packet)) >= 0) {
+            if (cancelled && cancelled()) { result = AVERROR_EXIT; break; }
             int64_t time = YTKACEPacketTime(packet, stream);
             if (time != INT64_MAX) lastEnd = std::max(lastEnd, time + av_rescale_q(packet->duration, stream->time_base, AV_TIME_BASE_Q));
             if ((packet->flags & AV_PKT_FLAG_KEY) && time != INT64_MAX && time >= cut.endUs) {
@@ -159,7 +162,9 @@ static bool YTKACEIsInsideCut(int64_t timeUs, const std::vector<YTKACECutInterva
 static NSError *YTKACERemux(NSURL *videoURL, NSURL *audioURL,
                             NSURL *outputURL,
                             NSArray<NSDictionary *> *removedSegments,
-                            NSArray *__autoreleasing *appliedCuts = nullptr) {
+                            NSArray *__autoreleasing *appliedCuts = nullptr,
+                            BOOL (^cancelled)(void) = nil,
+                            YTKACEFFmpegProgress progress = nil) {
     AVFormatContext *video = NULL;
     AVFormatContext *audio = NULL;
     AVFormatContext *output = NULL;
@@ -210,7 +215,7 @@ static NSError *YTKACERemux(NSURL *videoURL, NSURL *audioURL,
         stage = @"Open output";
         if (result < 0) goto cleanup;
     }
-    av_dict_set(&options, "movflags", "+faststart", 0);
+    // Local playback can seek to the index; faststart would rewrite the entire file.
     av_dict_set(&options, "use_editlist", "0", 0);
     result = avformat_write_header(output, &options);
     stage = @"Write header";
@@ -226,7 +231,7 @@ static NSError *YTKACERemux(NSURL *videoURL, NSURL *audioURL,
 
     {
         std::vector<YTKACECutInterval> cuts = YTKACEParseCutIntervals(removedSegments);
-        result = YTKACESnapCutIntervalsToKeyframes(cuts, video, videoIndex);
+        result = YTKACESnapCutIntervalsToKeyframes(cuts, video, videoIndex, cancelled);
         stage = @"Align segment cuts";
         if (result < 0) goto cleanup;
         if (appliedCuts != nullptr) *appliedCuts = YTKACEAppliedCutSegments(cuts);
@@ -243,7 +248,22 @@ static NSError *YTKACERemux(NSURL *videoURL, NSURL *audioURL,
         };
         hasVideo = readPacket(video, videoIndex, videoPacket);
         hasAudio = readPacket(audio, audioIndex, audioPacket);
+        CFAbsoluteTime lastReport = 0;
+        double lastFraction = 0;
+        const int64_t duration = std::max(video->duration, audio->duration);
         while (hasVideo || hasAudio) {
+            if (cancelled && cancelled()) { result = AVERROR_EXIT; stage = @"Cancelled"; goto cleanup; }
+            const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+            if (progress && duration > 0 && now - lastReport >= 0.15) {
+                const int64_t time = std::min(hasVideo ? YTKACEPacketTime(videoPacket, videoInput) : INT64_MAX,
+                                              hasAudio ? YTKACEPacketTime(audioPacket, audioInput) : INT64_MAX);
+                if (time != INT64_MAX) {
+                    const double fraction = std::max(lastFraction, std::clamp((double)time / duration, 0.0, 0.99));
+                    lastFraction = fraction;
+                    dispatch_async(dispatch_get_main_queue(), ^{ progress(fraction); });
+                }
+                lastReport = now;
+            }
             BOOL writeVideo = hasVideo;
             if (hasVideo && hasAudio) {
                 writeVideo = YTKACEPacketTime(videoPacket, videoInput) <=
@@ -319,6 +339,7 @@ static NSError *YTKACERemux(NSURL *videoURL, NSURL *audioURL,
             goto cleanup;
         }
     }
+    if (cancelled && cancelled()) { result = AVERROR_EXIT; stage = @"Cancelled"; goto cleanup; }
     result = av_write_trailer(output);
     stage = @"Write trailer";
 
@@ -329,9 +350,13 @@ cleanup:
     avformat_close_input(&video);
     avformat_close_input(&audio);
     if (output != NULL) {
-        if (output->pb != NULL) avio_closep(&output->pb);
+        if (output->pb != NULL) {
+            int closeResult = avio_closep(&output->pb);
+            if (result >= 0 && closeResult < 0) { result = closeResult; stage = @"Close output"; }
+        }
         avformat_free_context(output);
     }
+    if (result >= 0 && progress) dispatch_async(dispatch_get_main_queue(), ^{ progress(1.0); });
     return result < 0 ? YTKACEFFmpegError(result, stage) : nil;
 }
 
@@ -379,7 +404,7 @@ static NSError *YTKACERemuxAudio(NSURL *audioURL, NSURL *outputURL,
         stage = @"Open output";
         if (result < 0) goto cleanup;
     }
-    av_dict_set(&options, "movflags", "+faststart", 0);
+    // Local playback can seek to the index; faststart would rewrite the entire file.
     av_dict_set(&options, "use_editlist", "0", 0);
     result = avformat_write_header(output, &options);
     stage = @"Write header";
@@ -440,7 +465,10 @@ cleanup:
     av_packet_free(&packet);
     avformat_close_input(&audio);
     if (output != NULL) {
-        if (output->pb != NULL) avio_closep(&output->pb);
+        if (output->pb != NULL) {
+            int closeResult = avio_closep(&output->pb);
+            if (result >= 0 && closeResult < 0) { result = closeResult; stage = @"Close output"; }
+        }
         avformat_free_context(output);
     }
     return result < 0 ? YTKACEFFmpegError(result, stage) : nil;
@@ -710,7 +738,8 @@ static NSArray<NSDictionary *> *YTKACENormalizedCues(NSArray<NSDictionary *> *cu
                 continue;
             }
             if ([previous[@"end"] doubleValue] > start) previous[@"end"] = @(start);
-            if ([previous[@"text"] isEqualToString:cue[@"text"]]) {
+            if ([previous[@"text"] isEqualToString:cue[@"text"]] &&
+                start <= [previous[@"end"] doubleValue] + 0.05) {
                 previous[@"end"] = cue[@"end"];
                 continue;
             }
@@ -828,11 +857,24 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
       removedSegments:(nullable NSArray<NSDictionary *> *)removedSegments
           appliedCuts:(void (^ _Nullable)(NSArray<NSDictionary *> *cuts))handler
            completion:(YTKACEFFmpegCompletion)completion {
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    [self remuxVideoURL:videoURL audioURL:audioURL outputURL:outputURL
+        removedSegments:removedSegments appliedCuts:handler cancelled:nil progress:nil completion:completion];
+}
+
++ (void)remuxVideoURL:(NSURL *)videoURL audioURL:(NSURL *)audioURL outputURL:(NSURL *)outputURL
+      removedSegments:(NSArray<NSDictionary *> *)removedSegments
+          appliedCuts:(void (^ _Nullable)(NSArray<NSDictionary *> *cuts))handler
+            cancelled:(BOOL (^ _Nullable)(void))cancelled
+             progress:(YTKACEFFmpegProgress)progress
+           completion:(YTKACEFFmpegCompletion)completion {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         [NSFileManager.defaultManager removeItemAtURL:outputURL error:nil];
         av_log_set_level(AV_LOG_ERROR);
         NSArray *applied = nil;
-        NSError *error = YTKACERemux(videoURL, audioURL, outputURL, removedSegments, &applied);
+        const CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
+        NSError *error = YTKACERemux(videoURL, audioURL, outputURL, removedSegments, &applied, cancelled, progress);
+        if (error) [NSFileManager.defaultManager removeItemAtURL:outputURL error:nil];
+        YTKACEDownloadLog(@"merge", @"packet copy elapsed=%.2fs error=%@", CFAbsoluteTimeGetCurrent() - started, error.localizedDescription ?: @"none");
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error == nil && handler != nil) handler(applied ?: @[]);
             completion(error);
@@ -851,54 +893,8 @@ static NSString *YTKACEMP4LanguageCode(NSString *language) {
     });
 }
 
-static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
-                                             int width,
-                                             int height) {
-    NSMutableData *data = [NSMutableData dataWithContentsOfURL:URL];
-    if (data.length < 64) return NO;
-    uint8_t *bytes = (uint8_t *)data.mutableBytes;
-    const NSUInteger length = data.length;
-    NSUInteger patched = 0;
-    for (NSUInteger index = 4; index + 46 <= length; index++) {
-        if (memcmp(bytes + index, "tx3g", 4) != 0) continue;
-        const NSUInteger entry = index - 4;
-        const uint32_t size = ((uint32_t)bytes[entry] << 24) |
-            ((uint32_t)bytes[entry + 1] << 16) |
-            ((uint32_t)bytes[entry + 2] << 8) | bytes[entry + 3];
-        if (size < 46 || entry + size > length) continue;
-        NSUInteger cursor = entry + 16;
-        if (cursor + 30 > length) continue;
-        memset(bytes + cursor, 0, 4);
-        cursor += 4;
-        bytes[cursor++] = 0x01;
-        bytes[cursor++] = 0xFF;
-        memset(bytes + cursor, 0, 4);
-        cursor += 4;
-        bytes[cursor++] = 0x00;
-        bytes[cursor++] = 0x00;
-        bytes[cursor++] = 0x00;
-        bytes[cursor++] = 0x00;
-        bytes[cursor++] = (uint8_t)((height >> 8) & 0xFF);
-        bytes[cursor++] = (uint8_t)(height & 0xFF);
-        bytes[cursor++] = (uint8_t)((width >> 8) & 0xFF);
-        bytes[cursor++] = (uint8_t)(width & 0xFF);
-        memset(bytes + cursor, 0, 4);
-        cursor += 4;
-        bytes[cursor++] = 0x00;
-        bytes[cursor++] = 0x01;
-        bytes[cursor++] = 0x00;
-        bytes[cursor++] = (uint8_t)MAX(16, MIN(72, height / 20));
-        bytes[cursor++] = 0xFF;
-        bytes[cursor++] = 0xFF;
-        bytes[cursor++] = 0xFF;
-        bytes[cursor++] = 0xFF;
-        patched++;
-    }
-    if (patched == 0) return NO;
-    if (![data writeToURL:URL atomically:YES]) return NO;
-    YTKACEDownloadLog(@"subs", @"patched %lu tx3g entries %dx%d",
-                      (unsigned long)patched, width, height);
-    return YES;
+static BOOL YTKACEPatchTextSampleDescription(NSURL *URL, int width, int height) {
+    return YTKACEMP4::patchTextStyle(URL.fileSystemRepresentation, width, height);
 }
 
 + (void)muxSubtitlesIntoURL:(NSURL *)mediaURL
@@ -906,7 +902,17 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
                    language:(NSString *)language
                   outputURL:(NSURL *)outputURL
                  completion:(YTKACEFFmpegCompletion)completion {
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    [self muxSubtitlesIntoURL:mediaURL cues:cues language:language outputURL:outputURL
+        cancelled:nil progress:nil completion:completion];
+}
+
++ (void)muxSubtitlesIntoURL:(NSURL *)mediaURL cues:(NSArray<NSDictionary *> *)cues
+                   language:(NSString *)language outputURL:(NSURL *)outputURL
+                  cancelled:(BOOL (^ _Nullable)(void))cancelled
+                   progress:(YTKACEFFmpegProgress)progress
+                 completion:(YTKACEFFmpegCompletion)completion {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        const CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
         AVFormatContext *input = NULL;
         AVFormatContext *output = NULL;
         int *streamMap = NULL;
@@ -1046,7 +1052,7 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
                 }
             }
             AVDictionary *options = NULL;
-            av_dict_set(&options, "movflags", "+faststart", 0);
+            // Local playback can seek to the index; faststart would rewrite the entire file.
             av_dict_set(&options, "use_editlist", "0", 0);
             status = avformat_write_header(output, &options);
             av_dict_free(&options);
@@ -1072,57 +1078,74 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
                 failure = YTKACEFFmpegError(AVERROR(ENOMEM), @"subtitle packet");
                 break;
             }
-            while (av_read_frame(input, packet) >= 0) {
-                const int mapped = streamMap[packet->stream_index];
-                if (mapped < 0) {
-                    av_packet_unref(packet);
-                    continue;
+            NSArray<NSDictionary *> *normalized = YTKACENormalizedCues(cues);
+            NSUInteger cueIndex = 0;
+            auto writeCuesThrough = [&](double time) -> int {
+                while (cueIndex < normalized.count) {
+                    if (cancelled && cancelled()) return AVERROR_EXIT;
+                    NSDictionary *cue = normalized[cueIndex];
+                    double start = MAX(0.0, [cue[@"start"] doubleValue]);
+                    if (start > time) break;
+                    ++cueIndex;
+                    double end = [cue[@"end"] doubleValue];
+                    if (maxMediaDurationSec > 0.0) end = MIN(end, maxMediaDurationSec);
+                    if (end <= start || end >= (double)INT64_MAX / 1000.0) continue;
+                    NSData *utf8 = [cue[@"text"] dataUsingEncoding:NSUTF8StringEncoding];
+                    if (utf8.length == 0 || utf8.length > 0xffff) continue;
+                    AVPacket *subtitle = av_packet_alloc();
+                    if (!subtitle) return AVERROR(ENOMEM);
+                    int rc = av_new_packet(subtitle, (int)utf8.length + 2);
+                    if (rc >= 0) {
+                        subtitle->data[0] = (utf8.length >> 8) & 255;
+                        subtitle->data[1] = utf8.length & 255;
+                        memcpy(subtitle->data + 2, utf8.bytes, utf8.length);
+                        subtitle->stream_index = textIndex;
+                        subtitle->pts = subtitle->dts = (int64_t)(start * 1000.0);
+                        subtitle->duration = (int64_t)((end - start) * 1000.0);
+                        av_packet_rescale_ts(subtitle, (AVRational){1, 1000}, text->time_base);
+                        subtitle->pos = -1;
+                        rc = av_interleaved_write_frame(output, subtitle);
+                    }
+                    av_packet_free(&subtitle);
+                    if (rc < 0) return rc;
+                    ++written;
                 }
+                return 0;
+            };
+            CFAbsoluteTime lastReport = 0;
+            double lastFraction = 0;
+            while ((status = av_read_frame(input, packet)) >= 0) {
+              @autoreleasepool {
+                if (cancelled && cancelled()) { status = AVERROR_EXIT; break; }
+                const int mapped = streamMap[packet->stream_index];
+                if (mapped < 0) { av_packet_unref(packet); continue; }
                 AVStream *source = input->streams[packet->stream_index];
+                const int64_t timestamp = YTKACEPacketTime(packet, source);
+                if (timestamp != INT64_MAX) {
+                    const double seconds = (double)timestamp / AV_TIME_BASE;
+                    status = writeCuesThrough(seconds);
+                    if (status < 0) break;
+                    const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+                    if (progress && maxMediaDurationSec > 0 && now - lastReport >= 0.15) {
+                        const double fraction = std::max(lastFraction, std::clamp(seconds / maxMediaDurationSec, 0.0, 0.99));
+                        lastFraction = fraction;
+                        lastReport = now;
+                        dispatch_async(dispatch_get_main_queue(), ^{ progress(fraction); });
+                    }
+                }
                 AVStream *destination = output->streams[mapped];
-                av_packet_rescale_ts(packet, source->time_base,
-                                     destination->time_base);
+                av_packet_rescale_ts(packet, source->time_base, destination->time_base);
                 packet->stream_index = mapped;
                 packet->pos = -1;
-                if (av_interleaved_write_frame(output, packet) < 0) {
-                    av_packet_unref(packet);
-                    break;
-                }
+                status = av_interleaved_write_frame(output, packet);
                 av_packet_unref(packet);
+                if (status < 0) break;
+              }
             }
-
-            for (NSDictionary *cue in YTKACENormalizedCues(cues)) {
-                NSString *value = cue[@"text"];
-                if (![value isKindOfClass:NSString.class] || value.length == 0) {
-                    continue;
-                }
-                NSData *utf8 = [value dataUsingEncoding:NSUTF8StringEncoding];
-                if (utf8.length == 0 || utf8.length > 0xFFFF) continue;
-                double start = [cue[@"start"] doubleValue];
-                double end = [cue[@"end"] doubleValue];
-                if (maxMediaDurationSec > 0.0) {
-                    if (start >= maxMediaDurationSec) continue;
-                    if (end > maxMediaDurationSec) end = maxMediaDurationSec;
-                }
-                if (end <= start) continue;
-                if (av_new_packet(packet, (int)utf8.length + 2) < 0) continue;
-                packet->data[0] = (uint8_t)((utf8.length >> 8) & 0xFF);
-                packet->data[1] = (uint8_t)(utf8.length & 0xFF);
-                memcpy(packet->data + 2, utf8.bytes, utf8.length);
-                packet->stream_index = textIndex;
-                packet->pts = (int64_t)(start * 1000.0);
-                packet->dts = packet->pts;
-                packet->duration = (int64_t)((end - start) * 1000.0);
-                packet->pos = -1;
-                const int rc = av_interleaved_write_frame(output, packet);
-                if (rc < 0) {
-                    YTKACEDownloadLog(@"subs", @"cue write failed: %@",
-                                      YTKACEFFmpegMessage(rc));
-                    av_packet_unref(packet);
-                    break;
-                }
-                written++;
-                av_packet_unref(packet);
+            if (status == AVERROR_EOF) status = writeCuesThrough(std::numeric_limits<double>::infinity());
+            if (status < 0) {
+                failure = YTKACEFFmpegError(status, @"Copy subtitle media");
+                break;
             }
 
             status = av_write_trailer(output);
@@ -1136,7 +1159,8 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
         if (input != NULL) avformat_close_input(&input);
         if (output != NULL) {
             if (output->pb != NULL && !(output->oformat->flags & AVFMT_NOFILE)) {
-                avio_closep(&output->pb);
+                int closeStatus = avio_closep(&output->pb);
+                if (!failure && closeStatus < 0) failure = YTKACEFFmpegError(closeStatus, @"Close subtitle media");
             }
             avformat_free_context(output);
         }
@@ -1152,7 +1176,11 @@ static BOOL YTKACEPatchTextSampleDescription(NSURL *URL,
                 YTKACEDownloadLog(@"subs", @"tx3g patch skipped");
             }
         }
-        dispatch_async(dispatch_get_main_queue(), ^{ completion(failure); });
+        YTKACEDownloadLog(@"subs", @"copy and style elapsed=%.2fs", CFAbsoluteTimeGetCurrent() - started);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!failure && progress) progress(1.0);
+            completion(failure);
+        });
     });
 }
 

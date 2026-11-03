@@ -258,20 +258,7 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
     return option;
 }
 
-@implementation YTKACEStreamResolver
-
-+ (NSArray<YTKACEStreamOption *> *)optionsFromPlayerResponse:(id)playerResponse {
-    NSString *videoID = [self videoIDFromPlayerResponse:playerResponse];
-    if (videoID.length != 0) {
-        id cached = YTKACECachedPlayerResponse(videoID);
-        if (cached != nil) {
-            id cachedStreaming = YTKACEStreamingData(cached);
-            if (cachedStreaming != nil) {
-                playerResponse = cached;
-            }
-        }
-    }
-    id streamingData = YTKACEStreamingData(playerResponse);
+static NSArray<YTKACEStreamOption *> *YTKACEOptionsFromStreamingData(id streamingData) {
     if (streamingData == nil) {
         return @[];
     }
@@ -291,6 +278,20 @@ static YTKACEStreamOption *YTKACEOptionFromFormat(id format, BOOL adaptive) {
         }
     }
     return result;
+}
+
+@implementation YTKACEStreamResolver
+
++ (NSArray<YTKACEStreamOption *> *)optionsFromPlayerResponse:(id)playerResponse {
+    NSArray<YTKACEStreamOption *> *options =
+        YTKACEOptionsFromStreamingData(YTKACEStreamingData(playerResponse));
+    if (options.count != 0) return options;
+    // Only a response without formats falls back to the cache: Direct and SABR
+    // refreshes pass fresh responses whose formats must not be replaced.
+    NSString *videoID = [self videoIDFromPlayerResponse:playerResponse];
+    id cached = videoID.length != 0 ? YTKACECachedPlayerResponse(videoID) : nil;
+    return cached != nil && cached != playerResponse
+        ? YTKACEOptionsFromStreamingData(YTKACEStreamingData(cached)) : options;
 }
 
 + (NSArray<YTKACEStreamOption *> *)downloadVideoOptionsFromPlayerResponse:(id)playerResponse {

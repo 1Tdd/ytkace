@@ -72,11 +72,15 @@ static NSData *YTKACEDirectFetch(NSURLRequest *request, YTKACEDirectTask *task,
             dispatch_semaphore_signal(done);
         }];
     task.currentTask = dataTask;
-    [dataTask resume];
+    if (task.cancelled) [dataTask cancel];
+    else [dataTask resume];
     if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW,
             (int64_t)(90 * NSEC_PER_SEC))) != 0) {
         [dataTask cancel];
-        failure = YTKACEDirectError(2, @"request timed out");
+        task.currentTask = nil;
+        if (error != NULL) *error = YTKACEDirectError(2, @"request timed out");
+        if (status != NULL) *status = 0;
+        return nil;
     }
     task.currentTask = nil;
     if (status != NULL) *status = code;
@@ -86,11 +90,16 @@ static NSData *YTKACEDirectFetch(NSURLRequest *request, YTKACEDirectTask *task,
 
 @interface YTKACEDirectChunkReceiver : NSObject <NSURLSessionDataDelegate>
 @property(nonatomic, strong) NSMutableData *data;
-@property(nonatomic, assign) NSInteger status;
+@property(atomic, assign) NSInteger status;
+@property(nonatomic, assign) int64_t rangeStart;
+@property(nonatomic, assign) int64_t rangeEnd;
+@property(nonatomic, assign) int64_t totalLength;
+@property(nonatomic, assign) int64_t expectedBytes;
 @property(nonatomic, strong) NSError *error;
 @property(nonatomic, strong) dispatch_semaphore_t done;
 @property(nonatomic, copy) void (^received)(int64_t bytes);
 @property(nonatomic, assign) CFAbsoluteTime lastReport;
+@property(atomic, assign) CFAbsoluteTime lastActivity;
 @end
 
 @implementation YTKACEDirectChunkReceiver
@@ -102,15 +111,43 @@ static NSData *YTKACEDirectFetch(NSURLRequest *request, YTKACEDirectTask *task,
     (void)dataTask;
     self.status = [response isKindOfClass:NSHTTPURLResponse.class]
         ? ((NSHTTPURLResponse *)response).statusCode : 0;
-    completionHandler(NSURLSessionResponseAllow);
+    NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
+    BOOL valid = NO;
+    if (self.status == 206) {
+        NSString *range = [http valueForHTTPHeaderField:@"Content-Range"] ?: @"";
+        NSScanner *scanner = [NSScanner scannerWithString:range];
+        scanner.charactersToBeSkipped = nil;
+        long long start = -1, end = -1, total = -1;
+        valid = [scanner scanString:@"bytes " intoString:nil] &&
+            [scanner scanLongLong:&start] && [scanner scanString:@"-" intoString:nil] &&
+            [scanner scanLongLong:&end] && [scanner scanString:@"/" intoString:nil] &&
+            [scanner scanLongLong:&total] && scanner.isAtEnd &&
+            start == self.rangeStart && end >= start && end <= self.rangeEnd && total > end &&
+            (self.totalLength <= 0 || self.totalLength == total);
+        if (valid) { self.totalLength = total; self.expectedBytes = end - start + 1; }
+    } else if (self.status == 200) {
+        // A server that ignores Range must never send a whole large video into memory.
+        const int64_t length = response.expectedContentLength;
+        valid = self.rangeStart == 0 && length > 0 && length <= YTKACEDirectChunkSize &&
+            (self.totalLength <= 0 || self.totalLength == length);
+        if (valid) { self.totalLength = length; self.expectedBytes = length; }
+    }
+    if (!valid) self.error = YTKACEDirectError(5, @"Server returned an invalid byte range");
+    completionHandler(valid ? NSURLSessionResponseAllow : NSURLSessionResponseCancel);
 }
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask
     didReceiveData:(NSData *)data {
     (void)session;
     (void)dataTask;
+    if ((int64_t)self.data.length + (int64_t)data.length > self.expectedBytes) {
+        self.error = YTKACEDirectError(5, @"Server exceeded the requested byte range");
+        [dataTask cancel];
+        return;
+    }
     [self.data appendData:data];
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    self.lastActivity = now;
     if (self.received != nil && now - self.lastReport >= 0.1) {
         self.lastReport = now;
         self.received((int64_t)self.data.length);
@@ -121,7 +158,7 @@ static NSData *YTKACEDirectFetch(NSURLRequest *request, YTKACEDirectTask *task,
     didCompleteWithError:(NSError *)error {
     (void)session;
     (void)task;
-    self.error = error;
+    if (self.error == nil) self.error = error;
     dispatch_semaphore_signal(self.done);
 }
 
@@ -129,24 +166,39 @@ static NSData *YTKACEDirectFetch(NSURLRequest *request, YTKACEDirectTask *task,
 
 static NSData *YTKACEDirectFetchChunk(NSURLRequest *request, YTKACEDirectTask *task,
                                       void (^received)(int64_t bytes),
+                                      int64_t start, int64_t end, int64_t *total,
                                       NSInteger *status, NSError **error) {
     YTKACEDirectChunkReceiver *receiver = [YTKACEDirectChunkReceiver new];
     receiver.data = [NSMutableData data];
     receiver.done = dispatch_semaphore_create(0);
     receiver.received = received;
+    receiver.rangeStart = start;
+    receiver.rangeEnd = end;
+    receiver.totalLength = *total;
     NSURLSessionDataTask *dataTask = [NSURLSession.sharedSession dataTaskWithRequest:request];
     dataTask.delegate = receiver;
     task.currentTask = dataTask;
-    [dataTask resume];
-    if (dispatch_semaphore_wait(receiver.done, dispatch_time(DISPATCH_TIME_NOW,
-            (int64_t)(90 * NSEC_PER_SEC))) != 0) {
-        [dataTask cancel];
-        receiver.error = YTKACEDirectError(2, @"request timed out");
+    receiver.lastActivity = CFAbsoluteTimeGetCurrent();
+    if (task.cancelled) [dataTask cancel];
+    else [dataTask resume];
+    // The limit applies to inactivity: a slow link may need longer for a whole chunk.
+    BOOL timedOut = NO;
+    while (dispatch_semaphore_wait(receiver.done, dispatch_time(DISPATCH_TIME_NOW,
+            (int64_t)(5 * NSEC_PER_SEC))) != 0) {
+        if (CFAbsoluteTimeGetCurrent() - receiver.lastActivity >= 90.0) {
+            [dataTask cancel];
+            timedOut = YES;
+            break;
+        }
     }
     task.currentTask = nil;
+    NSError *failure = timedOut ? YTKACEDirectError(2, @"request timed out") : receiver.error;
+    if (!timedOut && !failure && (int64_t)receiver.data.length != receiver.expectedBytes)
+        failure = YTKACEDirectError(5, @"Incomplete byte range");
+    if (!timedOut && !failure) *total = receiver.totalLength;
     if (status != NULL) *status = receiver.status;
-    if (error != NULL) *error = receiver.error;
-    return receiver.error == nil ? receiver.data : nil;
+    if (error != NULL) *error = failure;
+    return failure == nil ? receiver.data : nil;
 }
 
 static NSMutableURLRequest *YTKACEDirectAPIRequest(NSString *path, NSDictionary *body,
@@ -295,19 +347,20 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
     int64_t offset = 0;
     BOOL finished = NO;
     while (!finished) {
+      @autoreleasepool {
         if (self.task.cancelled) {
             [handle closeFile];
             if (error != NULL) *error = [NSError errorWithDomain:NSURLErrorDomain
                 code:NSURLErrorCancelled userInfo:nil];
             return NO;
         }
-        int64_t end = total > 0 ? MIN(offset + YTKACEDirectChunkSize, total) - 1
-                                : offset + YTKACEDirectChunkSize - 1;
         NSData *chunk = nil;
         NSInteger status = 0;
         for (NSInteger attempt = 0; attempt < YTKACEDirectChunkAttempts && chunk == nil; attempt++) {
             if (self.task.cancelled) break;
             if (attempt > 0) [NSThread sleepForTimeInterval:0.6 * attempt];
+            int64_t end = total > 0 ? MIN(offset + YTKACEDirectChunkSize, total) - 1
+                                    : offset + YTKACEDirectChunkSize - 1;
             NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:current.URL];
             [request setValue:[NSString stringWithFormat:@"bytes=%lld-%lld", offset, end]
                 forHTTPHeaderField:@"Range"];
@@ -317,9 +370,8 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
             int64_t chunkStart = offset;
             NSData *data = YTKACEDirectFetchChunk(request, self.task, ^(int64_t bytes) {
                 if (progress != nil) progress(chunkStart + bytes);
-            }, &status, &fetchError);
-            BOOL ok = (status == 206 || status == 200) && data.length != 0 &&
-                (total <= 0 || (int64_t)data.length == end - offset + 1);
+            }, offset, end, &total, &status, &fetchError);
+            BOOL ok = fetchError == nil && data.length != 0;
             if (ok) {
                 chunk = data;
                 break;
@@ -328,7 +380,13 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
                 (long)current.itag, offset, (long)status, fetchError.localizedDescription ?: @"none");
             if ((status == 403 || status == 410 || attempt == 1) && [self refreshOptions]) {
                 YTKACEStreamOption *renewed = YTKACEDirectMatch(self.options, current, audio);
-                if (renewed != nil) current = renewed;
+                // Bytes already written can only be continued from the same format.
+                if (renewed != nil && (offset == 0 || (renewed.itag == current.itag &&
+                    [renewed.audioTrackID ?: @"" isEqualToString:current.audioTrackID ?: @""] &&
+                    (renewed.contentLength <= 0 || total <= 0 || (int64_t)renewed.contentLength == total)))) {
+                    current = renewed;
+                    if (offset == 0) total = MAX((int64_t)current.contentLength, 0);
+                }
             }
         }
         if (chunk == nil) {
@@ -341,10 +399,14 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
             }
             return NO;
         }
-        [handle writeData:chunk];
+        if (![handle writeData:chunk error:error]) {
+            [handle closeFile];
+            return NO;
+        }
         offset += (int64_t)chunk.length;
         if (progress != nil) progress(offset);
         finished = total > 0 ? offset >= total : (int64_t)chunk.length < YTKACEDirectChunkSize;
+      }
     }
     [handle closeFile];
     return YES;
