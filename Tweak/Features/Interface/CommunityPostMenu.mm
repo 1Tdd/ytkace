@@ -7,6 +7,8 @@
 #import "../../Runtime/Localization.h"
 #import "../../Runtime/Preferences.h"
 #import <objc/message.h>
+#import <objc/runtime.h>
+#import "../Downloads/DownloadLog.h"
 
 static id YTKACEPostValue(id object, NSString *name) {
     SEL selector = NSSelectorFromString(name);
@@ -59,9 +61,12 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
         for (NSString *key in @[@"subnodes", @"childElements", @"element", @"entry", @"model",
                                 @"backstagePostRenderer", @"communityPostRenderer", @"postRenderer",
                                 @"backstageAttachment", @"backstageImageRenderer", @"postMultiImageRenderer",
-                                @"image", @"imagesArray", @"sourcesArray", @"thumbnailsArray"]) {
+                                @"image", @"imagesArray", @"sourcesArray", @"thumbnailsArray",
+                                @"controller", @"nodeController", @"children", @"cellNodes", @"cellControllers"]) {
             id children = YTKACEPostValue(item, key);
             if (!children || children == item) continue;
+            if (([key isEqualToString:@"controller"] || [key isEqualToString:@"nodeController"]) &&
+                ![NSStringFromClass([children class]) hasPrefix:@"ELM"]) continue;
             BOOL childAttachment = attachment || [key isEqualToString:@"backstageAttachment"] ||
                 [key isEqualToString:@"backstageImageRenderer"] || [key isEqualToString:@"postMultiImageRenderer"];
             NSArray *values = [children isKindOfClass:NSArray.class] ? children : @[children];
@@ -70,9 +75,61 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
                 [pending addObject:@[child, @(childAttachment)]];
             }
         }
+        if ([name isEqualToString:@"ELMCollectionNode"]) {
+            // These hold lazy cells that are absent from subnodes/childElements.
+            for (NSString *key in @[@"_singleSectionController", @"_pendingSectionNodes", @"_lazyPendingSectionNodeControllers"]) {
+                Ivar ivar = class_getInstanceVariable([item class], key.UTF8String);
+                const char *type = ivar ? ivar_getTypeEncoding(ivar) : NULL;
+                id value = type && type[0] == '@' ? object_getIvar(item, ivar) : nil;
+                if (!value) continue;
+                NSArray *children = [value isKindOfClass:NSArray.class] ? value : @[value];
+                for (id child in children) {
+                    if (pending.count >= 512) break;
+                    [pending addObject:@[child, @(attachment)]];
+                }
+            }
+        }
     }
     [metadataURLs addObjectsFromArray:URLs];
     return YTKACEUniquePostImageURLs(metadataURLs);
+}
+
+static NSArray<NSURL *> *YTKACEPostImagesForViewer(NSURL *current, UIView *sourceView, id imageNode) {
+    NSMutableArray *best = [YTKACEPostImages(imageNode) mutableCopy];
+    if (current) [best addObject:current];
+    NSArray *result = YTKACEUniquePostImageURLs(best);
+    // The fullscreen viewer only exposes one URL. Match it to its underlying post cell.
+    // Inspect loaded view trees only; never instantiate or scroll neighbouring feed cells.
+    NSMutableArray<UIView *> *pending = [NSMutableArray array];
+    UIViewController *presenter = YTKACEMediaPresenter(sourceView);
+    for (NSUInteger depth = 0; presenter && depth < 8; ++depth, presenter = presenter.presentingViewController)
+        if (presenter.isViewLoaded) [pending addObject:presenter.view];
+    UIViewController *root = sourceView.window.rootViewController;
+    if (root.isViewLoaded) [pending addObject:root.view];
+    NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    NSUInteger cells = 0;
+    for (NSUInteger i = 0; i < pending.count && i < 1600 && cells < 32; ++i) {
+        UIView *view = pending[i];
+        if ([seen containsObject:view]) continue;
+        [seen addObject:view];
+        if ([view isKindOfClass:UICollectionViewCell.class] || [view isKindOfClass:UITableViewCell.class]) {
+            id node = YTKACEPostValue(view, @"node") ?: YTKACEPostValue(view, @"keepalive_node");
+            if (node) {
+                ++cells;
+                NSArray *candidate = YTKACEPostImages(node);
+                // Canonical URL comparison also matches a differently sized viewer image.
+                if (candidate.count > result.count && current &&
+                    YTKACEUniquePostImageURLs([candidate arrayByAddingObject:current]).count == candidate.count)
+                    result = candidate;
+            }
+        }
+        for (UIView *child in view.subviews) {
+            if (pending.count >= 1600) break;
+            [pending addObject:child];
+        }
+    }
+    YTKACEDownloadLog(@"posts", @"viewer images=%lu matchedCells=%lu", (unsigned long)result.count, (unsigned long)cells);
+    return result;
 }
 
 static NSURL *YTKACEPostLink(id node) {
@@ -105,6 +162,8 @@ static NSURL *YTKACEPostLink(id node) {
 @property(nonatomic, copy) NSArray<NSURL *> *imageURLs;
 @property(nonatomic, strong) NSURL *currentImageURL;
 @property(nonatomic, assign) BOOL savingImages;
+@property(nonatomic, assign) BOOL communityPost;
+@property(nonatomic, weak) id postNode;
 @end
 
 @implementation YTKACECommunityPostSheet
@@ -149,6 +208,11 @@ static NSURL *YTKACEPostLink(id node) {
 }
 - (void)saveAllImages {
     if (self.savingImages) return;
+    NSArray *resolved = self.communityPost ? YTKACEPostImages(self.postNode) :
+        YTKACEPostImagesForViewer(self.currentImageURL, self.anchor, self.postNode);
+    if (resolved.count > self.imageURLs.count)
+        self.imageURLs = YTKACEUniquePostImageURLs([resolved arrayByAddingObjectsFromArray:self.imageURLs ?: @[]]);
+    if (!self.imageURLs.count) { YTKACEShowNotice(YTKACELocalized(@"No images found")); return; }
     self.savingImages = YES;
     [self saveImages:[self.imageURLs copy] atIndex:0 saved:0 failed:0];
 }
@@ -187,12 +251,16 @@ static NSURL *YTKACEPostLink(id node) {
         ];
         [rows addObject:[YTKACEMediaAction group:@"post.snapshot" title:YTKACELocalized(@"Post as image") symbol:@"photo.on.rectangle" children:actions]];
     }
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) {
+        YTKACEMediaAction *saveAll = [YTKACEMediaAction action:@"post.images.saveAll"
+            title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square"
+            handler:^{ [weakSelf saveAllImages]; }];
+        if (self.imageURLs.count) saveAll.detail = [NSString stringWithFormat:YTKACELocalized(@"Images: %lu"), (unsigned long)self.imageURLs.count];
+        [rows addObject:saveAll];
+    }
     if (self.imageURLs.count && YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) {
         [rows addObject:[YTKACEMediaAction group:@"post.image" title:YTKACELocalized(@"Image") symbol:@"photo" children:[self actionsForImage:self.currentImageURL ?: self.imageURLs.firstObject identifier:@"post.image"]]];
         if (self.imageURLs.count > 1) {
-            [rows addObject:[YTKACEMediaAction action:@"post.images.saveAll"
-                title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square"
-                handler:^{ [weakSelf saveAllImages]; }]];
             NSMutableArray *images = [NSMutableArray array];
             for (NSUInteger i = 0; i < self.imageURLs.count; i++) {
                 NSString *identifier = [NSString stringWithFormat:@"post.images.%lu", (unsigned long)i];
@@ -216,6 +284,8 @@ void YTKACEPresentCommunityPostMenu(UIView *postView, id node, NSString *text, N
     sheet.heading = YTKACELocalized(@"Community post");
     sheet.anchor = postView;
     sheet.postText = text;
+    sheet.communityPost = YES;
+    sheet.postNode = node;
     sheet.postURL = YTKACEPostLink(node);
     NSMutableArray *images = [YTKACEPostImages(node) mutableCopy];
     if (currentImage) [images addObject:currentImage];
@@ -237,13 +307,15 @@ void YTKACEPresentCommunityPostMenu(UIView *postView, id node, NSString *text, N
     if (sheet.actionSections.count) [presenter presentViewController:sheet animated:YES completion:nil];
 }
 
-void YTKACEPresentPostImageMenu(NSURL *imageURL, UIView *sourceView) {
+void YTKACEPresentPostImageMenu(NSURL *imageURL, UIView *sourceView, id imageNode) {
     UIViewController *presenter = YTKACEMediaPresenter(sourceView);
     if (!imageURL || !presenter) return;
     YTKACECommunityPostSheet *sheet = [YTKACECommunityPostSheet new];
     sheet.heading = YTKACELocalized(@"Image");
     sheet.anchor = sourceView;
-    sheet.imageURLs = @[imageURL];
+    sheet.postNode = imageNode;
+    sheet.currentImageURL = imageURL;
+    sheet.imageURLs = YTKACEPostImagesForViewer(imageURL, sourceView, imageNode);
     [sheet buildPostActions];
     [presenter presentViewController:sheet animated:YES completion:nil];
 }

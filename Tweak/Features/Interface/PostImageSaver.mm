@@ -48,7 +48,7 @@ static const void *YTKACEPostSaveButtonKey = &YTKACEPostSaveButtonKey;
         return;
     }
 
-    YTKACEPresentPostImageMenu(url, sender);
+    YTKACEPresentPostImageMenu(url, sender, node);
 }
 
 @end
