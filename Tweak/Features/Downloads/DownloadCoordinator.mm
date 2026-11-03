@@ -2300,8 +2300,8 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
             handler();
             return;
         }
-        NSURL *staging = [destination.URLByDeletingPathExtension
-            URLByAppendingPathExtension:@"subs.mp4"];
+        NSURL *staging = [destination.URLByDeletingLastPathComponent URLByAppendingPathComponent:
+            [NSString stringWithFormat:@".%@-subtitles.mp4", NSUUID.UUID.UUIDString]];
         [NSFileManager.defaultManager removeItemAtURL:staging error:nil];
         NSArray<NSDictionary *> *finalCues = (job.removedSegments.count > 0)
             ? YTKACEAdjustCuesForRemovedSegments(cues, job.removedSegments)

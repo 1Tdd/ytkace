@@ -15,7 +15,9 @@
 - Il limite di attesa del blocco riguarda l'inattività; annullamento e timeout non recuperano risultati ancora modificati dal callback.
 - Errori di scrittura, lettura e chiusura dei file vengono propagati, inclusi quelli durante l'aggiunta dei sottotitoli. Non si consegna un file parziale come se fosse completo.
 - I sottotitoli vengono scritti in ordine temporale insieme ai pacchetti multimediali. Ripetizioni dello stesso testo separate da un intervallo non rimangono visibili durante quell'intervallo.
+- File temporanei dei sottotitoli univoci: non possono sovrascrivere un download chiamato `nome.subs.mp4`.
 - Sostituzione dei sottotitoli e ripristino dei file del backup senza cancellare prima l'originale; gli errori del ripristino vengono restituiti al chiamante.
+- Esportazione audio con immagine in Foto: controlli di allocazione/encoding/scrittura e chiusura, durata arrotondata per coprire anche l'ultima frazione di secondo, nessun 100% prima del completamento.
 - Chiusura corretta dei job cancellati e del task iOS in background.
 - Conservate e verificate le modifiche locali preesistenti: scrittura Direct/SABR con errori espliciti, avvio SABR non duplicato, risposta fresca prioritaria sulla cache, fallback dei formati, playlist senza finestre sottotitoli per ogni elemento, nomi file limitati in byte UTF-8.
 - Integrati gli aggiornamenti già presenti su origin/main fino a 274345b, inclusi conservazione e condivisione dei capitoli. Nessuna integrazione della versione upstream di SponsorBlock.

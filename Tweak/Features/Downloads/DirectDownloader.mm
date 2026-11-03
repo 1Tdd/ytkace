@@ -346,10 +346,11 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
     int64_t total = MAX((int64_t)current.contentLength, 0);
     int64_t offset = 0;
     BOOL finished = NO;
+    const CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
     while (!finished) {
       @autoreleasepool {
         if (self.task.cancelled) {
-            [handle closeFile];
+            [handle closeAndReturnError:nil];
             if (error != NULL) *error = [NSError errorWithDomain:NSURLErrorDomain
                 code:NSURLErrorCancelled userInfo:nil];
             return NO;
@@ -390,7 +391,7 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
             }
         }
         if (chunk == nil) {
-            [handle closeFile];
+            [handle closeAndReturnError:nil];
             if (error != NULL) {
                 *error = self.task.cancelled
                     ? [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCancelled userInfo:nil]
@@ -400,7 +401,7 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
             return NO;
         }
         if (![handle writeData:chunk error:error]) {
-            [handle closeFile];
+            [handle closeAndReturnError:nil];
             return NO;
         }
         offset += (int64_t)chunk.length;
@@ -408,7 +409,10 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
         finished = total > 0 ? offset >= total : (int64_t)chunk.length < YTKACEDirectChunkSize;
       }
     }
-    [handle closeFile];
+    if (![handle closeAndReturnError:error]) return NO;
+    const CFAbsoluteTime elapsed = MAX(CFAbsoluteTimeGetCurrent() - started, 0.001);
+    YTKACEDownloadLog(self.identifier, @"direct %@ bytes=%lld seconds=%.2f speed=%.2fMiB/s",
+        audio ? @"audio" : @"video", offset, elapsed, (double)offset / 1048576.0 / elapsed);
     return YES;
 }
 

@@ -511,9 +511,14 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
     AVFrame *imageFrame = av_frame_alloc();
     AVFrame *videoFrame = av_frame_alloc();
     AVPacket *packet = av_packet_alloc();
+    AVPacket *encoded = av_packet_alloc();
     NSError *error = nil;
     int audioIndex = -1;
 
+    if (!imageFrame || !videoFrame || !packet || !encoded) {
+        error = YTKACEFFmpegError(AVERROR(ENOMEM), @"Allocate audio video conversion");
+        goto finish;
+    }
     if (avformat_open_input(&audioInput, audioURL.path.UTF8String, NULL, NULL) < 0 ||
         avformat_find_stream_info(audioInput, NULL) < 0) {
         error = YTKACEFFmpegError(-1, @"Could not read the audio");
@@ -546,6 +551,7 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
             goto finish;
         }
         encoder = avcodec_alloc_context3(encoderCodec);
+        if (!encoder) { error = YTKACEFFmpegError(AVERROR(ENOMEM), @"Allocate encoder"); goto finish; }
         encoder->width = width;
         encoder->height = height;
         encoder->pix_fmt = AV_PIX_FMT_NV12;
@@ -560,12 +566,17 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
             goto finish;
         }
         AVStream *videoStream = avformat_new_stream(output, NULL);
-        avcodec_parameters_from_context(videoStream->codecpar, encoder);
+        if (!videoStream) { error = YTKACEFFmpegError(AVERROR(ENOMEM), @"Allocate video track"); goto finish; }
+        int status = avcodec_parameters_from_context(videoStream->codecpar, encoder);
+        if (status < 0) { error = YTKACEFFmpegError(status, @"Copy video parameters"); goto finish; }
         videoStream->codecpar->codec_tag = MKTAG('a', 'v', 'c', '1');
         videoStream->time_base = encoder->time_base;
         AVStream *audioStream = avformat_new_stream(output, NULL);
-        avcodec_parameters_copy(audioStream->codecpar,
+        if (!audioStream) { error = YTKACEFFmpegError(AVERROR(ENOMEM), @"Allocate audio track"); goto finish; }
+        status = avcodec_parameters_copy(audioStream->codecpar,
                                 audioInput->streams[audioIndex]->codecpar);
+        if (status < 0) { error = YTKACEFFmpegError(status, @"Copy audio parameters"); goto finish; }
+        audioStream->time_base = audioInput->streams[audioIndex]->time_base;
         audioStream->codecpar->codec_tag = 0;
 
         if (!(output->oformat->flags & AVFMT_NOFILE)) {
@@ -583,7 +594,8 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
         videoFrame->format = AV_PIX_FMT_NV12;
         videoFrame->width = width;
         videoFrame->height = height;
-        av_frame_get_buffer(videoFrame, 0);
+        status = av_frame_get_buffer(videoFrame, 0);
+        if (status < 0) { error = YTKACEFFmpegError(status, @"Allocate artwork frame"); goto finish; }
         memset(videoFrame->data[0], 16, (size_t)videoFrame->linesize[0] * height);
         memset(videoFrame->data[1], 128,
                (size_t)videoFrame->linesize[1] * height / 2);
@@ -597,6 +609,7 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
                 avcodec_find_decoder(imageInput->streams[0]->codecpar->codec_id);
             if (imageCodec != NULL) {
                 imageDecoder = avcodec_alloc_context3(imageCodec);
+                if (!imageDecoder) { error = YTKACEFFmpegError(AVERROR(ENOMEM), @"Allocate artwork decoder"); goto finish; }
                 avcodec_parameters_to_context(imageDecoder,
                                               imageInput->streams[0]->codecpar);
                 if (avcodec_open2(imageDecoder, imageCodec, NULL) >= 0 &&
@@ -620,13 +633,24 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
 
         int64_t duration = 0;
         if (audioInput->duration > 0 && audioInput->duration != AV_NOPTS_VALUE) {
-            duration = audioInput->duration / AV_TIME_BASE;
+            duration = av_rescale_rnd(audioInput->duration, 1, AV_TIME_BASE, AV_ROUND_UP);
         } else if (audioIndex >= 0 && audioInput->streams[audioIndex]->duration > 0 &&
                    audioInput->streams[audioIndex]->duration != AV_NOPTS_VALUE) {
-            duration = av_rescale_q(audioInput->streams[audioIndex]->duration,
+            duration = av_rescale_q_rnd(audioInput->streams[audioIndex]->duration,
                                     audioInput->streams[audioIndex]->time_base,
-                                    (AVRational){1, 1});
+                                    (AVRational){1, 1}, AV_ROUND_UP);
         }
+        auto drainEncoder = [&]() -> int {
+            int rc = 0;
+            while ((rc = avcodec_receive_packet(encoder, encoded)) >= 0) {
+                encoded->stream_index = videoStream->index;
+                av_packet_rescale_ts(encoded, encoder->time_base, videoStream->time_base);
+                rc = av_interleaved_write_frame(output, encoded);
+                av_packet_unref(encoded);
+                if (rc < 0) return rc;
+            }
+            return rc == AVERROR(EAGAIN) || rc == AVERROR_EOF ? 0 : rc;
+        };
         const int64_t frames = MAX((int64_t)1, duration);
         for (int64_t index = 0; index < frames; index++) {
             @synchronized (YTKACECancelledConversions()) {
@@ -636,33 +660,18 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
                 }
             }
             videoFrame->pts = index;
-            if (avcodec_send_frame(encoder, videoFrame) >= 0) {
-                AVPacket *encoded = av_packet_alloc();
-                while (avcodec_receive_packet(encoder, encoded) >= 0) {
-                    encoded->stream_index = videoStream->index;
-                    av_packet_rescale_ts(encoded, encoder->time_base,
-                                         videoStream->time_base);
-                    av_interleaved_write_frame(output, encoded);
-                    av_packet_unref(encoded);
-                }
-                av_packet_free(&encoded);
-            }
+            status = avcodec_send_frame(encoder, videoFrame);
+            if (status >= 0) status = drainEncoder();
+            if (status < 0) { error = YTKACEFFmpegError(status, @"Encode artwork video"); goto finish; }
             if (progress != nil && frames > 0) {
-                progress(MIN(1.0, (double)(index + 1) / (double)frames));
+                progress(0.9 * (double)(index + 1) / (double)frames);
             }
         }
-        avcodec_send_frame(encoder, NULL);
-        AVPacket *flush = av_packet_alloc();
-        while (avcodec_receive_packet(encoder, flush) >= 0) {
-            flush->stream_index = videoStream->index;
-            av_packet_rescale_ts(flush, encoder->time_base,
-                                 videoStream->time_base);
-            av_interleaved_write_frame(output, flush);
-            av_packet_unref(flush);
-        }
-        av_packet_free(&flush);
+        status = avcodec_send_frame(encoder, NULL);
+        if (status >= 0) status = drainEncoder();
+        if (status < 0) { error = YTKACEFFmpegError(status, @"Flush artwork video"); goto finish; }
 
-        while (av_read_frame(audioInput, packet) >= 0) {
+        while ((status = av_read_frame(audioInput, packet)) >= 0) {
             @synchronized (YTKACECancelledConversions()) {
                 if ([YTKACECancelledConversions() containsObject:identifier]) {
                     error = YTKACEFFmpegError(AVERROR_EXIT, @"Cancelled");
@@ -674,11 +683,14 @@ static NSError *YTKACEAudioToVideo(NSURL *audioURL, NSData *artwork,
                 av_packet_rescale_ts(packet,
                     audioInput->streams[audioIndex]->time_base,
                     audioStream->time_base);
-                av_interleaved_write_frame(output, packet);
+                status = av_interleaved_write_frame(output, packet);
+                if (status < 0) { error = YTKACEFFmpegError(status, @"Write artwork audio"); goto finish; }
             }
             av_packet_unref(packet);
         }
-        av_write_trailer(output);
+        if (status != AVERROR_EOF) { error = YTKACEFFmpegError(status, @"Read artwork audio"); goto finish; }
+        status = av_write_trailer(output);
+        if (status < 0) error = YTKACEFFmpegError(status, @"Finish artwork video");
     }
 
 finish:
@@ -687,7 +699,8 @@ finish:
     if (encoder != NULL) avcodec_free_context(&encoder);
     if (output != NULL) {
         if (output->pb != NULL && !(output->oformat->flags & AVFMT_NOFILE)) {
-            avio_closep(&output->pb);
+            int closeStatus = avio_closep(&output->pb);
+            if (!error && closeStatus < 0) error = YTKACEFFmpegError(closeStatus, @"Close artwork video");
         }
         avformat_free_context(output);
     }
@@ -696,10 +709,12 @@ finish:
     av_frame_free(&imageFrame);
     av_frame_free(&videoFrame);
     av_packet_free(&packet);
+    av_packet_free(&encoded);
     if (artworkPath != nil) {
         [NSFileManager.defaultManager removeItemAtPath:artworkPath error:NULL];
     }
     if (error) [NSFileManager.defaultManager removeItemAtURL:outputURL error:nil];
+    else if (progress) progress(1.0);
     return error;
 }
 
