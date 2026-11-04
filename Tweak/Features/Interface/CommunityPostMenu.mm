@@ -21,6 +21,16 @@ static id YTKACEPostValue(id object, NSString *name) {
 
 static NSURL *YTKACEPostLink(id node);
 
+static BOOL YTKACEIsPostComponent(id component) {
+    id value = YTKACEPostValue(component, @"templateURI");
+    if (![value isKindOfClass:NSString.class]) return NO;
+    NSString *URI = [value lowercaseString];
+    for (NSString *token in @[@"post_base", @"community_post", @"backstage_post", @"post_attachment",
+                              @"post_image", @"post_multi_image", @"image_carousel", @"image_gallery", @"image_viewer"])
+        if ([URI containsString:token]) return YES;
+    return NO;
+}
+
 static NSArray<NSURL *> *YTKACEPostImages(id node) {
     if (!node) return @[];
     NSMutableArray *pending = [NSMutableArray arrayWithObject:@[node, @NO]];
@@ -79,13 +89,14 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
             if (([key isEqualToString:@"controller"] || [key isEqualToString:@"nodeController"]) &&
                 ![NSStringFromClass([children class]) hasPrefix:@"ELM"]) continue;
             if ([key isEqualToString:@"owningComponent"]) {
-                id URI = YTKACEPostValue(children, @"templateURI");
-                NSString *templateName = [URI isKindOfClass:NSString.class] ? [URI lowercaseString] : @"";
                 // Never walk from a post to its feed/channel component.
-                if (![templateName containsString:@"post"] && ![templateName containsString:@"image"]) continue;
+                if (!YTKACEIsPostComponent(children)) continue;
             }
             BOOL childAttachment = attachment || [key isEqualToString:@"backstageAttachment"] ||
                 [key isEqualToString:@"backstageImageRenderer"] || [key isEqualToString:@"postMultiImageRenderer"];
+            // Ascending from an image to the enclosing post must not classify
+            // the author's avatar and every sibling as image attachments.
+            if ([key isEqualToString:@"owningComponent"]) childAttachment = NO;
             NSArray *values = [children isKindOfClass:NSArray.class] ? children : @[children];
             for (id child in values) {
                 if (pending.count >= 512) break;
@@ -189,9 +200,7 @@ static NSURL *YTKACEPostLink(id node) {
             id child = YTKACEPostValue(item, name);
             if (!child || child == item) continue;
             if ([name isEqual:@"owningComponent"]) {
-                id URI = YTKACEPostValue(child, @"templateURI");
-                if (![URI isKindOfClass:NSString.class] || ([URI rangeOfString:@"post" options:NSCaseInsensitiveSearch].location == NSNotFound &&
-                    [URI rangeOfString:@"image" options:NSCaseInsensitiveSearch].location == NSNotFound)) continue;
+                if (!YTKACEIsPostComponent(child)) continue;
             }
             NSArray *children = [child isKindOfClass:NSArray.class] ? child : @[child];
             for (id value in children) {
