@@ -1342,7 +1342,8 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
                     else [strongSelf retryOrFail:requestError];
                 }];
             });
-        } else if (expired && YTKACEHasNativeOnesieSession(self.videoID)) {
+        } else if (expired) {
+            // Repeating a request on an expired URL cannot succeed, so ask for a new one.
             [self refreshNativeSession:requestError.localizedDescription];
         } else {
             [self retryOrFail:requestError];

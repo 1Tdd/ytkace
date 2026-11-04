@@ -159,6 +159,19 @@ static void YTKACEPiPStart(id self, SEL _cmd) {
     }
 }
 
+// YouTube also requires its own PiP setting, which accounts without Premium cannot turn on.
+static IMP YTKACEOrigPiPByUserSettings;
+static BOOL YTKACEPiPByUserSettings(id self, SEL _cmd) {
+    if (YTKACEFeatureEnabled(YTKACEBackgroundPlaybackKey) || YTKACEFeatureEnabled(YTKACEPiPKey)) return YES;
+    return YTKACEOrigPiPByUserSettings != NULL && ((BOOL (*)(id, SEL))YTKACEOrigPiPByUserSettings)(self, _cmd);
+}
+
+static IMP YTKACEOrigPiPDefaultOff;
+static BOOL YTKACEPiPDefaultOff(id self, SEL _cmd) {
+    if (YTKACEFeatureEnabled(YTKACEBackgroundPlaybackKey) || YTKACEFeatureEnabled(YTKACEPiPKey)) return NO;
+    return YTKACEOrigPiPDefaultOff != NULL && ((BOOL (*)(id, SEL))YTKACEOrigPiPDefaultOff)(self, _cmd);
+}
+
 static void YTKACEDidPressPause(id self, SEL _cmd, id sender) {
     YTKACENotifyPlaybackPaused();
     if (YTKACEOrigDidPressPause != NULL) {
@@ -181,6 +194,10 @@ void YTKACEInstallShortsPiPHooks(void) {
         (IMP)YTKACEShortsEligible, &YTKACEShortsOrigEligible);
     YTKACEInstallInstanceHook(pipClass, @"canEnablePictureInPicture",
         (IMP)YTKACEShortsCanEnable, &YTKACEShortsOrigCanEnable);
+    YTKACEInstallInstanceHook(@"YTBackgroundabilityPolicyImpl", @"isPlayableInPictureInPictureByUserSettings",
+        (IMP)YTKACEPiPByUserSettings, &YTKACEOrigPiPByUserSettings);
+    YTKACEInstallInstanceHook(@"YTHotConfig", @"iosPlayerClientSharedConfigDefaultOffPremiumPip",
+        (IMP)YTKACEPiPDefaultOff, &YTKACEOrigPiPDefaultOff);
 
     YTKACEInstallInstanceHook(@"AVPictureInPictureController",
         @"canStartPictureInPictureAutomaticallyFromInline",

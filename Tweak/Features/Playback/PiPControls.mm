@@ -11,6 +11,18 @@
 #import <AVKit/AVKit.h>
 #import <math.h>
 #import <objc/message.h>
+#import <objc/runtime.h>
+
+static id YTKACEPiPObjectIvar(id object, const char *name) {
+    Ivar ivar = object != nil ? class_getInstanceVariable(object_getClass(object), name) : NULL;
+    const char *type = ivar != NULL ? ivar_getTypeEncoding(ivar) : NULL;
+    return type != NULL && type[0] == '@' ? object_getIvar(object, ivar) : nil;
+}
+
+static BOOL YTKACEPiPBool(id object, NSString *name) {
+    SEL selector = NSSelectorFromString(name);
+    return [object respondsToSelector:selector] && ((BOOL (*)(id, SEL))objc_msgSend)(object, selector);
+}
 
 @interface YTKACEPiPCoordinator : NSObject <AVPictureInPictureControllerDelegate>
 + (instancetype)sharedCoordinator;
@@ -250,6 +262,37 @@
     self.player = nil;
 }
 
+// YouTube's own controller keeps the running video, which SABR streams need:
+// they often have no URL that a separate AVPlayer could open.
+- (id)nativePiPController {
+    id player = [self activeYouTubePlayer] ?: YTKACEActivePlayerViewController();
+    id playback = YTKACEPiPObjectIvar(player, "_playbackController");
+    id playerPiP = YTKACEPiPObjectIvar(playback, "_playerPIPController");
+    id controller = YTKACEPiPObjectIvar(playerPiP, "_pipController");
+    SEL start = NSSelectorFromString(@"startPictureInPictureWithPaused:");
+    return [controller respondsToSelector:start] ? controller : nil;
+}
+
+- (void)startNativePiP:(id)native attempts:(NSInteger)attempts {
+    if (YTKACEPiPBool(native, @"pictureInPicturePossible")) {
+        YTKACEManualPiPRequested = YES;
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(
+            native, NSSelectorFromString(@"startPictureInPictureWithPaused:"), NO);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            YTKACEManualPiPRequested = NO;
+        });
+        return;
+    }
+    if (attempts <= 0) {
+        [self startSeparatePlayerPiP];
+        return;
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        [self startNativePiP:native attempts:attempts - 1];
+    });
+}
+
 - (void)togglePiP {
     if (!YTKACEFeatureEnabled(YTKACEPiPKey)) {
         return;
@@ -258,10 +301,25 @@
         [self.controller stopPictureInPicture];
         return;
     }
+    id native = [self nativePiPController];
+    if (YTKACEPiPBool(native, @"pictureInPictureActive")) {
+        ((void (*)(id, SEL))objc_msgSend)(native, NSSelectorFromString(@"stopPictureInPicture"));
+        return;
+    }
     if (![AVPictureInPictureController isPictureInPictureSupported]) {
         [self showError:@"PiP is not supported on this device."];
         return;
     }
+    SEL activate = NSSelectorFromString(@"activatePiPController");
+    if ([native respondsToSelector:activate]) {
+        ((void (*)(id, SEL))objc_msgSend)(native, activate);
+        [self startNativePiP:native attempts:10];
+        return;
+    }
+    [self startSeparatePlayerPiP];
+}
+
+- (void)startSeparatePlayerPiP {
     [self showLoading];
     [self resumeYouTubePlayer];
     [self clearPlayer];
@@ -269,7 +327,7 @@
     NSTimeInterval currentTime = [self currentVideoTime];
     YTKACEStreamOption *option = [YTKACEStreamResolver
         bestPiPVideoFromPlayerResponse:[self currentPlayerResponse]];
-    if (option != nil) {
+    if (option.URL != nil) {
         [self pauseYouTubePlayer];
         self.playerItem = [AVPlayerItem playerItemWithURL:option.URL];
         self.player = [AVPlayer playerWithPlayerItem:self.playerItem];
