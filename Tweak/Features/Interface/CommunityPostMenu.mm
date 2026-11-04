@@ -418,8 +418,11 @@ static NSURL *YTKACEPostLink(id node) {
             if (URLs.count && matches) {
                 self.imageURLs = URLs;
                 self.imagesResolved = YES;
+            } else if (local.count > 1) {
+                // A list of several images is already whole: it comes from the post itself.
+                self.imagesResolved = YES;
             }
-            YTKACEDownloadLog(@"posts", @"post image list status=%ld images=%lu local=%lu matched=%d", (long)status, (unsigned long)URLs.count, (unsigned long)local.count, matches);
+            YTKACEDownloadLog(@"posts", @"post image list status=%ld images=%lu local=%lu matched=%d bytes=%lu final=%@%@", (long)status, (unsigned long)URLs.count, (unsigned long)local.count, matches, (unsigned long)data.length, response.URL.host ?: @"-", response.URL.path ?: @"");
             [self buildPostActions];
             if (self.saveWhenResolved) {
                 self.saveWhenResolved = NO;

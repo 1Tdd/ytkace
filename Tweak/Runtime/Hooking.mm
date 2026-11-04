@@ -52,6 +52,10 @@ static BOOL YTKACEInstallHook(NSString *className,
     }
 
     Class cls = NSClassFromString(className);
+    // Newer YouTube builds keep the old name for a protocol and move the class to <name>Impl.
+    if (cls == Nil) {
+        cls = NSClassFromString([className stringByAppendingString:@"Impl"]);
+    }
     if (cls == Nil) {
         return NO;
     }

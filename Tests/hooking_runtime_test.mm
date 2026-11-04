@@ -16,6 +16,18 @@
 @implementation HookChild
 @end
 
+@interface HookRenamedImpl : NSObject
+- (NSInteger)value;
+@end
+@implementation HookRenamedImpl
+- (NSInteger)value { return 5; }
+@end
+
+static IMP renamedOriginal;
+static NSInteger renamed(id self, SEL selector) {
+    return ((NSInteger (*)(id, SEL))renamedOriginal)(self, selector) + 1;
+}
+
 static IMP firstOriginal, secondOriginal, childOriginal;
 static IMP classFirstOriginal, classSecondOriginal;
 
@@ -92,6 +104,9 @@ int main(void) {
         assert(!YTKACEInstallInstanceHook(@"MissingClass", @"value", (IMP)first, &original));
         assert(!YTKACEInstallInstanceHook(@"HookParent", @"missingSelector", (IMP)first, &original));
         assert(original == NULL);
+
+        assert(YTKACEInstallInstanceHook(@"HookRenamed", @"value", (IMP)renamed, &renamedOriginal));
+        assert([[HookRenamedImpl new] value] == 6);
         puts("Hook chaining, repeat registration, inheritance, class methods, and missing targets passed.");
     }
 }
