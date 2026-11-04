@@ -1,4 +1,5 @@
 #import "PostImages.h"
+#include <string.h>
 
 static BOOL YTKACEPostImageHost(NSString *host) {
     host = host.lowercaseString;
@@ -89,6 +90,71 @@ NSString *YTKACEPostIDInText(NSString *text) {
         [IDs addObject:[text substringWithRange:match.range]];
     }
     return IDs.count == 1 ? IDs.anyObject : nil;
+}
+
+static const NSUInteger YTKACEElementDataLimit = 1024 * 1024;
+
+BOOL YTKACEElementDataHasPostImage(NSData *data) {
+    if (![data isKindOfClass:NSData.class] || !data.length || data.length > YTKACEElementDataLimit) return NO;
+    NSData *marker = [NSData dataWithBytes:"-nd-v1" length:6];
+    return [data rangeOfData:marker options:0 range:NSMakeRange(0, data.length)].location != NSNotFound;
+}
+
+// A shelf cell can hold several posts, whose images must not be mixed together.
+static NSSet<NSString *> *YTKACEPostIDsInElementData(NSData *data) {
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
+    NSMutableSet *IDs = [NSMutableSet set];
+    if (!text) return IDs;
+    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:
+        @"(?<![A-Za-z0-9_-])Ugkx[A-Za-z0-9_-]{32}" options:0 error:NULL];
+    for (NSTextCheckingResult *match in [expression matchesInString:text options:0 range:NSMakeRange(0, text.length)]) {
+        [IDs addObject:[text substringWithRange:match.range]];
+    }
+    return IDs;
+}
+
+NSString *YTKACEPostIDInElementData(NSData *data) {
+    if (![data isKindOfClass:NSData.class] || !data.length || data.length > YTKACEElementDataLimit) return nil;
+    if (YTKACEPostIDsInElementData(data).count > 1) return nil;
+    return YTKACEPostIDInText([[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding]);
+}
+
+// Protobuf strings have no terminator, so the end comes from the varint length before them.
+static NSUInteger YTKACEElementStringEnd(const uint8_t *bytes, NSUInteger count, NSUInteger start) {
+    NSUInteger length = 0;
+    if (start >= 2 && bytes[start - 1] < 0x80 && bytes[start - 2] >= 0x80) {
+        length = (bytes[start - 2] & 0x7F) | ((NSUInteger)bytes[start - 1] << 7);
+    } else if (start >= 1 && bytes[start - 1] < 0x80) {
+        length = bytes[start - 1];
+    }
+    BOOL prefixed = length >= 8 && start + length <= count;
+    NSUInteger limit = prefixed ? start + length : count;
+    NSUInteger end = start;
+    while (end < limit && bytes[end] > 0x20 && bytes[end] < 0x7F) end++;
+    return end;
+}
+
+NSArray<NSURL *> *YTKACEPostImageURLsInElementData(NSData *data) {
+    if (!YTKACEElementDataHasPostImage(data) || YTKACEPostIDsInElementData(data).count > 1) return @[];
+    const uint8_t *bytes = (const uint8_t *)data.bytes;
+    NSUInteger count = data.length, cursor = 0;
+    NSData *slashes = [NSData dataWithBytes:"//" length:2];
+    NSMutableArray *URLs = [NSMutableArray array];
+    while (cursor < count) {
+        NSRange found = [data rangeOfData:slashes options:0 range:NSMakeRange(cursor, count - cursor)];
+        if (found.location == NSNotFound) break;
+        NSUInteger start = found.location;
+        if (start >= 6 && memcmp(bytes + start - 6, "https:", 6) == 0) start -= 6;
+        else if (start >= 5 && memcmp(bytes + start - 5, "http:", 5) == 0) start -= 5;
+        NSUInteger end = YTKACEElementStringEnd(bytes, count, start);
+        cursor = MAX(end, NSMaxRange(found));
+        NSString *value = [[NSString alloc] initWithBytes:bytes + start length:end - start encoding:NSASCIIStringEncoding];
+        if ([value hasPrefix:@"//"]) value = [@"https:" stringByAppendingString:value];
+        NSURL *URL = value ? [NSURL URLWithString:value] : nil;
+        // The suffix separates post images from the author avatar and custom emoji.
+        if (URL && YTKACEPostImageHost(URL.host) && [URL.path containsString:@"-nd-v1"]) [URLs addObject:URL];
+    }
+    return YTKACEUniquePostImageURLs(URLs);
 }
 
 static id YTKACEPostPageData(NSString *page) {

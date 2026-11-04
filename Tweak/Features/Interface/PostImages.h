@@ -6,4 +6,9 @@ FOUNDATION_EXPORT NSArray<NSURL *> *YTKACEUniquePostImageURLs(NSArray<NSURL *> *
 // Only used inside the current post's image attachment/carousel, never the feed.
 FOUNDATION_EXPORT NSArray<NSURL *> *YTKACEPostImageURLsInProto(NSString *proto);
 FOUNDATION_EXPORT NSString *YTKACEPostIDInText(NSString *text);
+// RenderNext cells are built from a serialized element holding the whole post,
+// including carousel images that have no view yet.
+FOUNDATION_EXPORT BOOL YTKACEElementDataHasPostImage(NSData *data);
+FOUNDATION_EXPORT NSArray<NSURL *> *YTKACEPostImageURLsInElementData(NSData *data);
+FOUNDATION_EXPORT NSString *YTKACEPostIDInElementData(NSData *data);
 FOUNDATION_EXPORT NSArray<NSURL *> *YTKACEPostImageURLsInPage(NSString *page, NSString *postID);

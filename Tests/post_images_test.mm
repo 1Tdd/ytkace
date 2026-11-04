@@ -7,6 +7,25 @@ static void check(bool condition, const char *message) {
     if (!condition) { fprintf(stderr, "%s\n", message); std::exit(1); }
 }
 
+static NSData *element(NSArray<NSString *> *values) {
+    NSMutableData *bytes = [NSMutableData data];
+    for (NSString *value in values) {
+        [bytes appendBytes:"\x0a" length:1];
+        NSUInteger length = value.length;
+        if (length >= 128) {
+            uint8_t prefix[] = {(uint8_t)(length | 0x80), (uint8_t)(length >> 7)};
+            [bytes appendBytes:prefix length:2];
+        } else {
+            uint8_t prefix = (uint8_t)length;
+            [bytes appendBytes:&prefix length:1];
+        }
+        [bytes appendData:[value dataUsingEncoding:NSASCIIStringEncoding]];
+        // A following field tag can be a printable character.
+        [bytes appendBytes:"0\x01" length:2];
+    }
+    return bytes;
+}
+
 int main(int argc, char **argv) {
     @autoreleasepool {
         NSString *proto = @"image { sources { url: \"https://yt3.ggpht.com/first=s320\" } "
@@ -49,6 +68,30 @@ int main(int argc, char **argv) {
               "Serialized bytes naming two posts are ambiguous");
         check(YTKACEIsPostImageURL([NSURL URLWithString:@"https://yt3.ggpht.com/photo=s720"]), "Accept post image hosts");
         check(!YTKACEIsPostImageURL([NSURL URLWithString:@"https://i.ytimg.com/vi/abc/hqdefault.jpg"]), "Video thumbnails are not post images");
+        NSString *suffix = @"=s1080-c-fcrop64=1,00000000ffffffff-nd-v1";
+        NSString *longName = [@"long" stringByPaddingToLength:150 withString:@"x" startingAtIndex:0];
+        NSData *post = element(@[
+            @"https://yt3.ggpht.com/ytc/avatar=s48-c-k-c0x00ffffff-no-rj",
+            @"https://yt3.ggpht.com/emoji=w48-h48-c-k-nd",
+            @"https://i.ytimg.com/vi/abc/hqdefault.jpg-nd-v1",
+            [@"https://yt3.ggpht.com/first" stringByAppendingString:suffix],
+            @"https://yt3.ggpht.com/first=s288-c-fcrop64=1,00000000ffffffff-nd-v1",
+            [NSString stringWithFormat:@"https://yt3.ggpht.com/%@%@", longName, suffix],
+            [@"//yt3.ggpht.com/third" stringByAppendingString:suffix],
+            postID
+        ]);
+        check(YTKACEElementDataHasPostImage(post), "Keep element data that holds post images");
+        check(!YTKACEElementDataHasPostImage(element(@[@"https://yt3.ggpht.com/ytc/avatar=s48"])), "Ignore cells without post images");
+        NSArray *elementImages = YTKACEPostImageURLsInElementData(post);
+        check(elementImages.count == 3, "Find every post image in element data, excluding avatar, emoji, thumbnails and size variants");
+        check([[[elementImages objectAtIndex:0] absoluteString] hasSuffix:@"ffffffff-nd-v1"], "End a URL at its protobuf length, not at the next field tag");
+        check([[[elementImages objectAtIndex:1] path] containsString:longName], "Read two-byte protobuf lengths");
+        check([[[elementImages objectAtIndex:2] absoluteString] hasPrefix:@"https://yt3.ggpht.com/third"], "Accept scheme-relative URLs");
+        check([YTKACEPostIDInElementData(post) isEqual:postID], "Find the post ID in element data");
+        NSData *shelf = element(@[[@"https://yt3.ggpht.com/first" stringByAppendingString:suffix], postID, otherID]);
+        check(YTKACEPostImageURLsInElementData(shelf).count == 0, "Never mix images from a cell holding several posts");
+        check(YTKACEPostIDInElementData(shelf) == nil, "A cell holding several posts has no single ID");
+        check(YTKACEPostImageURLsInElementData(nil).count == 0 && YTKACEPostIDInElementData(nil) == nil, "Handle missing element data");
         check(argc == 2, "Supply the real four-image post fixture");
         NSString *fixture = [NSString stringWithContentsOfFile:[NSString stringWithUTF8String:argv[1]]
             encoding:NSUTF8StringEncoding error:NULL];

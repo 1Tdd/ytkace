@@ -105,10 +105,14 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
                 [pending addObject:@[child, @(childAttachment)]];
             }
         }
-        // RenderNext posts have no node or ELMElement tree: only their views are reachable,
-        // so offscreen carousel images come from the post page instead.
+        // RenderNext posts have no node or ELMElement tree: besides the serialized
+        // element kept for the cell, only their views are reachable.
         NSMutableArray *renderNextChildren = [NSMutableArray array];
         if ([name isEqualToString:@"ELMNCellNode"]) {
+            NSData *elementData = YTKACEPostElementData(item);
+            NSArray<NSURL *> *elementImages = YTKACEPostImageURLsInElementData(elementData);
+            [metadataURLs addObjectsFromArray:elementImages];
+            YTKACEDownloadLog(@"posts", @"element data bytes=%lu images=%lu", (unsigned long)elementData.length, (unsigned long)elementImages.count);
             id renderNode = YTKACEPostValue(item, @"renderNextNode");
             SEL loaded = NSSelectorFromString(@"isNodeLoaded");
             if ([renderNode respondsToSelector:loaded] && ((BOOL (*)(id, SEL))objc_msgSend)(renderNode, loaded)) {
@@ -202,6 +206,8 @@ static NSURL *YTKACEPostLink(id node) {
         id item = pending[i];
         if ([seen containsObject:item]) continue;
         [seen addObject:item];
+        NSString *elementID = YTKACEPostIDInElementData(YTKACEPostElementData(item));
+        if (elementID) return [NSURL URLWithString:[@"https://www.youtube.com/post/" stringByAppendingString:elementID]];
         for (NSString *name in @[@"postId", @"postID", @"backstagePostId"]) {
             id value = YTKACEPostValue(item, name);
             if ([value isKindOfClass:NSString.class] && [value length] && [value length] <= 256 &&

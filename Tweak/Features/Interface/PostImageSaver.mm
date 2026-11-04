@@ -5,6 +5,7 @@
 #import "../../UI/Notice.h"
 #import "../Downloads/DownloadLog.h"
 #import "CommunityPostMenu.h"
+#import "PostImages.h"
 
 #import <Foundation/Foundation.h>
 #import <Photos/Photos.h>
@@ -149,6 +150,24 @@ static void YTKACEZoomViewLayoutSubviews(UIView *receiver, SEL selector) {
         YTKACECurrentZoomNode = receiver;
         YTKACEAttachSaveButton(owner.view);
     });
+}
+
+// The element is parsed and dropped during init, so keep the bytes of post cells.
+static const void *YTKACEPostElementDataKey = &YTKACEPostElementDataKey;
+static IMP OriginalCellNodeInit;
+typedef id (*YTKACECellNodeInitFunction)(__attribute__((ns_consumed)) id, SEL, id, id, id) __attribute__((ns_returns_retained));
+
+__attribute__((ns_returns_retained))
+static id YTKACECellNodeInit(__attribute__((ns_consumed)) id receiver, SEL selector, id elementData, id services, id context) {
+    id node = ((YTKACECellNodeInitFunction)OriginalCellNodeInit)(receiver, selector, elementData, services, context);
+    if (node && YTKACEFeatureEnabled(YTKACEPostImageSaveKey) && YTKACEElementDataHasPostImage(elementData)) {
+        objc_setAssociatedObject(node, YTKACEPostElementDataKey, elementData, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    }
+    return node;
+}
+
+NSData *YTKACEPostElementData(id cellNode) {
+    return cellNode ? objc_getAssociatedObject(cellNode, YTKACEPostElementDataKey) : nil;
 }
 
 static NSString *const YTKACEPostCopyTextKey = @"YTKACE.Preference.Posts.CopyText";
@@ -317,5 +336,8 @@ void YTKACEInstallPostImageSaverHooks(void) {
     YTKACEInstallInstanceHook(
         @"YTImageZoomView", @"layoutSubviews",
         (IMP)YTKACEZoomViewLayoutSubviews, &OriginalZoomViewLayout);
+    YTKACEInstallInstanceHook(
+        @"ELMNCellNode", @"initWithElementData:services:context:",
+        (IMP)YTKACECellNodeInit, &OriginalCellNodeInit);
     dispatch_async(dispatch_get_main_queue(), ^{ YTKACEAttachPostCopyGestures(); });
 }
