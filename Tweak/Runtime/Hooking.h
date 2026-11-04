@@ -26,6 +26,9 @@ FOUNDATION_EXPORT BOOL YTKACEAddInstanceMethod(
 
 FOUNDATION_EXPORT NSUInteger YTKACEInstalledHookCount(void);
 
+// Hooks whose last install attempt failed, such as "-[Class selector]".
+FOUNDATION_EXPORT NSArray<NSString *> *YTKACEFailedHooks(void);
+
 FOUNDATION_EXPORT NSArray<NSString *> *YTKACEAppClassNames(void);
 
 NS_ASSUME_NONNULL_END

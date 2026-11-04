@@ -3,6 +3,7 @@
 #import "Features/Downloads/DownloadLog.h"
 #import "Features/SponsorBlock/DeArrow.h"
 #import "Features/SponsorBlock/SponsorThumbnailBadge.h"
+#import "Runtime/Hooking.h"
 #import "Runtime/Preferences.h"
 
 #import <UIKit/UIKit.h>
@@ -65,6 +66,12 @@ static void YTKACEInstallModules(void) {
     YTKACEInstallNativeShareHooks();
     YTKACEInstallSettingsEntryHooks();
     YTKACEInstallNativeSettingsHooks();
+    // Some hooks retry for about 30 seconds while YouTube loads its services.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(40 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSArray<NSString *> *failed = YTKACEFailedHooks();
+        YTKACEDownloadLog(@"hooks", @"installed=%lu failed=%lu %@", (unsigned long)YTKACEInstalledHookCount(),
+            (unsigned long)failed.count, [failed componentsJoinedByString:@" "]);
+    });
 }
 
 __attribute__((constructor))

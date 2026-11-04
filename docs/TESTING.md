@@ -8,6 +8,7 @@ before calling a build good. Look in the log for anything unexpected: hold the
 ## Startup
 - [ ] The app opens without a crash or an unexpected dialog.
 - [ ] The log shows `[reload] player path hooked`, not `unavailable`.
+- [ ] The `[hooks]` line, written about 40 seconds after launch, lists no new failed hook.
 
 ## Playback
 - [ ] A video plays; background playback continues after leaving the app.
@@ -34,6 +35,9 @@ before calling a build good. Look in the log for anything unexpected: hold the
 - [ ] The OLED theme gives the expected status bar color.
 - [ ] Add to queue works from a video's menu.
 - [ ] Shorts play, swipe and show their download button.
+- [ ] Holding a comment copies its text.
+- [ ] Hiding topics removes the chip bar without leaving a gap.
+- [ ] Scrubbing the player bar across a segment does not trigger a skip while dragging.
 
 ## After updating the YouTube version
 Run the **Hooks** workflow by hand with the new IPA's URL. It lists the hook

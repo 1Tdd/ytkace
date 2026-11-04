@@ -105,18 +105,41 @@ static BOOL YTKACEInstallHook(NSString *className,
     }
 }
 
+static NSMutableOrderedSet<NSString *> *YTKACEHookFailures(void) {
+    static NSMutableOrderedSet<NSString *> *failures = [NSMutableOrderedSet new];
+    return failures;
+}
+
+// Hooks that retry only count as failed while their last attempt failed.
+static BOOL YTKACENoteHookResult(NSString *className, NSString *selectorName, BOOL classMethod, BOOL installed) {
+    NSString *name = [NSString stringWithFormat:@"%@[%@ %@]", classMethod ? @"+" : @"-", className, selectorName];
+    @synchronized (YTKACEHookLock()) {
+        if (installed) [YTKACEHookFailures() removeObject:name];
+        else [YTKACEHookFailures() addObject:name];
+    }
+    return installed;
+}
+
+NSArray<NSString *> *YTKACEFailedHooks(void) {
+    @synchronized (YTKACEHookLock()) {
+        return [YTKACEHookFailures().array copy];
+    }
+}
+
 BOOL YTKACEInstallInstanceHook(NSString *className,
                                NSString *selectorName,
                                IMP replacement,
                                IMP *originalStorage) {
-    return YTKACEInstallHook(className, selectorName, NO, replacement, originalStorage);
+    return YTKACENoteHookResult(className, selectorName, NO,
+        YTKACEInstallHook(className, selectorName, NO, replacement, originalStorage));
 }
 
 BOOL YTKACEInstallClassHook(NSString *className,
                             NSString *selectorName,
                             IMP replacement,
                             IMP *originalStorage) {
-    return YTKACEInstallHook(className, selectorName, YES, replacement, originalStorage);
+    return YTKACENoteHookResult(className, selectorName, YES,
+        YTKACEInstallHook(className, selectorName, YES, replacement, originalStorage));
 }
 
 BOOL YTKACEAddInstanceMethod(NSString *className,

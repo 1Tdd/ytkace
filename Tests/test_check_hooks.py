@@ -26,9 +26,19 @@ class CheckHooksTests(unittest.TestCase):
             pathlib.Path(directory, "a.mm").write_text(
                 'YTKACEInstallInstanceHook(@"YTOne", @"one", (IMP)a, &b);\n'
                 'YTKACEInstallClassHook(\n    @"YTTwo",\n    @"two:", (IMP)a, &b);\n'
-                'YTKACEInstallInstanceHook(className, @"skipped", (IMP)a, &b);\n', encoding="utf-8")
+                'YTKACEInstallInstanceHook(className, @"skipped", (IMP)a, &b);\n'
+                'YTKACEInstallInstanceHook(@"YTThree", @"three:"\n    "more:"\n    @"last:", (IMP)a, &b);\n',
+                encoding="utf-8")
             self.assertEqual(CHECK.parse_hooks(directory),
-                             {("Instance", "YTOne", "one"), ("Class", "YTTwo", "two:")})
+                             {("Instance", "YTOne", "one"), ("Class", "YTTwo", "two:"),
+                              ("Instance", "YTThree", "three:more:last:")})
+
+    def test_separates_possible_system_inheritance(self):
+        classes = table()
+        classes.system_parents = {"YTParent": "UIView", "YTMovedImpl": "NSObject"}
+        hooks = {("Instance", "YTChild", "layoutSubviews"), ("Instance", "YTMoved", "gone")}
+        self.assertEqual(CHECK.find_problems(hooks, classes), {
+            "maybe-inherited YTChild layoutSubviews", "missing-method YTMoved gone"})
 
     def test_finds_own_inherited_and_renamed_methods(self):
         hooks = {("Instance", "YTChild", "own"), ("Instance", "YTChild", "inherited"),

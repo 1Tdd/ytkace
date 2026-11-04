@@ -107,6 +107,10 @@ int main(void) {
 
         assert(YTKACEInstallInstanceHook(@"HookRenamed", @"value", (IMP)renamed, &renamedOriginal));
         assert([[HookRenamedImpl new] value] == 6);
+
+        assert([YTKACEFailedHooks() containsObject:@"-[MissingClass value]"]);
+        assert([YTKACEFailedHooks() containsObject:@"-[HookParent missingSelector]"]);
+        assert(![YTKACEFailedHooks() containsObject:@"-[HookParent value]"]);
         puts("Hook chaining, repeat registration, inheritance, class methods, and missing targets passed.");
     }
 }

@@ -4,10 +4,12 @@
 Hooks fail silently at runtime when YouTube renames a class or removes a method.
 This reads the IPA without running anything from it and lists those targets.
 
-A method missing from a class whose parent is a system class may simply be
-inherited, so such entries are known problems to review rather than proof of a
-break. Accepted entries live in Tools/hook_baselines/<version>.txt: only entries
-outside the baseline fail the check. A version without a baseline is only reported.
+A method missing from a class whose parent is a system class other than NSObject
+may simply be inherited, so it is reported as maybe-inherited rather than
+missing-method. Accepted entries live in Tools/hook_baselines/<version>.txt: only
+entries outside the baseline fail the check. A version without a baseline is only
+reported. Hooks that name their target through a variable are not seen here; on a
+device the [hooks] log line lists every hook that failed.
 """
 
 import argparse
@@ -24,9 +26,13 @@ MAGIC_FAT = 0xBEBAFECA
 CPU_ARM64 = 0x0100000C
 LC_SEGMENT_64 = 0x19
 LC_ENCRYPTION_INFO_64 = 0x2C
+LC_DYLD_CHAINED_FIXUPS = 0x80000034
+CHAINED_IMPORT = 1
 # Only these prefixes belong to the YouTube binary; other classes come from the system.
 APP_CLASS = re.compile(r"^(YT|ML|MDX|ELM|HAM|GIM|SSO|_AS|AS)[A-Z]")
-HOOK_CALL = re.compile(r'YTKACEInstall(Instance|Class)Hook\(\s*@"([^"]+)"\s*,\s*@"([^"]+)"', re.S)
+# A selector can be written as adjacent string literals across several lines.
+STRING_RUN = r'@?"[^"]*"(?:\s*@?"[^"]*")*'
+HOOK_CALL = re.compile(rf'YTKACEInstall(Instance|Class)Hook\(\s*@"([^"]+)"\s*,\s*({STRING_RUN})', re.S)
 
 
 @dataclass
@@ -34,6 +40,18 @@ class ClassTable:
     instance: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
     parents: dict = field(default_factory=dict)
+    # Classes whose parent lives in a system image, with that parent's name.
+    system_parents: dict = field(default_factory=dict)
+
+    def maybe_inherited(self, name):
+        seen = set()
+        while name and name not in seen:
+            seen.add(name)
+            parent = self.parents.get(name)
+            if not parent:
+                return self.system_parents.get(name, "NSObject") != "NSObject"
+            name = parent
+        return False
 
     def resolve(self, name):
         """Follow the same fallback as YTKACEInstallHook."""
@@ -57,7 +75,8 @@ def parse_hooks(root):
     hooks = set()
     for path in sorted(pathlib.Path(root).rglob("*.mm")):
         text = path.read_text(encoding="utf-8", errors="replace")
-        hooks.update(HOOK_CALL.findall(text))
+        for kind, name, selector in HOOK_CALL.findall(text):
+            hooks.add((kind, name, "".join(re.findall(r'"([^"]*)"', selector))))
     return hooks
 
 
@@ -69,7 +88,8 @@ def find_problems(hooks, table):
             if APP_CLASS.match(name):
                 problems.add(f"missing-class {name} {selector}")
         elif not table.responds(target, selector, kind == "Class"):
-            problems.add(f"missing-method {name} {selector}")
+            status = "maybe-inherited" if table.maybe_inherited(target) else "missing-method"
+            problems.add(f"{status} {name} {selector}")
     return problems
 
 
@@ -88,6 +108,7 @@ class MachO:
         self.segments = []
         self.sections = {}
         self.encrypted = False
+        self.imports = []
         count = struct.unpack_from("<I", data, 16)[0]
         offset = 32
         for _ in range(count):
@@ -96,8 +117,28 @@ class MachO:
                 self._read_segment(offset)
             elif command == LC_ENCRYPTION_INFO_64:
                 self.encrypted = struct.unpack_from("<I", data, offset + 16)[0] != 0
+            elif command == LC_DYLD_CHAINED_FIXUPS:
+                self._read_imports(struct.unpack_from("<I", data, offset + 8)[0])
             offset += size
         self.base = min((s[0] for s in self.segments if s[3] > 0), default=0)
+
+    def _read_imports(self, start):
+        _, _, imports, symbols, count, kind, _ = struct.unpack_from("<IIIIIII", self.data, start)
+        if kind != CHAINED_IMPORT:
+            return
+        for index in range(count):
+            entry = struct.unpack_from("<I", self.data, start + imports + index * 4)[0]
+            name = start + symbols + (entry >> 9)
+            self.imports.append(self.data[name:self.data.find(b"\0", name)].decode("utf-8", "replace"))
+
+    def bound_class(self, address):
+        """Name of the system class a pointer is bound to, or None."""
+        position = self.offset_of(address)
+        raw = struct.unpack_from("<Q", self.data, position)[0] if position is not None else 0
+        ordinal = raw & 0xFFFFFF
+        if not raw >> 63 or ordinal >= len(self.imports):
+            return None
+        return self.imports[ordinal].replace("_OBJC_CLASS_$_", "")
 
     def _read_segment(self, offset):
         address, _, file_offset, file_size = struct.unpack_from("<QQQQ", self.data, offset + 24)
@@ -152,7 +193,19 @@ class MachO:
         if position is None:
             return set()
         size, count = struct.unpack_from("<II", self.data, position)
-        return {self.string(self.pointer(address + 8 + index * size)) for index in range(min(count, 20000))}
+        names = set()
+        for index in range(min(count, 20000)):
+            item = address + 8 + index * size
+            name = self.string(self.pointer(item))
+            attributes = (self.string(self.pointer(item + 8)) or "").split(",")
+            if not name:
+                continue
+            # Protobuf accessors are dynamic: only the property declares them.
+            names.add(next((a[1:] for a in attributes if a.startswith("G")), name))
+            if "R" not in attributes:
+                names.add(next((a[1:] for a in attributes if a.startswith("S")),
+                               f"set{name[0].upper()}{name[1:]}:"))
+        return names
 
     def _class_record(self, address):
         read_only = self.pointer(address + 32) & ~7
@@ -177,6 +230,9 @@ class MachO:
             name = record["name"]
             names[address] = name
             supers[name] = record["super"]
+            system_parent = self.bound_class(address + 8)
+            if system_parent:
+                table.system_parents[name] = system_parent
             table.instance[name] = self._method_names(record["methods"]) | self._property_names(record["properties"])
             metaclass = self._class_record(record["isa"]) if record["isa"] else None
             table.meta[name] = self._method_names(metaclass["methods"]) if metaclass else set()
