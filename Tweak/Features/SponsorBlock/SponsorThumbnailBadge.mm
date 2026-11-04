@@ -16,6 +16,7 @@ static os_unfair_lock YTKACEBadgeLock = OS_UNFAIR_LOCK_INIT;
 static NSCache<NSString *, NSDictionary<NSString *, NSString *> *> *YTKACEPrefixCache;
 static NSMutableDictionary<NSString *, NSString *> *YTKACEDirectLabelCache;
 static NSMutableSet<NSString *> *YTKACEInFlightPrefixes;
+static NSMutableDictionary<NSString *, NSNumber *> *YTKACEPrefixRetryTimes;
 static NSMapTable<id, NSString *> *YTKACEActiveNodes;
 static NSURLSession *YTKACEBadgeSession;
 static NSMutableDictionary<NSString *, UIImage *> *YTKACEBadgeImageCache;
@@ -30,6 +31,7 @@ static void YTKACEEnsureBadgeSession(void) {
         YTKACEPrefixCache.countLimit = 512;
         YTKACEDirectLabelCache = [NSMutableDictionary dictionaryWithCapacity:256];
         YTKACEInFlightPrefixes = [NSMutableSet set];
+        YTKACEPrefixRetryTimes = [NSMutableDictionary dictionary];
         YTKACEActiveNodes = [NSMapTable weakToStrongObjectsMapTable];
         YTKACEBadgeImageCache = [NSMutableDictionary dictionaryWithCapacity:8];
 
@@ -203,7 +205,8 @@ static void YTKACEFetchBucketForPrefix(NSString *prefix) {
 
     os_unfair_lock_lock(&YTKACEBadgeLock);
     if ([YTKACEPrefixCache objectForKey:prefix] != nil ||
-        [YTKACEInFlightPrefixes containsObject:prefix]) {
+        [YTKACEInFlightPrefixes containsObject:prefix] ||
+        CACurrentMediaTime() < YTKACEPrefixRetryTimes[prefix].doubleValue) {
         os_unfair_lock_unlock(&YTKACEBadgeLock);
         return;
     }
@@ -229,20 +232,23 @@ static void YTKACEFetchBucketForPrefix(NSString *prefix) {
         NSMutableDictionary<NSString *, NSString *> *bucket = [NSMutableDictionary dictionary];
         NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class]
             ? (NSHTTPURLResponse *)response : nil;
+        // The API answers 404 when no video under this prefix has a label.
+        BOOL serverAnswered = error == nil && http.statusCode == 404;
 
         if (error == nil && http.statusCode == 200 && data.length > 0) {
             id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
             if ([json isKindOfClass:NSArray.class]) {
+                serverAnswered = YES;
                 for (id item in (NSArray *)json) {
                     if (![item isKindOfClass:NSDictionary.class]) continue;
-                    NSString *vid = item[@"videoID"];
-                    if (vid.length == 0) continue;
-                    NSArray *segments = item[@"segments"];
-                    if ([segments isKindOfClass:NSArray.class] && segments.count > 0) {
-                        NSDictionary *firstSeg = segments[0];
+                    id vid = item[@"videoID"];
+                    if (![vid isKindOfClass:NSString.class] || [vid length] == 0) continue;
+                    id segments = item[@"segments"];
+                    if ([segments isKindOfClass:NSArray.class] && [segments count] > 0) {
+                        id firstSeg = [segments firstObject];
                         if ([firstSeg isKindOfClass:NSDictionary.class]) {
-                            NSString *cat = firstSeg[@"category"];
-                            if (cat.length > 0) {
+                            id cat = firstSeg[@"category"];
+                            if ([cat isKindOfClass:NSString.class] && [cat length] > 0) {
                                 bucket[vid] = cat;
                             }
                         }
@@ -251,10 +257,17 @@ static void YTKACEFetchBucketForPrefix(NSString *prefix) {
             }
         }
 
-        [YTKACEPrefixCache setObject:bucket forKey:prefix];
+        if (serverAnswered) [YTKACEPrefixCache setObject:bucket forKey:prefix];
 
         os_unfair_lock_lock(&YTKACEBadgeLock);
         [YTKACEInFlightPrefixes removeObject:prefix];
+        if (serverAnswered) {
+            [YTKACEPrefixRetryTimes removeObjectForKey:prefix];
+        } else {
+            // Stay retryable after an outage without hitting the API per thumbnail.
+            if (YTKACEPrefixRetryTimes.count >= 512) [YTKACEPrefixRetryTimes removeAllObjects];
+            YTKACEPrefixRetryTimes[prefix] = @(CACurrentMediaTime() + 60.0);
+        }
         NSArray *nodes = [[YTKACEActiveNodes keyEnumerator] allObjects];
         os_unfair_lock_unlock(&YTKACEBadgeLock);
 
@@ -447,9 +460,25 @@ static void YTKACEApplyBadgeToNodeInternal(id node, NSString *videoID) {
 void YTKACESponsorNoteThumbnail(id node, id _Nullable URLOrVideoID) {
     if (node == nil) return;
     NSString *videoID = YTKACEExtractVideoID(URLOrVideoID);
-    if (videoID.length == 0) return;
-
     YTKACEEnsureBadgeSession();
+    if (videoID.length == 0) {
+        // A reused node now shows something else: drop the previous video's badge.
+        if (objc_getAssociatedObject(node, YTKACESponsorBadgeVideoIDKey) == nil) return;
+        objc_setAssociatedObject(node, YTKACESponsorBadgeVideoIDKey, nil,
+                                 OBJC_ASSOCIATION_COPY_NONATOMIC);
+        os_unfair_lock_lock(&YTKACEBadgeLock);
+        [YTKACEActiveNodes removeObjectForKey:node];
+        os_unfair_lock_unlock(&YTKACEBadgeLock);
+        CALayer *badgeLayer = objc_getAssociatedObject(node, YTKACESponsorBadgeLayerKey);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [CATransaction begin];
+            [CATransaction setDisableActions:YES];
+            badgeLayer.hidden = YES;
+            [CATransaction commit];
+        });
+        return;
+    }
+
     objc_setAssociatedObject(node, YTKACESponsorBadgeVideoIDKey, videoID,
                              OBJC_ASSOCIATION_COPY_NONATOMIC);
 

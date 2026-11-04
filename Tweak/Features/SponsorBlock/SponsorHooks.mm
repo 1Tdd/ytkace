@@ -992,7 +992,8 @@ static id YTKACESponsorCurrentVideoDetails(void) {
     return nil;
 }
 
-double YTKACESponsorCurrentDuration(void) {
+// Chapter parsing needs the duration, so this must never consult chapters.
+static double YTKACESponsorMetadataDuration(void) {
     id controller = YTKACECurrentSponsorController ?: YTKACELastPlayerController;
     double dur = 0.0;
     if (controller != nil) {
@@ -1018,6 +1019,11 @@ double YTKACESponsorCurrentDuration(void) {
             dur = [len doubleValue];
         }
     }
+    return dur;
+}
+
+double YTKACESponsorCurrentDuration(void) {
+    double dur = YTKACESponsorMetadataDuration();
     if (dur <= 0.0) {
         for (YTKACEVideoChapter *ch in YTKACESponsorCurrentChapters()) {
             if (ch.endTime > dur) {
@@ -1566,7 +1572,7 @@ NSString *YTKACESponsorCurrentVideoDescription(void) {
 }
 
 NSArray<YTKACEVideoChapter *> *YTKACESponsorCurrentChapters(void) {
-    double duration = YTKACESponsorCurrentDuration();
+    double duration = YTKACESponsorMetadataDuration();
     NSMutableArray<NSDictionary *> *primaryMarkers = [NSMutableArray array];
     NSHashTable *visitedPrimary = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
 
@@ -1786,6 +1792,9 @@ void YTKACESponsorRefreshCurrentVideo(void) {
         if (strongReceiver == nil ||
             ![videoID isEqualToString:objc_getAssociatedObject(strongReceiver, YTKACESponsorVideoAssociation)] ||
             request != objc_getAssociatedObject(strongReceiver, YTKACESponsorRequestKey)) return;
+        // Accepted mutes are stored by index, which the new list invalidates.
+        objc_setAssociatedObject(strongReceiver, YTKACESponsorManualMuteKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        YTKACEUpdateSponsorMute(strongReceiver, NO);
         objc_setAssociatedObject(strongReceiver,
                                  YTKACESponsorSegmentsAssociation,
                                  segments,
@@ -2543,7 +2552,10 @@ static void YTKACEUpdatePlayerBarDuration(UIView *barView) {
             [segments addObject:seg];
         }
     }];
-    BOOL enabled = YTKACESponsorBlockEnabled() && YTKACESponsorShowTimeWithSkipsEnabled() && duration > 0.0;
+    BOOL whitelisted = YTKACESponsorWhitelistedChannels().count > 0 &&
+        YTKACESponsorIsChannelWhitelisted(YTKACESponsorCurrentChannelTitle());
+    BOOL enabled = YTKACESponsorBlockEnabled() && YTKACESponsorShowTimeWithSkipsEnabled() &&
+        duration > 0.0 && !whitelisted;
     double skipped = (enabled && segments.count > 0) ? YTKACESponsorCalculateSkippedDuration(segments, duration) : 0.0;
     BOOL shouldModify = enabled && skipped > 0.0;
 

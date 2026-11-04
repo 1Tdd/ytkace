@@ -75,6 +75,10 @@ NSInteger YTKACESponsorCategoryBehavior(NSString *category) {
     if ([category isEqualToString:@"poi_highlight"]) {
         return 1;
     }
+    // Label-only category with no settings row: on unless an imported config disabled it.
+    if ([category isEqualToString:@"exclusive_access"]) {
+        return 0;
+    }
     return 2;
 }
 
@@ -353,6 +357,10 @@ NSString *YTKACEExtractUserIDFromInput(NSString *rawInput) {
     }
 
     // 5. Fallback: single token between 8 and 80 characters (newlines stripped)
+    // Structured data that matched nothing above is not an ID.
+    if ([trimmed hasPrefix:@"{"] || [trimmed hasPrefix:@"["] || [trimmed hasPrefix:@"<"]) {
+        return nil;
+    }
     NSString *cleanToken = [rawInput stringByTrimmingCharactersInSet:
         [NSCharacterSet characterSetWithCharactersInString:@"\r\n"]];
     if (cleanToken.length >= 8 && cleanToken.length <= 80) {
@@ -444,8 +452,9 @@ BOOL YTKACESponsorImportConfig(NSString *rawInput, NSString **outSummary) {
 
             // 4. Category Selections / Behaviors
             id selections = dict[@"categorySelections"];
-            if ([selections isKindOfClass:NSArray.class] && [selections count] > 0) {
+            if ([selections isKindOfClass:NSArray.class]) {
                 NSUInteger behaviorsConfigured = 0;
+                NSMutableSet<NSString *> *listedCategories = [NSMutableSet set];
                 for (id item in (NSArray *)selections) {
                     if (![item isKindOfClass:NSDictionary.class]) continue;
                     NSString *catName = item[@"name"];
@@ -472,10 +481,18 @@ BOOL YTKACESponsorImportConfig(NSString *rawInput, NSString **outSummary) {
                             }
                         }
                         YTKACESetPreferenceObject(YTKACESponsorBehaviorKey(catName), @(mapped));
+                        [listedCategories addObject:catName];
                         behaviorsConfigured++;
                     }
                 }
-                if (behaviorsConfigured > 0) {
+                // In this format a category missing from the list is disabled.
+                if (behaviorsConfigured > 0 || [selections count] == 0) {
+                    for (NSDictionary *definition in YTKACESponsorCategoryDefinitions()) {
+                        NSString *catID = definition[@"id"];
+                        if (![listedCategories containsObject:catID]) {
+                            YTKACESetPreferenceObject(YTKACESponsorBehaviorKey(catID), @2);
+                        }
+                    }
                     [importedItems addObject:YTKACELocalized(@"Category Behaviors")];
                 }
             }
@@ -484,7 +501,7 @@ BOOL YTKACESponsorImportConfig(NSString *rawInput, NSString **outSummary) {
             id minSaved = dict[@"minutesSaved"];
             if ([minSaved respondsToSelector:@selector(doubleValue)]) {
                 double sec = [minSaved doubleValue] * 60.0;
-                if (sec > 0) {
+                if (isfinite(sec) && sec > 0) {
                     YTKACESetPreferenceObject(YTKACESponsorTimeSavedKey, @(sec));
                     [importedItems addObject:YTKACELocalized(@"Time Saved")];
                 }
@@ -513,7 +530,7 @@ BOOL YTKACESponsorImportConfig(NSString *rawInput, NSString **outSummary) {
             id othersMin = dict[@"othersMinutesSaved"] ?: dict[@"othersTimeSaved"] ?: dict[@"communityMinutesSaved"];
             if ([othersMin respondsToSelector:@selector(doubleValue)]) {
                 double sec = [othersMin doubleValue] * 60.0;
-                if (sec > 0) {
+                if (isfinite(sec) && sec > 0) {
                     YTKACESetPreferenceObject(YTKACESponsorOthersTimeSavedKey, @(sec));
                 }
             }
@@ -879,8 +896,11 @@ void YTKACESponsorFetchUserInfo(void (^completion)(BOOL success, double othersTi
     }
 
     __block BOOL anyNetworkSuccess = NO;
-    __block void (^testCandidateAtIndex)(NSUInteger idx);
-    void (^testCandidateAtIndexBlock)(NSUInteger idx) = ^(NSUInteger idx) {
+    // Weak so the recursive block does not retain itself and leak `completion`;
+    // pending network callbacks keep it alive through their strong capture of `testNext`.
+    __weak __block void (^weakTestCandidate)(NSUInteger idx) = nil;
+    void (^testCandidateAtIndex)(NSUInteger idx) = ^(NSUInteger idx) {
+        void (^testNext)(NSUInteger idx) = weakTestCandidate;
         if (idx >= candidates.count) {
             if (anyNetworkSuccess) {
                 applyAndComplete(YES, 0.0, 0, 0, nil);
@@ -893,7 +913,7 @@ void YTKACESponsorFetchUserInfo(void (^completion)(BOOL success, double othersTi
         NSString *cand = candidates[idx];
         NSString *pubID = YTKACESponsorComputePublicUserID(cand);
         if (pubID.length == 0) {
-            testCandidateAtIndex(idx + 1);
+            testNext(idx + 1);
             return;
         }
 
@@ -932,16 +952,16 @@ void YTKACESponsorFetchUserInfo(void (^completion)(BOOL success, double othersTi
                                 return;
                             }
                         }
-                        testCandidateAtIndex(idx + 1);
+                        testNext(idx + 1);
                     });
                     return;
                 }
             }
 
-            testCandidateAtIndex(idx + 1);
+            testNext(idx + 1);
         });
     };
-    testCandidateAtIndex = testCandidateAtIndexBlock;
+    weakTestCandidate = testCandidateAtIndex;
     testCandidateAtIndex(0);
 }
 

@@ -1703,13 +1703,16 @@ static NSDictionary *YTKACESponsorBlockDefinition(void) {
                 tf.text = [NSString stringWithFormat:@"%ld", (long)curSubs];
             }];
 
+            __weak UIAlertController *weakAlert = alert;
             [alert addAction:[UIAlertAction
                 actionWithTitle:YTKACELocalized(@"Save")
                           style:UIAlertActionStyleDefault
                         handler:^(__unused UIAlertAction *act) {
-                NSString *skipsStr = alert.textFields[0].text;
-                NSString *minStr = alert.textFields[1].text;
-                NSString *subsStr = alert.textFields[2].text;
+                NSArray<UITextField *> *fields = weakAlert.textFields;
+                if (fields.count < 3) return;
+                NSString *skipsStr = fields[0].text;
+                NSString *minStr = fields[1].text;
+                NSString *subsStr = fields[2].text;
 
                 NSInteger skips = [skipsStr integerValue];
                 double minutes = [minStr doubleValue];
@@ -1837,10 +1840,11 @@ static NSDictionary *YTKACESponsorBlockDefinition(void) {
                 YTKACEShowNotice(YTKACELocalized(@"Invalid User ID or backup format"));
             }
         }]];
+        __weak UIAlertController *weakAlert = alert;
         [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Save")
                                                  style:UIAlertActionStyleDefault
                                                handler:^(__unused UIAlertAction *action) {
-            UITextField *field = alert.textFields.firstObject;
+            UITextField *field = weakAlert.textFields.firstObject;
             NSString *summary = nil;
             BOOL ok = YTKACESponsorImportConfig(field.text, &summary);
             if (ok) {
@@ -1975,14 +1979,18 @@ static NSDictionary *YTKACESponsorBlockDefinition(void) {
          YTKACESponsorCategoryDefinitions()) {
         NSString *category = definition[@"id"];
         BOOL highlight = [category isEqualToString:@"poi_highlight"];
+        // An unset picker must show what playback actually does for the category.
+        NSInteger behavior = YTKACESponsorCategoryBehavior(category);
+        NSArray *behaviorValues = @[@0, @1, @3, @2];
         [sections addObject:@[
             highlight
                 ? YTKACEPicker(@"Behavior", YTKACESponsorBehaviorKey(category),
-                               @[@"Show Marker", @"Disabled"], @[@3, @2], 1, @"", @"")
+                               @[@"Show Marker", @"Disabled"], @[@3, @2],
+                               behavior == 2 ? 1 : 0, @"", @"")
                 : YTKACEPicker(@"Behavior", YTKACESponsorBehaviorKey(category),
                                @[@"Auto-skip", @"Ask", @"Show Marker", @"Disabled"],
-                               @[@0, @1, @3, @2],
-                               [category isEqualToString:@"sponsor"] ? 0 : 3,
+                               behaviorValues,
+                               [behaviorValues indexOfObject:@(behavior)],
                                @"", @""),
             YTKACEColor(@"Segment Color", YTKACESponsorColorKey(category),
                         definition[@"color"])

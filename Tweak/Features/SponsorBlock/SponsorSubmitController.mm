@@ -2696,12 +2696,13 @@ static double YTKACEParseManualTimestamp(NSString *raw) {
                                              style:UIAlertActionStyleCancel
                                            handler:nil]];
     __weak YTKACESponsorSubmitController *weakSelf = self;
+    __weak UIAlertController *weakAlert = alert;
     [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"OK")
                                              style:UIAlertActionStyleDefault
                                            handler:^(__unused UIAlertAction *act) {
         YTKACESponsorSubmitController *strongSelf = weakSelf;
         if (!strongSelf) return;
-        double parsed = YTKACEParseManualTimestamp(alert.textFields.firstObject.text);
+        double parsed = YTKACEParseManualTimestamp(weakAlert.textFields.firstObject.text);
         if (parsed >= 0.0) {
             if ([strongSelf.actionType isEqualToString:@"full"]) {
                 strongSelf.actionType = @"skip";
