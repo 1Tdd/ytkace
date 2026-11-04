@@ -21,6 +21,9 @@ before calling a build good. Look in the log for anything unexpected: hold the
 - [ ] A VP9 or AV1 video downloads with Skip conversion and with an encoding preset.
 - [ ] Audio only downloads as M4A and as MP3.
 - [ ] Cancelling a running download does not crash.
+- [ ] With the Direct method, a download started before leaving the app finishes while
+      it is in the background; on return the file is merged and appears in the library.
+- [ ] Without a network, a SABR download shows an error within about a minute.
 - [ ] Saving to Photos and to the Share Sheet both work.
 - [ ] A playlist with a cancelled video counts it as unavailable in the final notice.
 

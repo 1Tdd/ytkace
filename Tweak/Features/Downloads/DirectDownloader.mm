@@ -314,6 +314,167 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
     return nil;
 }
 
+// One file split into ranges. Every range is queued in a background session up
+// front, so iOS keeps fetching them while the app is suspended.
+@interface YTKACEDirectTransfer : NSObject
+@property(nonatomic, copy) NSString *identifier;
+@property(nonatomic, strong) NSURL *directory;
+@property(nonatomic, assign) int64_t total;
+@property(nonatomic, copy) void (^progress)(int64_t bytes);
+@property(nonatomic, strong) dispatch_semaphore_t changed;
+@property(nonatomic, strong) NSMutableIndexSet *finished;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSNumber *> *failed;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSNumber *> *written;
+@property(nonatomic, assign) CFAbsoluteTime lastReport;
+@end
+
+@implementation YTKACEDirectTransfer
+- (NSUInteger)chunkCount {
+    return (NSUInteger)((self.total + YTKACEDirectChunkSize - 1) / YTKACEDirectChunkSize);
+}
+- (int64_t)lengthOfChunk:(NSUInteger)index {
+    return MIN(YTKACEDirectChunkSize, self.total - (int64_t)index * YTKACEDirectChunkSize);
+}
+- (NSURL *)fileForChunk:(NSUInteger)index {
+    return [self.directory URLByAppendingPathComponent:[NSString stringWithFormat:@"%lu", (unsigned long)index]];
+}
+@end
+
+@interface YTKACEDirectBackgroundSession : NSObject <NSURLSessionDownloadDelegate>
+@property(nonatomic, strong) NSURLSession *session;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, YTKACEDirectTransfer *> *transfers;
+@end
+
+@implementation YTKACEDirectBackgroundSession
+
++ (instancetype)shared {
+    static YTKACEDirectBackgroundSession *shared;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ shared = [YTKACEDirectBackgroundSession new]; });
+    return shared;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _transfers = [NSMutableDictionary dictionary];
+        NSString *identifier = [NSBundle.mainBundle.bundleIdentifier ?: @"YTKACE" stringByAppendingString:@".ytkace.direct"];
+        NSURLSessionConfiguration *configuration =
+            [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:identifier];
+        configuration.discretionary = NO;
+        // Nothing here can handle a launch: finished ranges are collected on return to the app.
+        configuration.sessionSendsLaunchEvents = NO;
+        configuration.HTTPMaximumConnectionsPerHost = 4;
+        configuration.timeoutIntervalForResource = 6.0 * 60.0 * 60.0;
+        NSOperationQueue *queue = [NSOperationQueue new];
+        queue.maxConcurrentOperationCount = 1;
+        _session = [NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:queue];
+        // Ranges left by an earlier launch have no download waiting for them.
+        [_session getAllTasksWithCompletionHandler:^(NSArray<NSURLSessionTask *> *tasks) {
+            for (NSURLSessionTask *task in tasks) {
+                if ([self transferForTask:task index:NULL] == nil) [task cancel];
+            }
+        }];
+    }
+    return self;
+}
+
+- (YTKACEDirectTransfer *)transferForTask:(NSURLSessionTask *)task index:(NSUInteger *)index {
+    NSArray<NSString *> *parts = [task.taskDescription componentsSeparatedByString:@":"];
+    if (parts.count != 2) return nil;
+    if (index != NULL) *index = (NSUInteger)parts[1].integerValue;
+    @synchronized (self.transfers) {
+        return self.transfers[parts[0]];
+    }
+}
+
+- (void)addTransfer:(YTKACEDirectTransfer *)transfer {
+    @synchronized (self.transfers) {
+        self.transfers[transfer.identifier] = transfer;
+    }
+}
+
+- (void)fetchChunk:(NSUInteger)index ofTransfer:(YTKACEDirectTransfer *)transfer URL:(NSURL *)URL {
+    int64_t start = (int64_t)index * YTKACEDirectChunkSize;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:URL];
+    [request setValue:[NSString stringWithFormat:@"bytes=%lld-%lld", start, start + [transfer lengthOfChunk:index] - 1]
+        forHTTPHeaderField:@"Range"];
+    [request setValue:YTKACEDirectUserAgent forHTTPHeaderField:@"User-Agent"];
+    NSURLSessionDownloadTask *task = [self.session downloadTaskWithRequest:request];
+    task.taskDescription = [NSString stringWithFormat:@"%@:%lu", transfer.identifier, (unsigned long)index];
+    [task resume];
+}
+
+- (void)removeTransfer:(YTKACEDirectTransfer *)transfer {
+    @synchronized (self.transfers) {
+        [self.transfers removeObjectForKey:transfer.identifier];
+    }
+    NSString *prefix = [transfer.identifier stringByAppendingString:@":"];
+    [self.session getAllTasksWithCompletionHandler:^(NSArray<NSURLSessionTask *> *tasks) {
+        for (NSURLSessionTask *task in tasks) {
+            if ([task.taskDescription hasPrefix:prefix]) [task cancel];
+        }
+    }];
+}
+
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task
+      didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten
+totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
+    (void)session;
+    (void)bytesWritten;
+    (void)totalBytesExpectedToWrite;
+    NSUInteger index = 0;
+    YTKACEDirectTransfer *transfer = [self transferForTask:task index:&index];
+    if (transfer == nil) return;
+    int64_t sum = 0;
+    @synchronized (transfer) {
+        transfer.written[@(index)] = @(totalBytesWritten);
+        for (NSNumber *bytes in transfer.written.allValues) sum += bytes.longLongValue;
+    }
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (transfer.progress != nil && now - transfer.lastReport >= 0.1) {
+        transfer.lastReport = now;
+        transfer.progress(sum);
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task
+didFinishDownloadingToURL:(NSURL *)location {
+    (void)session;
+    NSUInteger index = 0;
+    YTKACEDirectTransfer *transfer = [self transferForTask:task index:&index];
+    if (transfer == nil) return;
+    NSInteger status = [task.response isKindOfClass:NSHTTPURLResponse.class]
+        ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
+    NSNumber *size = nil;
+    [location getResourceValue:&size forKey:NSURLFileSizeKey error:NULL];
+    NSURL *file = [transfer fileForChunk:index];
+    [NSFileManager.defaultManager removeItemAtURL:file error:NULL];
+    BOOL saved = (status == 206 || status == 200) && size.longLongValue == [transfer lengthOfChunk:index] &&
+        [NSFileManager.defaultManager moveItemAtURL:location toURL:file error:NULL];
+    @synchronized (transfer) {
+        if (saved) [transfer.finished addIndex:index];
+        else transfer.failed[@(index)] = @(status);
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+    (void)session;
+    (void)error;
+    NSUInteger index = 0;
+    YTKACEDirectTransfer *transfer = [self transferForTask:task index:&index];
+    if (transfer == nil) return;
+    @synchronized (transfer) {
+        if (![transfer.finished containsIndex:index]) {
+            transfer.failed[@(index)] = transfer.failed[@(index)] ?: @0;
+            [transfer.written removeObjectForKey:@(index)];
+        }
+    }
+    dispatch_semaphore_signal(transfer.changed);
+}
+
+@end
+
 @interface YTKACEDirectJob : NSObject
 @property(nonatomic, copy) NSString *videoID;
 @property(nonatomic, copy) NSString *identifier;
@@ -334,11 +495,99 @@ static YTKACEStreamOption *YTKACEDirectMatch(NSArray<YTKACEStreamOption *> *opti
     return YES;
 }
 
+- (BOOL)fetchOptionInBackground:(YTKACEStreamOption *)option
+                          audio:(BOOL)audio
+                         toFile:(NSURL *)file
+                       progress:(void (^)(int64_t bytes))progress
+                          error:(NSError **)error {
+    YTKACEDirectBackgroundSession *background = YTKACEDirectBackgroundSession.shared;
+    YTKACEDirectTransfer *transfer = [YTKACEDirectTransfer new];
+    transfer.identifier = NSUUID.UUID.UUIDString;
+    transfer.total = (int64_t)option.contentLength;
+    transfer.directory = [file.URLByDeletingLastPathComponent URLByAppendingPathComponent:
+        [@"parts-" stringByAppendingString:transfer.identifier] isDirectory:YES];
+    transfer.progress = progress;
+    transfer.changed = dispatch_semaphore_create(0);
+    transfer.finished = [NSMutableIndexSet indexSet];
+    transfer.failed = [NSMutableDictionary dictionary];
+    transfer.written = [NSMutableDictionary dictionary];
+    if (![NSFileManager.defaultManager createDirectoryAtURL:transfer.directory
+            withIntermediateDirectories:YES attributes:nil error:error]) return NO;
+    [background addTransfer:transfer];
+
+    YTKACEStreamOption *current = option;
+    NSUInteger count = [transfer chunkCount];
+    for (NSUInteger index = 0; index < count; index++) {
+        [background fetchChunk:index ofTransfer:transfer URL:current.URL];
+    }
+    NSMutableDictionary<NSNumber *, NSNumber *> *attempts = [NSMutableDictionary dictionary];
+    while (YES) {
+        dispatch_semaphore_wait(transfer.changed, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)));
+        if (self.task.cancelled) {
+            [background removeTransfer:transfer];
+            if (error != NULL) *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCancelled userInfo:nil];
+            return NO;
+        }
+        NSDictionary<NSNumber *, NSNumber *> *failed = nil;
+        NSUInteger finished = 0;
+        @synchronized (transfer) {
+            failed = [transfer.failed copy];
+            [transfer.failed removeAllObjects];
+            finished = transfer.finished.count;
+        }
+        if (finished == count) break;
+        for (NSNumber *index in failed) {
+            NSInteger attempt = attempts[index].integerValue + 1;
+            attempts[index] = @(attempt);
+            NSInteger status = failed[index].integerValue;
+            YTKACEDownloadLog(self.identifier, @"direct background retry itag=%ld chunk=%@ http=%ld",
+                (long)current.itag, index, (long)status);
+            if (attempt >= YTKACEDirectChunkAttempts) {
+                [background removeTransfer:transfer];
+                if (error != NULL) *error = YTKACEDirectError(3, [NSString stringWithFormat:
+                    @"chunk %@ failed http=%ld", index, (long)status]);
+                return NO;
+            }
+            if ((status == 403 || status == 410 || attempt == 2) && [self refreshOptions]) {
+                YTKACEStreamOption *renewed = YTKACEDirectMatch(self.options, current, audio);
+                // Ranges already saved can only be continued from the same format.
+                if (renewed != nil && renewed.itag == current.itag) current = renewed;
+            }
+            [background fetchChunk:index.unsignedIntegerValue ofTransfer:transfer URL:current.URL];
+        }
+    }
+    [background removeTransfer:transfer];
+
+    [NSFileManager.defaultManager createFileAtPath:file.path contents:nil attributes:nil];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingToURL:file error:error];
+    if (handle == nil) return NO;
+    BOOL written = YES;
+    NSError *failure = nil;
+    for (NSUInteger index = 0; index < count && written; index++) {
+        NSURL *part = [transfer fileForChunk:index];
+        @autoreleasepool {
+            NSError *partError = nil;
+            NSData *data = [NSData dataWithContentsOfURL:part options:NSDataReadingMappedIfSafe error:&partError];
+            written = data != nil && [handle writeData:data error:&partError];
+            failure = partError;
+        }
+        [NSFileManager.defaultManager removeItemAtURL:part error:NULL];
+    }
+    [handle closeFile];
+    [NSFileManager.defaultManager removeItemAtURL:transfer.directory error:NULL];
+    if (!written && error != NULL) *error = failure;
+    if (written && progress != nil) progress(transfer.total);
+    return written;
+}
+
 - (BOOL)downloadOption:(YTKACEStreamOption *)option
                  audio:(BOOL)audio
                 toFile:(NSURL *)file
               progress:(void (^)(int64_t bytes))progress
                  error:(NSError **)error {
+    if (option.contentLength > 0) {
+        return [self fetchOptionInBackground:option audio:audio toFile:file progress:progress error:error];
+    }
     [NSFileManager.defaultManager createFileAtPath:file.path contents:nil attributes:nil];
     NSFileHandle *handle = [NSFileHandle fileHandleForWritingToURL:file error:error];
     if (handle == nil) return NO;

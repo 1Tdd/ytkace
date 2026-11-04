@@ -38,6 +38,36 @@ static NSURL *YTKACESABRSeedURL(void) {
     return [directory URLByAppendingPathComponent:@"sabr-seed.plist"];
 }
 
+static BOOL YTKACEPBReadVarint(NSData *data, NSUInteger *offset, uint64_t *value);
+static BOOL YTKACEPBSkip(NSData *data, NSUInteger *offset, uint8_t wire);
+static NSData *YTKACEPBDataField(NSData *data, NSUInteger wanted);
+static void YTKACEPBBytes(NSMutableData *data, NSUInteger field, NSData *value);
+
+static NSData *YTKACEPBWithoutField(NSData *data, NSUInteger wanted) {
+    NSMutableData *result = [NSMutableData dataWithCapacity:data.length];
+    NSUInteger offset = 0;
+    while (offset < data.length) {
+        NSUInteger start = offset;
+        uint64_t key = 0;
+        if (!YTKACEPBReadVarint(data, &offset, &key) || !YTKACEPBSkip(data, &offset, (uint8_t)(key & 7))) return nil;
+        if ((NSUInteger)(key >> 3) != wanted) {
+            [result appendData:[data subdataWithRange:NSMakeRange(start, offset - start)]];
+        }
+    }
+    return result;
+}
+
+// The saved request must not carry the PoToken in its context (field 19, token in field 2).
+static NSData *YTKACESABRSeedBody(NSData *body) {
+    NSData *context = YTKACEPBDataField(body, 19);
+    NSData *cleaned = context != nil ? YTKACEPBWithoutField(context, 2) : nil;
+    NSData *others = YTKACEPBWithoutField(body, 19);
+    if (cleaned == nil || others == nil) return nil;
+    NSMutableData *result = [others mutableCopy];
+    YTKACEPBBytes(result, 19, cleaned);
+    return result;
+}
+
 // Credentials stay in memory: the seed is a plain file that device backups can include.
 static NSDictionary *YTKACESABRSeedHeaders(NSDictionary *headers) {
     NSMutableDictionary *kept = [NSMutableDictionary dictionary];
@@ -56,8 +86,9 @@ static BOOL YTKACESABRWriteSeed(NSURL *url, NSData *encoded) {
     return YES;
 }
 
-static void YTKACESABRPersistSeed(NSData *body, NSDictionary *nativeHeaders) {
+static void YTKACESABRPersistSeed(NSData *nativeBody, NSDictionary *nativeHeaders) {
     NSDictionary *headers = YTKACESABRSeedHeaders(nativeHeaders);
+    NSData *body = YTKACESABRSeedBody(nativeBody);
     static NSTimeInterval lastWrite;
     static BOOL wroteWithHeaders;
     NSTimeInterval now = NSDate.date.timeIntervalSinceReferenceDate;
@@ -95,8 +126,10 @@ void YTKACESABRRestoreSeed(void) {
     NSDictionary *stored = [seed[@"headers"] isKindOfClass:NSDictionary.class] ? seed[@"headers"] : nil;
     if (![body isKindOfClass:NSData.class]) return;
     NSDictionary *headers = YTKACESABRSeedHeaders(stored);
+    NSData *safeBody = YTKACESABRSeedBody(body) ?: [NSData data];
     // Seeds written by earlier versions may still hold credentials.
-    if (stored.count != headers.count) {
+    if (stored.count != headers.count || ![safeBody isEqualToData:body]) {
+        body = safeBody;
         NSDictionary *cleaned = headers.count != 0 ? @{@"body": body, @"headers": headers} : @{@"body": body};
         YTKACESABRWriteSeed(YTKACESABRSeedURL(), [NSPropertyListSerialization dataWithPropertyList:cleaned
             format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL]);
@@ -473,17 +506,6 @@ static NSString *YTKACEPBStringField(NSData *data, NSUInteger field) {
     return value != nil ? [[NSString alloc] initWithData:value encoding:NSUTF8StringEncoding] : nil;
 }
 
-static NSString *YTKACESABRHex(NSData *data, NSUInteger limit) {
-    if (data.length == 0) return @"";
-    const uint8_t *bytes = (const uint8_t *)data.bytes;
-    NSUInteger length = MIN(data.length, limit);
-    NSMutableString *result = [NSMutableString stringWithCapacity:length * 2];
-    for (NSUInteger index = 0; index < length; index++) {
-        [result appendFormat:@"%02x", bytes[index]];
-    }
-    return result;
-}
-
 static BOOL YTKACEUMPValue(NSData *data, NSUInteger *offset, uint32_t *result) {
     const uint8_t *bytes = (const uint8_t *)data.bytes;
     if (*offset >= data.length) return NO;
@@ -590,6 +612,8 @@ static NSData *YTKACESABRClientInfo(void) {
 @property(nonatomic, assign) BOOL initializationWritten;
 @property(nonatomic, assign) NSInteger endSequence;
 @property(nonatomic, assign) NSInteger lastSequence;
+// A segment that arrived incomplete; later ones must wait for it to stay in order.
+@property(nonatomic, assign) NSInteger resendSequence;
 @property(nonatomic, assign) int64_t endTime;
 @property(nonatomic, assign) int64_t downloadedDuration;
 @property(nonatomic, assign) int64_t downloadedBytes;
@@ -696,6 +720,7 @@ static NSData *YTKACESABRClientInfo(void) {
     track.segments = [NSMutableSet set];
     track.endSequence = NSIntegerMax;
     track.lastSequence = -1;
+    track.resendSequence = -1;
     track.roundStartSequence = NSIntegerMax;
     NSString *extension = [option.mimeType containsString:@"webm"] ? @"webm" :
         ([option.mimeType hasPrefix:@"audio/"] ? @"m4a" : @"mp4");
@@ -868,6 +893,9 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
     NSMutableData *context = [NSMutableData data];
     if (nativeContext.length != 0) {
         [context appendData:nativeContext];
+        // A restored seed has no token of its own.
+        NSData *poToken = YTKACEPBDataField(nativeContext, 2) == nil ? YTKACESABRCurrentPoToken() : nil;
+        if (poToken.length != 0) YTKACEPBBytes(context, 2, poToken);
     } else {
         YTKACEPBBytes(context, 1, standalone ? standalone[@"client"] : YTKACESABRClientInfo());
         NSData *poToken = standalone ? nil : YTKACESABRCurrentPoToken();
@@ -910,11 +938,9 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
     [self clearRound:self.video];
     [self clearRound:self.audio];
     if (self.requestNumber == 0) {
-        NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:@"ytkace-outgoing.pb"];
-        [request writeToFile:path atomically:YES];
-        YTKACEDownloadLog(self.identifier, @"request fields native=%lu outgoing=%lu summary=%@ dump=%@",
+        YTKACEDownloadLog(self.identifier, @"request fields native=%lu outgoing=%lu summary=%@",
             (unsigned long)nativeBody.length, (unsigned long)request.length,
-            YTKACEPBFieldSummary(request), path);
+            YTKACEPBFieldSummary(request));
     }
     return request;
 }
@@ -1005,7 +1031,8 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
     NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
     configuration.timeoutIntervalForRequest = 60.0;
     configuration.timeoutIntervalForResource = 3600.0;
-    configuration.waitsForConnectivity = YES;
+    // Without a network, fail into the retries and then tell the user, rather than wait silently.
+    configuration.waitsForConnectivity = NO;
     configuration.allowsCellularAccess = YES;
     configuration.allowsExpensiveNetworkAccess = YES;
     configuration.allowsConstrainedNetworkAccess = YES;
@@ -1490,7 +1517,18 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
             @"segment size mismatch itag=%ld got=%lu expected=%lld",
             (long)header.itag, (unsigned long)header.data.length,
             header.contentLength);
+        if (!header.initialization && (track.resendSequence < 0 || header.sequence < track.resendSequence)) {
+            track.resendSequence = header.sequence;
+        }
         return;
+    }
+    if (!header.initialization && track.resendSequence >= 0) {
+        if (header.sequence > track.resendSequence) {
+            YTKACEDownloadLog(self.identifier, @"segment held itag=%ld sequence=%ld waiting=%ld",
+                (long)header.itag, (long)header.sequence, (long)track.resendSequence);
+            return;
+        }
+        track.resendSequence = -1;
     }
     [track.segments addObject:segmentKey];
     if (header.initialization) {
@@ -1597,8 +1635,7 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
         partCounts[partType] = @([partCounts[partType] unsignedIntegerValue] + 1);
         partBytes[partType] = @([partBytes[partType] unsignedLongLongValue] + size);
         if (self.requestNumber <= 1 && (type == 46 || type == 51)) {
-            YTKACEDownloadLog(self.identifier, @"directive type=%u data=%@", type,
-                [part base64EncodedStringWithOptions:0]);
+            YTKACEDownloadLog(self.identifier, @"directive type=%u bytes=%u", type, size);
         }
         if (type == 20) [self handleHeader:part];
         else if (type == 21) [self handleMedia:part];
@@ -1614,9 +1651,8 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
             rejected = YES;
             rejectionType = YTKACEPBStringField(part, 1);
             rejectionCode = (NSInteger)YTKACEPBIntegerField(part, 2, 0);
-            YTKACEDownloadLog(self.identifier, @"SABR error type=%@ code=%ld data=%@",
-                rejectionType ?: @"unknown", (long)rejectionCode,
-                YTKACESABRHex(part, 64));
+            YTKACEDownloadLog(self.identifier, @"SABR error type=%@ code=%ld",
+                rejectionType ?: @"unknown", (long)rejectionCode);
         }
         else if (type == 47 && size <= 8) terminalMarker = YES;
         else if (type == 57) [self handleContext:part];
@@ -1625,8 +1661,8 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
             protectionRetries = (NSInteger)YTKACEPBIntegerField(part, 2, 0);
             attestation = protectionStatus >= 3;
             YTKACEDownloadLog(self.identifier,
-                @"protection status=%ld retries=%ld data=%@", (long)protectionStatus,
-                (long)protectionRetries, YTKACESABRHex(part, 64));
+                @"protection status=%ld retries=%ld", (long)protectionStatus,
+                (long)protectionRetries);
         }
     }
     if (self.finished) return;

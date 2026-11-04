@@ -312,7 +312,8 @@ static void YTKACERunPlaylistQueue(NSArray<NSDictionary *> *queue,
                                    BOOL savesToPhotos,
                                    BOOL sharesFile,
                                    NSUInteger started,
-                                   NSUInteger failed) {
+                                   NSUInteger failed,
+                                   BOOL anyQueued) {
     if (index >= queue.count) {
         YTKACEDownloadLog(@"playlist", @"queue finished started=%lu failed=%lu",
             (unsigned long)started, (unsigned long)failed);
@@ -322,7 +323,8 @@ static void YTKACERunPlaylistQueue(NSArray<NSDictionary *> *queue,
             : [NSString stringWithFormat:
                 YTKACELocalized(@"Downloaded %lu videos, %lu unavailable"),
                 (unsigned long)started, (unsigned long)failed];
-        if (started == 0 && failed != 0) {
+        // Only a queue that could not start a single job points to a stale request.
+        if (!anyQueued && failed != 0) {
             YTKACEDiscardRestoredRequest();
             message = YTKACELocalized(
                 @"Play any video once to refresh downloads, then try again.");
@@ -356,7 +358,7 @@ static void YTKACERunPlaylistQueue(NSArray<NSDictionary *> *queue,
                 YTKACEDownloadCoordinator.sharedCoordinator.failedJobCount == failedBefore;
             YTKACERunPlaylistQueue(queue, index + 1, quality, audioOnly,
                 savesToPhotos, sharesFile, started + (downloaded ? 1 : 0),
-                failed + (downloaded ? 0 : 1));
+                failed + (downloaded ? 0 : 1), anyQueued || queued);
         });
     });
 }
@@ -396,7 +398,7 @@ static void YTKACEStartPlaylistDownload(NSArray<NSDictionary *> *items,
             }
             YTKACEWaitForIdleDownloads(0, ^{
                 YTKACERunPlaylistQueue(queue, 0, quality, audioOnly,
-                                       savesToPhotos, sharesFile, 0, 0);
+                                       savesToPhotos, sharesFile, 0, 0, NO);
             });
         }];
 }

@@ -218,6 +218,7 @@ void YTKACESetShortsNewFullscreen(UIView *container, BOOL fullscreen) {
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, YTKACEDownloadJob *> *jobs;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, YTKACEDownloadJob *> *activeJobs;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, YTKACEDownloadJob *> *retryableJobs;
+@property(nonatomic, strong) NSMutableArray<NSString *> *retryOrder;
 @property(nonatomic, weak) UIView *downloadSourceView;
 @property(nonatomic, strong, nullable) id externalResponse;
 @property(nonatomic, weak) UIView *externalSourceView;
@@ -1688,7 +1689,13 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 - (void)launchJob:(YTKACEDownloadJob *)job {
     {
         if (self.retryableJobs == nil) self.retryableJobs = [NSMutableDictionary dictionary];
-        if (self.retryableJobs.count >= 24) [self.retryableJobs removeAllObjects];
+        // Drop only the oldest entry, so a failed download on screen can still be retried.
+        if (self.retryOrder == nil) self.retryOrder = [NSMutableArray array];
+        if (self.retryOrder.count >= 24) {
+            [self.retryableJobs removeObjectForKey:self.retryOrder.firstObject];
+            [self.retryOrder removeObjectAtIndex:0];
+        }
+        [self.retryOrder addObject:job.identifier];
         self.retryableJobs[job.identifier] = job;
         self.activeJobs[job.identifier] = job;
         [self beginBackgroundTaskIfNeeded];
@@ -1715,6 +1722,7 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         return;
     }
     [self.retryableJobs removeObjectForKey:identifier];
+    [self.retryOrder removeObject:identifier];
     YTKACEDownloadJob *job = [YTKACEDownloadJob new];
     job.identifier = NSUUID.UUID.UUIDString;
     job.title = old.title;
