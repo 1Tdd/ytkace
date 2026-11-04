@@ -1363,3 +1363,13 @@ Licensed under CC BY-NC-SA 4.0.";
 "Saved %lu images. %@" = "Saved %lu images. %@";
 
 "Images: %lu" = "Images: %lu";
+
+"Could not load the selected subtitles." = "Could not load the selected subtitles.";
+
+"Could not add subtitles. The media file was kept in Downloads." = "Could not add subtitles. The media file was kept in Downloads.";
+
+"Loading images…" = "Loading images…";
+
+"Image list unavailable" = "Image list unavailable";
+
+"Could not load all post images. Open the post and try again." = "Could not load all post images. Open the post and try again.";

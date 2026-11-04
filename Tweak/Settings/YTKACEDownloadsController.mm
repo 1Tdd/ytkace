@@ -1,3 +1,4 @@
+#import "../Features/Downloads/MediaImportFiles.h"
 #import "YTKACEDownloadsController.h"
 #import "../Features/Downloads/MediaChapterSharing.h"
 #import <Photos/Photos.h>
@@ -25,17 +26,6 @@
 
 static NSString *const YTKACEDownloadLibraryChanged =
     @"YTKACEDownloadLibraryChanged";
-
-static NSArray<NSURL *> *YTKACESidecarURLs(NSURL *URL) {
-    NSURL *base = URL.URLByDeletingPathExtension;
-    return @[
-        [base URLByAppendingPathExtension:@"jpg"],
-        [base URLByAppendingPathExtension:@"png"],
-        [base URLByAppendingPathExtension:@"ytkace.json"],
-        [base URLByAppendingPathExtension:@"srt"],
-        [base URLByAppendingPathExtension:@"vtt"]
-    ];
-}
 
 static NSString *YTKACEDurationText(NSTimeInterval duration) {
     if (!isfinite(duration) || duration <= 0.0) {
@@ -940,9 +930,9 @@ referenceSizeForHeaderInSection:(NSInteger)section {
             static NSSet<NSString *> *extensions;
             static dispatch_once_t onceToken;
             dispatch_once(&onceToken, ^{
-                extensions = [NSSet setWithArray:@[
-                    @"mp4", @"m4v", @"mov", @"m4a", @"mp3", @"aac", @"webm"
-                ]];
+                NSMutableSet *supported = [YTKACEVideoExtensions() mutableCopy];
+                [supported unionSet:YTKACEAudioExtensions()];
+                extensions = [supported copy];
             });
             return value.boolValue &&
                 [extensions containsObject:url.pathExtension.lowercaseString];
@@ -1634,10 +1624,8 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
 }
 
 - (void)deleteURL:(NSURL *)url {
-    [NSFileManager.defaultManager removeItemAtURL:url error:nil];
-    for (NSURL *sidecar in YTKACESidecarURLs(url)) {
-        [NSFileManager.defaultManager removeItemAtURL:sidecar error:nil];
-    }
+    NSError *error = nil;
+    if (!YTKACEDeleteMediaFile(url, &error)) YTKACEShowNotice(error.localizedDescription);
     [self.metadataCache removeObjectForKey:url.path];
     [self reloadFiles];
 }
@@ -1657,17 +1645,11 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
             if (name.length == 0) {
                 return;
             }
-            NSURL *destination = [[url URLByDeletingLastPathComponent]
-                URLByAppendingPathComponent:[name stringByAppendingPathExtension:url.pathExtension]];
-            [NSFileManager.defaultManager moveItemAtURL:url toURL:destination error:nil];
-            NSArray<NSURL *> *oldSidecars = YTKACESidecarURLs(url);
-            NSArray<NSURL *> *newSidecars = YTKACESidecarURLs(destination);
-            for (NSUInteger index = 0; index < oldSidecars.count; index++) {
-                if ([NSFileManager.defaultManager fileExistsAtPath:oldSidecars[index].path]) {
-                    [NSFileManager.defaultManager moveItemAtURL:oldSidecars[index]
-                        toURL:newSidecars[index] error:nil];
-                }
-            }
+            if ([name isEqual:url.lastPathComponent.stringByDeletingPathExtension]) return;
+            name = YTKACESafeImportName(name);
+            NSURL *destination = YTKACEUniqueImportURL(url.URLByDeletingLastPathComponent, name, url.pathExtension);
+            NSError *error = nil;
+            if (!YTKACERenameMediaFile(url, destination, &error)) YTKACEShowNotice(error.localizedDescription);
             [self.metadataCache removeObjectForKey:url.path];
             [self reloadFiles];
         }]];
@@ -1683,12 +1665,12 @@ didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
         ^{
             __typeof__(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;
+            NSError *lastError = nil;
             for (NSURL *url in strongSelf.files) {
-                [NSFileManager.defaultManager removeItemAtURL:url error:nil];
-                for (NSURL *sidecar in YTKACESidecarURLs(url)) {
-                    [NSFileManager.defaultManager removeItemAtURL:sidecar error:nil];
-                }
+                NSError *error = nil;
+                if (!YTKACEDeleteMediaFile(url, &error)) lastError = error;
             }
+            if (lastError) YTKACEShowNotice(lastError.localizedDescription);
             [strongSelf.metadataCache removeAllObjects];
             [strongSelf reloadFiles];
         }

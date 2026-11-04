@@ -1229,13 +1229,14 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
         _pickerMode = 0;
         return;
     }
-    NSString *category = _importCategory ?: YTKACELocalized(@"Video");
+    NSString *category = _importCategory ?: @"Video";
     [YTKACEMediaImporter importURLs:urls category:category
         completion:^(NSUInteger count, NSError *error) {
             for (NSURL *URL in scoped) [URL stopAccessingSecurityScopedResource];
-            NSString *message = error.localizedDescription ?: [NSString
-                stringWithFormat:YTKACELocalized(@"%lu items added to %@."),
-                (unsigned long)count, category];
+            NSString *summary = [NSString stringWithFormat:YTKACELocalized(@"%lu items added to %@."),
+                (unsigned long)count, YTKACELocalized(category)];
+            NSString *message = error == nil ? summary :
+                [NSString stringWithFormat:@"%@\n\n%@", summary, error.localizedDescription];
             [self showResult:error == nil ? YTKACELocalized(@"Import Complete") : YTKACELocalized(@"Import Failed")
                       message:message];
         }];

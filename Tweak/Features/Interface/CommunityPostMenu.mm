@@ -11,12 +11,15 @@
 #import "../Downloads/DownloadLog.h"
 
 static id YTKACEPostValue(id object, NSString *name) {
+    if ([object isKindOfClass:NSDictionary.class]) return [object objectForKey:name];
     SEL selector = NSSelectorFromString(name);
     if (![object respondsToSelector:selector]) return nil;
     NSMethodSignature *signature = [object methodSignatureForSelector:selector];
     if (signature.numberOfArguments != 2 || signature.methodReturnType[0] != '@') return nil;
     return ((id (*)(id, SEL))objc_msgSend)(object, selector);
 }
+
+static NSURL *YTKACEPostLink(id node);
 
 static NSArray<NSURL *> *YTKACEPostImages(id node) {
     if (!node) return @[];
@@ -32,8 +35,11 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
         NSString *name = NSStringFromClass([item class]);
         id identifier = YTKACEPostValue(item, @"accessibilityIdentifier");
         NSString *token = [identifier isKindOfClass:NSString.class] ? [identifier lowercaseString] : @"";
-        attachment |= [name containsString:@"BackstageImage"] || [token containsString:@"post_attachment"] ||
-            [token containsString:@"image_carousel"];
+        id templateURI = YTKACEPostValue(item, @"templateURI");
+        if ([templateURI isKindOfClass:NSString.class]) token = [token stringByAppendingFormat:@" %@", [templateURI lowercaseString]];
+        attachment |= [name containsString:@"BackstageImage"] || [name isEqual:@"YTImageZoomNode"] || [token containsString:@"post_attachment"] ||
+            [token containsString:@"image_carousel"] || [token containsString:@"post_image"] ||
+            [token containsString:@"image_gallery"] || [token containsString:@"image_viewer"];
         if ([name isEqualToString:@"ELMCollectionNode"]) {
             SEL vertical = NSSelectorFromString(@"isVertical");
             NSMethodSignature *signature = [item methodSignatureForSelector:vertical];
@@ -51,22 +57,33 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
                 [URLs addObject:URL];
         }
         // ELM keeps offscreen carousel entries in its element tree before creating image views.
-        if (attachment && [name isEqualToString:@"ELMElement"] && protoReads++ < 64 && protoCharacters < 4 * 1024 * 1024) {
+        if ([name isEqualToString:@"ELMElement"] && protoReads++ < 64 && protoCharacters < 4 * 1024 * 1024) {
             id proto = YTKACEPostValue(item, @"protoText");
             if ([proto isKindOfClass:NSString.class]) {
                 protoCharacters += [proto length];
-                [metadataURLs addObjectsFromArray:YTKACEPostImageURLsInProto(proto)];
+                for (NSURL *URL in YTKACEPostImageURLsInProto(proto)) {
+                    // Unmaterialized image bindings can live in the post's parent
+                    // component. Outside an attachment, accept only post-image URLs,
+                    // never the author avatar or images mentioned in the post text.
+                    if (attachment || [URL.path containsString:@"-nd-v1"]) [metadataURLs addObject:URL];
+                }
             }
         }
         for (NSString *key in @[@"subnodes", @"childElements", @"element", @"entry", @"model",
                                 @"backstagePostRenderer", @"communityPostRenderer", @"postRenderer",
                                 @"backstageAttachment", @"backstageImageRenderer", @"postMultiImageRenderer",
-                                @"image", @"imagesArray", @"sourcesArray", @"thumbnailsArray",
-                                @"controller", @"nodeController", @"children", @"cellNodes", @"cellControllers"]) {
+                                @"image", @"images", @"imagesArray", @"sources", @"sourcesArray", @"thumbnails", @"thumbnailsArray",
+                                @"controller", @"nodeController", @"children", @"cellNodes", @"cellControllers", @"materializedInstance", @"owningComponent"]) {
             id children = YTKACEPostValue(item, key);
             if (!children || children == item) continue;
             if (([key isEqualToString:@"controller"] || [key isEqualToString:@"nodeController"]) &&
                 ![NSStringFromClass([children class]) hasPrefix:@"ELM"]) continue;
+            if ([key isEqualToString:@"owningComponent"]) {
+                id URI = YTKACEPostValue(children, @"templateURI");
+                NSString *templateName = [URI isKindOfClass:NSString.class] ? [URI lowercaseString] : @"";
+                // Never walk from a post to its feed/channel component.
+                if (![templateName containsString:@"post"] && ![templateName containsString:@"image"]) continue;
+            }
             BOOL childAttachment = attachment || [key isEqualToString:@"backstageAttachment"] ||
                 [key isEqualToString:@"backstageImageRenderer"] || [key isEqualToString:@"postMultiImageRenderer"];
             NSArray *values = [children isKindOfClass:NSArray.class] ? children : @[children];
@@ -75,9 +92,12 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
                 [pending addObject:@[child, @(childAttachment)]];
             }
         }
-        if ([name isEqualToString:@"ELMCollectionNode"]) {
-            // These hold lazy cells that are absent from subnodes/childElements.
-            for (NSString *key in @[@"_singleSectionController", @"_pendingSectionNodes", @"_lazyPendingSectionNodeControllers"]) {
+        NSArray *ivarNames = [name isEqualToString:@"ELMCollectionNode"]
+            ? @[@"_singleSectionController", @"_pendingSectionNodes", @"_lazyPendingSectionNodeControllers"]
+            : ([name isEqualToString:@"ELMComponent"] ? @[@"_lastMaterializedElement", @"_stagedRdmElement"] : @[]);
+        if (ivarNames.count) {
+            // Read already available lazy/bound elements without materializing cells.
+            for (NSString *key in ivarNames) {
                 Ivar ivar = class_getInstanceVariable([item class], key.UTF8String);
                 const char *type = ivar ? ivar_getTypeEncoding(ivar) : NULL;
                 id value = type && type[0] == '@' ? object_getIvar(item, ivar) : nil;
@@ -94,10 +114,11 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
     return YTKACEUniquePostImageURLs(metadataURLs);
 }
 
-static NSArray<NSURL *> *YTKACEPostImagesForViewer(NSURL *current, UIView *sourceView, id imageNode) {
+static NSArray<NSURL *> *YTKACEPostImagesForViewer(NSURL *current, UIView *sourceView, id imageNode, NSURL **postURL) {
     NSMutableArray *best = [YTKACEPostImages(imageNode) mutableCopy];
     if (current) [best addObject:current];
     NSArray *result = YTKACEUniquePostImageURLs(best);
+    if (postURL) *postURL = YTKACEPostLink(imageNode);
     // The fullscreen viewer only exposes one URL. Match it to its underlying post cell.
     // Inspect loaded view trees only; never instantiate or scroll neighbouring feed cells.
     NSMutableArray<UIView *> *pending = [NSMutableArray array];
@@ -106,6 +127,15 @@ static NSArray<NSURL *> *YTKACEPostImagesForViewer(NSURL *current, UIView *sourc
         if (presenter.isViewLoaded) [pending addObject:presenter.view];
     UIViewController *root = sourceView.window.rootViewController;
     if (root.isViewLoaded) [pending addObject:root.view];
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            UIViewController *controller = window.rootViewController;
+            for (NSUInteger depth = 0; controller && depth < 8; depth++, controller = controller.presentedViewController) {
+                if (controller.isViewLoaded) [pending addObject:controller.view];
+            }
+        }
+    }
     NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
     NSUInteger cells = 0;
     for (NSUInteger i = 0; i < pending.count && i < 1600 && cells < 32; ++i) {
@@ -118,9 +148,11 @@ static NSArray<NSURL *> *YTKACEPostImagesForViewer(NSURL *current, UIView *sourc
                 ++cells;
                 NSArray *candidate = YTKACEPostImages(node);
                 // Canonical URL comparison also matches a differently sized viewer image.
-                if (candidate.count > result.count && current &&
-                    YTKACEUniquePostImageURLs([candidate arrayByAddingObject:current]).count == candidate.count)
-                    result = candidate;
+                if (candidate.count && current &&
+                    YTKACEUniquePostImageURLs([candidate arrayByAddingObject:current]).count == candidate.count) {
+                    if (candidate.count > result.count) result = candidate;
+                    if (postURL && !*postURL) *postURL = YTKACEPostLink(node);
+                }
             }
         }
         for (UIView *child in view.subviews) {
@@ -133,9 +165,10 @@ static NSArray<NSURL *> *YTKACEPostImagesForViewer(NSURL *current, UIView *sourc
 }
 
 static NSURL *YTKACEPostLink(id node) {
+    if (!node) return nil;
     NSMutableArray *pending = [NSMutableArray arrayWithObject:node];
     NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
-    for (NSUInteger i = 0; i < pending.count && i < 64; ++i) {
+    for (NSUInteger i = 0; i < pending.count && i < 256; ++i) {
         id item = pending[i];
         if ([seen containsObject:item]) continue;
         [seen addObject:item];
@@ -146,9 +179,25 @@ static NSURL *YTKACEPostLink(id node) {
                 return [NSURL URLWithString:[@"https://www.youtube.com/post/" stringByAppendingString:value]];
             }
         }
-        for (NSString *name in @[@"entry", @"elementRenderer", @"communityPostRenderer", @"backstagePostRenderer", @"postRenderer", @"post", @"renderer", @"model"]) {
+        for (NSString *key in @[@"protoText", @"URL", @"url"]) {
+            id value = YTKACEPostValue(item, key);
+            if ([value isKindOfClass:NSURL.class]) value = [value absoluteString];
+            NSString *postID = YTKACEPostIDInText(value);
+            if (postID) return [NSURL URLWithString:[@"https://www.youtube.com/post/" stringByAppendingString:postID]];
+        }
+        for (NSString *name in @[@"entry", @"element", @"elementRenderer", @"communityPostRenderer", @"backstagePostRenderer", @"postRenderer", @"post", @"renderer", @"model", @"controller", @"nodeController", @"owningComponent", @"materializedInstance", @"children", @"subnodes", @"childElements"]) {
             id child = YTKACEPostValue(item, name);
-            if (child && child != item && pending.count < 64) [pending addObject:child];
+            if (!child || child == item) continue;
+            if ([name isEqual:@"owningComponent"]) {
+                id URI = YTKACEPostValue(child, @"templateURI");
+                if (![URI isKindOfClass:NSString.class] || ([URI rangeOfString:@"post" options:NSCaseInsensitiveSearch].location == NSNotFound &&
+                    [URI rangeOfString:@"image" options:NSCaseInsensitiveSearch].location == NSNotFound)) continue;
+            }
+            NSArray *children = [child isKindOfClass:NSArray.class] ? child : @[child];
+            for (id value in children) {
+                if (pending.count >= 256) break;
+                [pending addObject:value];
+            }
         }
     }
     return nil;
@@ -162,6 +211,9 @@ static NSURL *YTKACEPostLink(id node) {
 @property(nonatomic, copy) NSArray<NSURL *> *imageURLs;
 @property(nonatomic, strong) NSURL *currentImageURL;
 @property(nonatomic, assign) BOOL savingImages;
+@property(nonatomic, assign) BOOL resolvingImages;
+@property(nonatomic, assign) BOOL imagesResolved;
+@property(nonatomic, assign) BOOL saveWhenResolved;
 @property(nonatomic, assign) BOOL communityPost;
 @property(nonatomic, weak) id postNode;
 @end
@@ -206,12 +258,58 @@ static NSURL *YTKACEPostLink(id node) {
         });
     });
 }
+- (void)resolvePostImages {
+    if (self.resolvingImages || self.imagesResolved) return;
+    if (!self.postURL) self.postURL = YTKACEPostLink(self.postNode);
+    if (!self.postURL) {
+        // Bound local carousel models can still provide a complete multi-image list.
+        self.imagesResolved = self.imageURLs.count > 1;
+        [self buildPostActions];
+        return;
+    }
+    self.resolvingImages = YES;
+    [self buildPostActions];
+    NSString *postID = self.postURL.lastPathComponent;
+    NSURL *URL = [NSURL URLWithString:[NSString stringWithFormat:@"https://www.youtube.com/post/%@?hl=en", postID]];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:URL
+        cachePolicy:NSURLRequestUseProtocolCachePolicy timeoutInterval:20];
+    [request setValue:@"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36" forHTTPHeaderField:@"User-Agent"];
+    [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
+        NSString *page = !error && status >= 200 && status < 300 && data.length <= 8 * 1024 * 1024
+            ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+        NSArray<NSURL *> *URLs = YTKACEPostImageURLsInPage(page, postID);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.resolvingImages = NO;
+            NSURL *current = self.currentImageURL ?: self.imageURLs.firstObject;
+            BOOL matches = !current || YTKACEUniquePostImageURLs([URLs arrayByAddingObject:current]).count == URLs.count;
+            if (URLs.count && matches) {
+                self.imageURLs = URLs;
+                self.imagesResolved = YES;
+            }
+            YTKACEDownloadLog(@"posts", @"post image list status=%ld images=%lu matched=%d", (long)status, (unsigned long)URLs.count, matches);
+            [self buildPostActions];
+            if (self.saveWhenResolved) {
+                self.saveWhenResolved = NO;
+                if (self.imagesResolved) [self saveAllImages];
+                else YTKACEShowNotice(YTKACELocalized(@"Could not load all post images. Open the post and try again."));
+            }
+        });
+    }] resume];
+}
 - (void)saveAllImages {
     if (self.savingImages) return;
-    NSArray *resolved = self.communityPost ? YTKACEPostImages(self.postNode) :
-        YTKACEPostImagesForViewer(self.currentImageURL, self.anchor, self.postNode);
-    if (resolved.count > self.imageURLs.count)
-        self.imageURLs = YTKACEUniquePostImageURLs([resolved arrayByAddingObjectsFromArray:self.imageURLs ?: @[]]);
+    if (!self.imagesResolved) {
+        NSArray *resolved = self.communityPost ? YTKACEPostImages(self.postNode) :
+            YTKACEPostImagesForViewer(self.currentImageURL, self.anchor, self.postNode, NULL);
+        if (resolved.count > self.imageURLs.count) self.imageURLs = resolved;
+        [self resolvePostImages];
+        if (self.resolvingImages) { self.saveWhenResolved = YES; return; }
+        if (!self.imagesResolved) {
+            YTKACEShowNotice(YTKACELocalized(@"Could not load all post images. Open the post and try again."));
+            return;
+        }
+    }
     if (!self.imageURLs.count) { YTKACEShowNotice(YTKACELocalized(@"No images found")); return; }
     self.savingImages = YES;
     [self saveImages:[self.imageURLs copy] atIndex:0 saved:0 failed:0];
@@ -255,7 +353,9 @@ static NSURL *YTKACEPostLink(id node) {
         YTKACEMediaAction *saveAll = [YTKACEMediaAction action:@"post.images.saveAll"
             title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square"
             handler:^{ [weakSelf saveAllImages]; }];
-        if (self.imageURLs.count) saveAll.detail = [NSString stringWithFormat:YTKACELocalized(@"Images: %lu"), (unsigned long)self.imageURLs.count];
+        saveAll.detail = self.resolvingImages ? YTKACELocalized(@"Loading images…") :
+            (self.imagesResolved ? [NSString stringWithFormat:YTKACELocalized(@"Images: %lu"), (unsigned long)self.imageURLs.count] :
+                YTKACELocalized(@"Image list unavailable"));
         [rows addObject:saveAll];
     }
     if (self.imageURLs.count && YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) {
@@ -304,6 +404,7 @@ void YTKACEPresentCommunityPostMenu(UIView *postView, id node, NSString *text, N
         }];
     }
     [sheet buildPostActions];
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) [sheet resolvePostImages];
     if (sheet.actionSections.count) [presenter presentViewController:sheet animated:YES completion:nil];
 }
 
@@ -315,7 +416,10 @@ void YTKACEPresentPostImageMenu(NSURL *imageURL, UIView *sourceView, id imageNod
     sheet.anchor = sourceView;
     sheet.postNode = imageNode;
     sheet.currentImageURL = imageURL;
-    sheet.imageURLs = YTKACEPostImagesForViewer(imageURL, sourceView, imageNode);
+    NSURL *postURL = nil;
+    sheet.imageURLs = YTKACEPostImagesForViewer(imageURL, sourceView, imageNode, &postURL);
+    sheet.postURL = postURL;
     [sheet buildPostActions];
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) [sheet resolvePostImages];
     [presenter presentViewController:sheet animated:YES completion:nil];
 }

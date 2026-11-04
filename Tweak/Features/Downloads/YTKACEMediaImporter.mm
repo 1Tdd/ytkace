@@ -1,9 +1,7 @@
 #import "YTKACEMediaImporter.h"
-#import "FFmpegMuxer.h"
-#import "MediaArtwork.h"
+#import "MediaImportFiles.h"
 #import "../../Runtime/Preferences.h"
 
-#import <AVFoundation/AVFoundation.h>
 #import <UIKit/UIKit.h>
 
 static NSString * const YTKACEImportErrorDomain = @"YTKACEMediaImport";
@@ -13,43 +11,12 @@ static NSError *YTKACEImportError(NSString *message) {
         userInfo:@{NSLocalizedDescriptionKey: message ?: @"Import failed"}];
 }
 
-static NSSet<NSString *> *YTKACEVideoExtensions(void) {
-    return [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"webm", @"mkv"]];
-}
-
-static NSSet<NSString *> *YTKACEAudioExtensions(void) {
-    return [NSSet setWithArray:@[
-        @"m4a", @"mp3", @"aac", @"wav", @"flac", @"ogg", @"opus", @"webm"
-    ]];
-}
-
 static NSSet<NSString *> *YTKACEImageExtensions(void) {
     return [NSSet setWithArray:@[@"jpg", @"jpeg", @"png", @"heic", @"webp"]];
 }
 
 static NSSet<NSString *> *YTKACESubtitleExtensions(void) {
     return [NSSet setWithArray:@[@"srt", @"vtt"]];
-}
-
-static NSString *YTKACESafeImportName(NSString *name) {
-    NSCharacterSet *invalid = [NSCharacterSet
-        characterSetWithCharactersInString:@"/\\:?%*|\"<>"];
-    NSString *safe = [[name componentsSeparatedByCharactersInSet:invalid]
-        componentsJoinedByString:@"-"];
-    return safe.length == 0 ? @"Imported Media" : safe;
-}
-
-static NSURL *YTKACEUniqueImportURL(NSURL *directory, NSString *name,
-                                    NSString *extension) {
-    NSURL *URL = [directory URLByAppendingPathComponent:
-        [name stringByAppendingPathExtension:extension]];
-    NSInteger suffix = 2;
-    while ([NSFileManager.defaultManager fileExistsAtPath:URL.path]) {
-        URL = [directory URLByAppendingPathComponent:
-            [[NSString stringWithFormat:@"%@ %ld", name, (long)suffix++]
-                stringByAppendingPathExtension:extension]];
-    }
-    return URL;
 }
 
 static NSString *YTKACEMediaStem(NSString *value) {
@@ -80,37 +47,6 @@ static NSURL *YTKACEMatchingURL(NSArray<NSURL *> *URLs, NSString *stem,
     return allowFallback && URLs.count == 1 ? URLs.firstObject : nil;
 }
 
-static NSError *YTKACEWaitForRemux(NSURL *source, NSURL *destination,
-                                    BOOL audioOnly) {
-    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-    __block NSError *result = nil;
-    YTKACEFFmpegCompletion completion = ^(NSError *error) {
-        result = error;
-        dispatch_semaphore_signal(semaphore);
-    };
-    if (audioOnly) {
-        [YTKACEFFmpegMuxer remuxAudioURL:source outputURL:destination
-                              completion:completion];
-    } else {
-        [YTKACEFFmpegMuxer normalizeMediaURL:source outputURL:destination
-                                  completion:completion];
-    }
-    dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
-    return result;
-}
-
-static NSError *YTKACEWaitForArtwork(NSData *data, NSURL *mediaURL) {
-    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-    __block NSError *result = nil;
-    [YTKACEFFmpegMuxer embedArtworkData:data mediaURL:mediaURL
-        completion:^(NSError *error) {
-            result = error;
-            dispatch_semaphore_signal(semaphore);
-        }];
-    dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
-    return result;
-}
-
 static NSData *YTKACEJPEGData(NSURL *URL) {
     UIImage *image = [UIImage imageWithContentsOfFile:URL.path];
     return image == nil ? nil : UIImageJPEGRepresentation(image, 0.9);
@@ -121,7 +57,16 @@ static NSData *YTKACEJPEGData(NSURL *URL) {
 + (void)importURLs:(NSArray<NSURL *> *)URLs
           category:(NSString *)category
         completion:(YTKACEMediaImportCompletion)completion {
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    static dispatch_queue_t queue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ queue = dispatch_queue_create("com.ytkace.media-import", DISPATCH_QUEUE_SERIAL); });
+    URLs = [URLs copy];
+    category = [category copy];
+    dispatch_async(queue, ^{
+        if (![@[@"Video", @"Audio", @"Shorts"] containsObject:category]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(0, YTKACEImportError(@"Invalid media category")); });
+            return;
+        }
         BOOL audioCategory = [category isEqualToString:@"Audio"];
         NSSet *mediaExtensions = audioCategory
             ? YTKACEAudioExtensions() : YTKACEVideoExtensions();
@@ -137,30 +82,21 @@ static NSData *YTKACEJPEGData(NSURL *URL) {
         NSURL *downloads = [YTKACEApplicationSupportDirectory()
             URLByAppendingPathComponent:@"Downloads" isDirectory:YES];
         NSURL *directory = [downloads URLByAppendingPathComponent:category isDirectory:YES];
-        [NSFileManager.defaultManager createDirectoryAtURL:directory
-          withIntermediateDirectories:YES attributes:nil error:nil];
-        NSUInteger imported = 0;
         NSError *lastError = nil;
+        if (![NSFileManager.defaultManager createDirectoryAtURL:directory
+                withIntermediateDirectories:YES attributes:nil error:&lastError]) {
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(0, lastError); });
+            return;
+        }
+        NSUInteger imported = 0;
         for (NSURL *source in media) {
             NSError *operationError = nil;
             NSString *stem = YTKACESafeImportName(
                 source.lastPathComponent.stringByDeletingPathExtension);
-            NSString *extension = audioCategory ? @"m4a" : @"mp4";
-            NSURL *destination = YTKACEUniqueImportURL(directory, stem, extension);
-            NSURL *temporary = [directory URLByAppendingPathComponent:
-                [NSString stringWithFormat:@".%@.%@", NSUUID.UUID.UUIDString, extension]];
-            NSError *remuxError = YTKACEWaitForRemux(source, temporary, audioCategory);
-            if (remuxError == nil) {
-                [NSFileManager.defaultManager moveItemAtURL:temporary
-                                                      toURL:destination error:&operationError];
-            } else {
-                [NSFileManager.defaultManager removeItemAtURL:temporary error:nil];
-                destination = YTKACEUniqueImportURL(directory, stem,
-                    source.pathExtension.lowercaseString);
-                [NSFileManager.defaultManager copyItemAtURL:source
-                                                       toURL:destination error:&operationError];
-            }
-            if (operationError != nil) {
+            // Import preserves the selected container, tracks, chapters and metadata.
+            // Conversion belongs to the explicit download/export options.
+            NSURL *destination = YTKACEUniqueImportURL(directory, stem, source.pathExtension.lowercaseString);
+            if (!YTKACEImportCopy(source, destination, NO, &operationError)) {
                 lastError = operationError;
                 continue;
             }
@@ -168,15 +104,11 @@ static NSData *YTKACEJPEGData(NSURL *URL) {
             NSURL *image = YTKACEMatchingURL(images,
                 source.lastPathComponent.stringByDeletingPathExtension,
                 media.count == 1);
-            NSData *artwork = image == nil
-                ? YTKACEMediaArtworkData(source) : YTKACEJPEGData(image);
-            if (artwork.length != 0) {
-                NSURL *sidecar = [destination.URLByDeletingPathExtension
-                    URLByAppendingPathExtension:@"jpg"];
-                [artwork writeToURL:sidecar atomically:YES];
-                if (YTKACEWaitForArtwork(artwork, destination) == nil) {
-                    [NSFileManager.defaultManager removeItemAtURL:sidecar error:nil];
-                }
+            if (image != nil) {
+                NSData *artwork = YTKACEJPEGData(image);
+                NSURL *sidecar = [destination.URLByDeletingPathExtension URLByAppendingPathExtension:@"jpg"];
+                if (artwork.length == 0) lastError = YTKACEImportError(@"The selected artwork could not be read.");
+                else if (![artwork writeToURL:sidecar options:NSDataWritingAtomic error:&operationError]) lastError = operationError;
             }
             NSURL *subtitle = YTKACEMatchingURL(subtitles,
                 source.lastPathComponent.stringByDeletingPathExtension,
@@ -184,29 +116,39 @@ static NSData *YTKACEJPEGData(NSURL *URL) {
             if (subtitle != nil && !audioCategory) {
                 NSURL *sidecar = [destination.URLByDeletingPathExtension
                     URLByAppendingPathExtension:subtitle.pathExtension.lowercaseString];
-                [NSFileManager.defaultManager copyItemAtURL:subtitle toURL:sidecar error:nil];
+                if (!YTKACEImportCopy(subtitle, sidecar, YES, &operationError)) lastError = operationError;
             }
         }
-        if (media.count == 0 && !audioCategory) {
-            for (NSURL *subtitle in subtitles) {
-                NSString *stem = subtitle.lastPathComponent.stringByDeletingPathExtension;
-                for (NSURL *existing in [NSFileManager.defaultManager
-                    contentsOfDirectoryAtURL:directory includingPropertiesForKeys:nil
-                    options:NSDirectoryEnumerationSkipsHiddenFiles error:nil] ?: @[]) {
+        if (media.count == 0) {
+            NSArray<NSURL *> *attachments = audioCategory ? images : [images arrayByAddingObjectsFromArray:subtitles];
+            NSArray<NSURL *> *library = [NSFileManager.defaultManager
+                contentsOfDirectoryAtURL:directory includingPropertiesForKeys:nil
+                options:NSDirectoryEnumerationSkipsHiddenFiles error:&lastError] ?: @[];
+            for (NSURL *attachment in attachments) {
+                BOOL isImage = [YTKACEImageExtensions() containsObject:attachment.pathExtension.lowercaseString];
+                NSString *stem = attachment.lastPathComponent.stringByDeletingPathExtension;
+                if (isImage) stem = YTKACEMediaStem(stem);
+                BOOL matched = NO;
+                for (NSURL *existing in library) {
                     if ([existing.lastPathComponent.stringByDeletingPathExtension
-                            caseInsensitiveCompare:stem] == NSOrderedSame &&
-                        [YTKACEVideoExtensions() containsObject:existing.pathExtension.lowercaseString]) {
-                        NSURL *sidecar = [existing.URLByDeletingPathExtension
-                            URLByAppendingPathExtension:subtitle.pathExtension.lowercaseString];
-                        [NSFileManager.defaultManager removeItemAtURL:sidecar error:nil];
-                        NSError *copyError = nil;
-                        [NSFileManager.defaultManager copyItemAtURL:subtitle toURL:sidecar
-                                                              error:&copyError];
-                        if (copyError == nil) imported++;
-                        else lastError = copyError;
-                        break;
-                    }
+                            caseInsensitiveCompare:stem] != NSOrderedSame ||
+                        ![mediaExtensions containsObject:existing.pathExtension.lowercaseString]) continue;
+                    matched = YES;
+                    NSURL *sidecar = [existing.URLByDeletingPathExtension URLByAppendingPathExtension:
+                        isImage ? @"jpg" : attachment.pathExtension.lowercaseString];
+                    NSError *copyError = nil;
+                    BOOL copied = NO;
+                    if (isImage) {
+                        NSData *artwork = YTKACEJPEGData(attachment);
+                        if (artwork.length != 0) copied = [artwork writeToURL:sidecar options:NSDataWritingAtomic error:&copyError];
+                        else copyError = YTKACEImportError(@"The selected artwork could not be read.");
+                    } else copied = YTKACEImportCopy(attachment, sidecar, YES, &copyError);
+                    if (copied) imported++;
+                    else lastError = copyError;
+                    break;
                 }
+                if (!matched) lastError = YTKACEImportError([NSString stringWithFormat:
+                    @"No matching media for %@", attachment.lastPathComponent]);
             }
         }
         if (imported == 0 && lastError == nil) {

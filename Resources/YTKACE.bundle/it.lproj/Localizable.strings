@@ -1340,3 +1340,13 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 "Skips YouTube's redirect page when you open a link from a description or comment." = "Salta la pagina di reindirizzamento di YouTube quando apri un link da una descrizione o da un commento.";
 
 "Images: %lu" = "Immagini: %lu";
+
+"Could not load the selected subtitles." = "Impossibile caricare i sottotitoli selezionati.";
+
+"Could not add subtitles. The media file was kept in Downloads." = "Impossibile aggiungere i sottotitoli. Il file è stato conservato nei download.";
+
+"Loading images…" = "Caricamento immagini…";
+
+"Image list unavailable" = "Elenco immagini non disponibile";
+
+"Could not load all post images. Open the post and try again." = "Impossibile caricare tutte le immagini. Apri il post e riprova.";

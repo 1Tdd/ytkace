@@ -32,4 +32,10 @@ clang++ $(gnustep-config --objc-flags) \
   -I"$OBJC_RUNTIME/include" -L"$OBJC_RUNTIME" -std=c++17 \
   "$ROOT/Tweak/Features/Interface/PostImages.mm" "$ROOT/Tests/post_images_test.mm" \
   -o "$OUTPUT/post-images-test" $(gnustep-config --base-libs)
-"$OUTPUT/post-images-test"
+"$OUTPUT/post-images-test" "$ROOT/Tests/fixtures/community_post_multi_image.json"
+
+clang++ $(gnustep-config --objc-flags) \
+  -I"$OBJC_RUNTIME/include" -L"$OBJC_RUNTIME" -std=c++17 \
+  "$ROOT/Tests/media_import_files_test.mm" \
+  -o "$OUTPUT/media-import-files-test" $(gnustep-config --base-libs)
+"$OUTPUT/media-import-files-test"
