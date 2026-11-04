@@ -38,7 +38,26 @@ static NSURL *YTKACESABRSeedURL(void) {
     return [directory URLByAppendingPathComponent:@"sabr-seed.plist"];
 }
 
-static void YTKACESABRPersistSeed(NSData *body, NSDictionary *headers) {
+// Credentials stay in memory: the seed is a plain file that device backups can include.
+static NSDictionary *YTKACESABRSeedHeaders(NSDictionary *headers) {
+    NSMutableDictionary *kept = [NSMutableDictionary dictionary];
+    for (NSString *key in headers) {
+        NSString *lower = [key isKindOfClass:NSString.class] ? key.lowercaseString : @"auth";
+        if ([lower containsString:@"auth"] || [lower containsString:@"cookie"] ||
+            [lower containsString:@"token"] || [lower containsString:@"identity"]) continue;
+        kept[key] = headers[key];
+    }
+    return kept;
+}
+
+static BOOL YTKACESABRWriteSeed(NSURL *url, NSData *encoded) {
+    if (encoded.length == 0 || ![encoded writeToURL:url atomically:YES]) return NO;
+    [url setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
+    return YES;
+}
+
+static void YTKACESABRPersistSeed(NSData *body, NSDictionary *nativeHeaders) {
+    NSDictionary *headers = YTKACESABRSeedHeaders(nativeHeaders);
     static NSTimeInterval lastWrite;
     static BOOL wroteWithHeaders;
     NSTimeInterval now = NSDate.date.timeIntervalSinceReferenceDate;
@@ -56,8 +75,7 @@ static void YTKACESABRPersistSeed(NSData *body, NSDictionary *headers) {
     NSData *encoded = [NSPropertyListSerialization dataWithPropertyList:seed
         format:NSPropertyListBinaryFormat_v1_0 options:0 error:&error];
     NSURL *url = YTKACESABRSeedURL();
-    BOOL wrote = encoded.length != 0 &&
-        [encoded writeToURL:url atomically:YES];
+    BOOL wrote = YTKACESABRWriteSeed(url, encoded);
     YTKACEDownloadLog(@"resolve",
         @"seed write ok=%d bytes=%lu headers=%lu error=%@ path=%@",
         wrote, (unsigned long)encoded.length, (unsigned long)headers.count,
@@ -74,8 +92,15 @@ void YTKACESABRRestoreSeed(void) {
         propertyListWithData:encoded options:NSPropertyListImmutable
                       format:NULL error:NULL];
     NSData *body = seed[@"body"];
-    NSDictionary *headers = seed[@"headers"];
+    NSDictionary *stored = [seed[@"headers"] isKindOfClass:NSDictionary.class] ? seed[@"headers"] : nil;
     if (![body isKindOfClass:NSData.class]) return;
+    NSDictionary *headers = YTKACESABRSeedHeaders(stored);
+    // Seeds written by earlier versions may still hold credentials.
+    if (stored.count != headers.count) {
+        NSDictionary *cleaned = headers.count != 0 ? @{@"body": body, @"headers": headers} : @{@"body": body};
+        YTKACESABRWriteSeed(YTKACESABRSeedURL(), [NSPropertyListSerialization dataWithPropertyList:cleaned
+            format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL]);
+    }
     @synchronized (YTKACESABRDownloader.class) {
         YTKACESABRNativeBody = [body copy];
         if ([headers isKindOfClass:NSDictionary.class] && headers.count != 0) {

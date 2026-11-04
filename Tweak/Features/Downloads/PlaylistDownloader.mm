@@ -338,6 +338,7 @@ static void YTKACERunPlaylistQueue(NSArray<NSDictionary *> *queue,
     NSString *videoID = item[@"videoId"];
     YTKACEResolvePlayerResponse(videoID, ^(id playerResponse, NSError *error) {
         BOOL queued = NO;
+        NSUInteger failedBefore = YTKACEDownloadCoordinator.sharedCoordinator.failedJobCount;
         if (playerResponse != nil) {
             queued = [YTKACEDownloadCoordinator.sharedCoordinator
                 enqueueDownloadForResponse:playerResponse
@@ -350,9 +351,12 @@ static void YTKACERunPlaylistQueue(NSArray<NSDictionary *> *queue,
             (unsigned long)(index + 1), (unsigned long)queue.count, videoID,
             queued, error.localizedDescription ?: @"none");
         YTKACEWaitForIdleDownloads(0, ^{
+            // Being queued is not enough: the job can still fail or be cancelled.
+            BOOL downloaded = queued &&
+                YTKACEDownloadCoordinator.sharedCoordinator.failedJobCount == failedBefore;
             YTKACERunPlaylistQueue(queue, index + 1, quality, audioOnly,
-                savesToPhotos, sharesFile, started + (queued ? 1 : 0),
-                failed + (queued ? 0 : 1));
+                savesToPhotos, sharesFile, started + (downloaded ? 1 : 0),
+                failed + (downloaded ? 0 : 1));
         });
     });
 }

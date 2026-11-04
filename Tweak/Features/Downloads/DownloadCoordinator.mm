@@ -49,6 +49,8 @@
 @property(nonatomic, assign) BOOL audioOnly;
 @property(atomic, assign) BOOL cancelled;
 @property(nonatomic, assign) NSInteger fallbackCount;
+@property(nonatomic, strong) NSMutableSet<NSNumber *> *triedVideoItags;
+@property(nonatomic, assign) BOOL fileSaved;
 @property(nonatomic, assign) int64_t audioBytes;
 @property(nonatomic, assign) int64_t videoBytes;
 @property(nonatomic, strong, nullable) NSURL *savedURL;
@@ -227,6 +229,7 @@ void YTKACESetShortsNewFullscreen(UIView *container, BOOL fullscreen) {
 @property(nonatomic, copy, nullable) NSString *directOptionsVideoID;
 @property(nonatomic, assign) BOOL forceSABRNext;
 @property(nonatomic, assign) BOOL enqueuingWithoutPrompts;
+@property(nonatomic, assign) NSUInteger failedJobs;
 @property(nonatomic, assign) UIBackgroundTaskIdentifier backgroundTask;
 - (void)resolveSaveDestinationFromView:(nullable UIView *)sourceView
                                   then:(dispatch_block_t)continuation;
@@ -396,8 +399,14 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         dispatch_async(dispatch_get_main_queue(), ^{ [self removeActiveJob:identifier]; });
         return;
     }
+    YTKACEDownloadJob *job = self.activeJobs[identifier];
+    if (job != nil && !job.fileSaved) self.failedJobs += 1;
     [self.activeJobs removeObjectForKey:identifier];
     if (self.activeJobs.count == 0) [self endBackgroundTask];
+}
+
+- (NSUInteger)failedJobCount {
+    return self.failedJobs;
 }
 
 - (UIViewController *)topViewController {
@@ -1864,23 +1873,19 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 
 - (YTKACEStreamOption *)fallbackVideoForJob:(YTKACEDownloadJob *)job {
     if (job.fallbackCount >= 3) return nil;
+    if (job.triedVideoItags == nil) job.triedVideoItags = [NSMutableSet set];
+    [job.triedVideoItags addObject:@(job.videoOption.itag)];
+    // Same list as the options sheet, so any chosen codec has a place in it. Highest first.
     NSArray<YTKACEStreamOption *> *options =
-        [YTKACEStreamResolver videoOptionsFromPlayerResponse:job.playerResponse];
-    NSInteger currentIndex = NSNotFound;
-    for (NSUInteger index = 0; index < options.count; index++) {
-        YTKACEStreamOption *option = options[index];
-        if (option.itag == job.videoOption.itag &&
-            [option.xtags isEqualToString:job.videoOption.xtags]) {
-            currentIndex = (NSInteger)index;
-            break;
-        }
+        [YTKACEStreamResolver downloadVideoOptionsFromPlayerResponse:job.playerResponse];
+    YTKACEStreamOption *otherCodec = nil;
+    for (YTKACEStreamOption *option in options) {
+        if (!option.adaptive || option.height > job.videoOption.height ||
+            [job.triedVideoItags containsObject:@(option.itag)]) continue;
+        if ([option.codecIdentifier isEqual:job.videoOption.codecIdentifier]) return option;
+        if (otherCodec == nil && option.height < job.videoOption.height) otherCodec = option;
     }
-    if (currentIndex == NSNotFound) return nil;
-    for (NSUInteger index = (NSUInteger)currentIndex + 1; index < options.count; index++) {
-        YTKACEStreamOption *option = options[index];
-        if (option.itag != job.videoOption.itag) return option;
-    }
-    return nil;
+    return otherCodec;
 }
 
 - (void)reportProgressForJob:(YTKACEDownloadJob *)job
@@ -2402,6 +2407,7 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
                         message:YTKACELocalized(job.cancelled ? @"Cancelled" : @"Failed")];
                     if (!job.cancelled) [strongSelf showAlertWithTitle:YTKACELocalized(@"Subtitles")
                         message:YTKACELocalized(@"Could not add subtitles. The media file was kept in Downloads.")];
+                    job.fileSaved = !job.cancelled;
                     [strongSelf removeActiveJob:job.identifier];
                 }];
                 return;
@@ -2423,6 +2429,7 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
                     if (metadataError && !job.cancelled) YTKACEShowNotice(YTKACELocalized(@"Could not embed chapters. The media file was kept."));
                     if (job.sharesFile && !metadataError && !job.cancelled)
                         [strongSelf presentShareSheetForURL:destination];
+                    job.fileSaved = !job.cancelled;
                     [strongSelf removeActiveJob:job.identifier];
                 }];
             }
@@ -2571,6 +2578,7 @@ static NSArray<NSDictionary *> *YTKACEAdjustCuesForRemovedSegments(
             [NSNotificationCenter.defaultCenter
                 postNotificationName:@"YTKACEDownloadLibraryChanged" object:nil];
             [YTKACEDownloadProgressView.sharedView finishJob:job.identifier success:YES message:YTKACELocalized(@"Complete")];
+            job.fileSaved = YES;
             [weakSelf removeActiveJob:job.identifier];
         });
     }

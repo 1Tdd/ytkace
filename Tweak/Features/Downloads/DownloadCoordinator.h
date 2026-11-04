@@ -17,6 +17,8 @@ FOUNDATION_EXPORT void YTKACESaveVideoToPhotosFile(
 - (void)showDownloadMenuForResponse:(id)response
                         sourceView:(nullable UIView *)sourceView;
 - (NSUInteger)activeJobCount;
+// Jobs that ended without a saved file, including cancelled ones.
+- (NSUInteger)failedJobCount;
 - (BOOL)enqueueDownloadForResponse:(id)response
                            quality:(NSInteger)quality
                          audioOnly:(BOOL)audioOnly
