@@ -402,8 +402,12 @@ static NSURL *YTKACEPostLink(id node) {
     NSString *postID = self.postURL.lastPathComponent;
     NSURL *URL = [NSURL URLWithString:[NSString stringWithFormat:@"https://www.youtube.com/post/%@?hl=en", postID]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:URL
-        cachePolicy:NSURLRequestUseProtocolCachePolicy timeoutInterval:20];
+        cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:20];
     [request setValue:@"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36" forHTTPHeaderField:@"User-Agent"];
+    // In the EU the page otherwise redirects to consent.youtube.com, which lists no images.
+    // The cookie jar would replace a manual Cookie header, so it stays out of this request.
+    request.HTTPShouldHandleCookies = NO;
+    [request setValue:@"SOCS=CAI" forHTTPHeaderField:@"Cookie"];
     [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
         NSString *page = !error && status >= 200 && status < 300 && data.length <= 8 * 1024 * 1024

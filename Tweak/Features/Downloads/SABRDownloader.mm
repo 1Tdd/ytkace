@@ -1800,11 +1800,13 @@ NSUInteger YTKACEPurgeDownloadScratch(BOOL includeActive) {
         self.tvRefreshCount = 0;
     }
     YTKACEDownloadLog(self.identifier,
-        @"progress audio=%.3f/%lld video=%.3f/%lld bytes=%lld+%lld stalled=%ld",
+        @"progress audio=%.3f/%lld video=%.3f/%lld bytes=%lld+%lld stalled=%ld round=%lld/%.2fs backoff=%ld",
         (double)self.audio.downloadedDuration, self.audio.endTime,
         (double)self.video.downloadedDuration, self.video.endTime,
         self.audio.downloadedBytes, self.video.downloadedBytes,
-        (long)self.stalledRequests);
+        (long)self.stalledRequests, self.activeNetworkBytes,
+        NSDate.date.timeIntervalSinceReferenceDate - self.activeRequestStart,
+        (long)self.backoffMilliseconds);
     BOOL missingInitialization = self.audio.endTime == 0 ||
         (!self.audioOnly && self.video.endTime == 0);
     if (self.combinedMode && missingInitialization && self.stalledRequests >= 3 &&
