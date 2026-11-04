@@ -54,6 +54,8 @@ int main(int argc, char **argv) {
         NSURL *larger = [NSURL URLWithString:@"https://yt3.ggpht.com/photo=s1080-c-fcrop64=1,00000000ffffffff-nd-v1"];
         check([YTKACEPostOriginalImageURL(cropped).absoluteString isEqual:@"https://yt3.ggpht.com/photo=s0"], "Strip the entire crop suffix from the first equals sign");
         check(YTKACEUniquePostImageURLs(@[cropped, larger]).count == 1, "Cropped size variants are one image");
+        check([YTKACEPostThumbnailImageURL(cropped).absoluteString isEqual:@"https://yt3.ggpht.com/photo=s240"], "Request a small thumbnail");
+        check([YTKACEPostThumbnailImageURL(external) isEqual:external], "Thumbnails do not alter unrelated hosts");
         NSString *postID = @"Ugkxl-E2JnvJtYVwWcqHBBE67gxh8WcJ8WqC";
         for (NSString *text in @[
             [@"https://youtube.com/post/" stringByAppendingString:postID],

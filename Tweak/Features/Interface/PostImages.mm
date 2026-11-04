@@ -11,14 +11,22 @@ BOOL YTKACEIsPostImageURL(NSURL *URL) {
     return YTKACEPostImageHost(URL.host);
 }
 
-NSURL *YTKACEPostOriginalImageURL(NSURL *URL) {
+static NSURL *YTKACEPostImageURLWithSize(NSURL *URL, NSString *size) {
     NSURLComponents *parts = [NSURLComponents componentsWithURL:URL resolvingAgainstBaseURL:NO];
     if (!YTKACEPostImageHost(parts.host)) return URL;
     // Crop options themselves contain '=' (e.g. '=s1080-c-fcrop64=1,...').
     NSRange options = [parts.path rangeOfString:@"="];
     if (options.location != NSNotFound)
-        parts.path = [[parts.path substringToIndex:options.location] stringByAppendingString:@"=s0"];
+        parts.path = [[parts.path substringToIndex:options.location] stringByAppendingString:size];
     return parts.URL ?: URL;
+}
+
+NSURL *YTKACEPostOriginalImageURL(NSURL *URL) {
+    return YTKACEPostImageURLWithSize(URL, @"=s0");
+}
+
+NSURL *YTKACEPostThumbnailImageURL(NSURL *URL) {
+    return YTKACEPostImageURLWithSize(URL, @"=s240");
 }
 
 NSArray<NSURL *> *YTKACEUniquePostImageURLs(NSArray<NSURL *> *URLs) {

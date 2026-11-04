@@ -256,7 +256,83 @@ static NSURL *YTKACEPostLink(id node) {
     return nil;
 }
 
+@interface YTKACEPostImageStrip : UIScrollView
+@property(nonatomic, copy) void (^selectionHandler)(NSUInteger index);
+- (void)setImageURLs:(NSArray<NSURL *> *)URLs selectedIndex:(NSUInteger)selectedIndex;
+@end
+
+@implementation YTKACEPostImageStrip {
+    UIStackView *_stack;
+    NSArray<NSURL *> *_URLs;
+    NSMutableArray<UIButton *> *_buttons;
+}
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.showsHorizontalScrollIndicator = NO;
+        _buttons = [NSMutableArray array];
+        _stack = [UIStackView new];
+        _stack.axis = UILayoutConstraintAxisHorizontal;
+        _stack.spacing = 8;
+        _stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:_stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [_stack.topAnchor constraintEqualToAnchor:self.topAnchor],
+            [_stack.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            [_stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [_stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+            [_stack.heightAnchor constraintEqualToAnchor:self.heightAnchor],
+            [self.heightAnchor constraintEqualToConstant:72]
+        ]];
+    }
+    return self;
+}
+- (void)setImageURLs:(NSArray<NSURL *> *)URLs selectedIndex:(NSUInteger)selectedIndex {
+    if (![_URLs isEqualToArray:URLs]) {
+        _URLs = [URLs copy];
+        for (UIButton *button in _buttons) [button removeFromSuperview];
+        [_buttons removeAllObjects];
+        for (NSUInteger i = 0; i < URLs.count; i++) {
+            UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+            button.tag = (NSInteger)i;
+            button.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
+            button.layer.cornerRadius = 10;
+            button.clipsToBounds = YES;
+            button.imageView.contentMode = UIViewContentModeScaleAspectFill;
+            button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentFill;
+            button.contentVerticalAlignment = UIControlContentVerticalAlignmentFill;
+            button.accessibilityLabel = [NSString stringWithFormat:YTKACELocalized(@"Image %lu"), (unsigned long)i + 1];
+            [button addTarget:self action:@selector(thumbnailTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [button.widthAnchor constraintEqualToConstant:72].active = YES;
+            [_stack addArrangedSubview:button];
+            [_buttons addObject:button];
+            __weak UIButton *weakButton = button;
+            YTKACELoadImage(YTKACEPostThumbnailImageURL(URLs[i]), URLs[i], ^(NSData *data, __unused NSError *error) {
+                if (data) [weakButton setImage:[UIImage imageWithData:data] forState:UIControlStateNormal];
+            });
+        }
+    }
+    [self selectIndex:selectedIndex];
+}
+- (void)selectIndex:(NSUInteger)selectedIndex {
+    for (UIButton *button in _buttons) {
+        BOOL selected = (NSUInteger)button.tag == selectedIndex;
+        button.selected = selected;
+        button.layer.borderWidth = selected ? 2 : 0;
+        button.layer.borderColor = [UIColor colorWithRed:0.73 green:0.43 blue:0.91 alpha:1].CGColor;
+        if (selected) button.accessibilityTraits |= UIAccessibilityTraitSelected;
+        else button.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+    }
+}
+- (void)thumbnailTapped:(UIButton *)button {
+    [self selectIndex:(NSUInteger)button.tag];
+    if (self.selectionHandler) self.selectionHandler((NSUInteger)button.tag);
+}
+@end
+
 @interface YTKACECommunityPostSheet : YTKACEMediaActionSheet
+@property(nonatomic, strong) YTKACEPostImageStrip *imageStrip;
+@property(nonatomic, strong) NSURL *selectedImageURL;
 @property(nonatomic, weak) UIView *anchor;
 @property(nonatomic, copy) NSString *postText;
 @property(nonatomic, strong) UIImage *postSnapshot;
@@ -371,15 +447,51 @@ static NSURL *YTKACEPostLink(id node) {
     }
     [self saveKnownImages];
 }
-- (NSArray<YTKACEMediaAction *> *)actionsForImage:(NSURL *)URL identifier:(NSString *)identifier {
+- (NSArray<YTKACEMediaAction *> *)selectedImageActions {
     __weak YTKACECommunityPostSheet *weakSelf = self;
     NSArray *titles = @[YTKACELocalized(@"Save current image"), YTKACELocalized(@"Show current image"), YTKACELocalized(@"Copy current image")];
     NSMutableArray *actions = [NSMutableArray array];
     for (NSUInteger i = 0; i < titles.count; i++) {
-        [actions addObject:[YTKACEMediaAction action:[identifier stringByAppendingFormat:@".%lu", (unsigned long)i] title:titles[i]
-            symbol:@[@"photo.badge.arrow.down", @"photo", @"doc.on.doc"][i] handler:^{ [weakSelf imageAction:i URL:URL]; }]];
+        [actions addObject:[YTKACEMediaAction action:[NSString stringWithFormat:@"post.image.%lu", (unsigned long)i] title:titles[i]
+            symbol:@[@"photo.badge.arrow.down", @"photo", @"doc.on.doc"][i] handler:^{ [weakSelf imageAction:i URL:weakSelf.selectedImageURL]; }]];
     }
     return actions;
+}
+- (NSArray<YTKACEMediaAction *> *)imageRows {
+    __weak YTKACECommunityPostSheet *weakSelf = self;
+    NSArray<NSURL *> *URLs = self.imageURLs ?: @[];
+    NSMutableArray *rows = [NSMutableArray array];
+    // Keep the selection on the same image when the list is replaced by the post page.
+    NSURL *wanted = self.selectedImageURL ?: self.currentImageURL;
+    NSUInteger selected = 0;
+    for (NSUInteger i = 0; wanted && i < URLs.count; i++) {
+        if (YTKACEUniquePostImageURLs(@[URLs[i], wanted]).count == 1) { selected = i; break; }
+    }
+    self.selectedImageURL = URLs.count ? URLs[selected] : nil;
+    if (URLs.count > 1) {
+        if (!self.imageStrip) {
+            self.imageStrip = [YTKACEPostImageStrip new];
+            self.imageStrip.selectionHandler = ^(NSUInteger index) {
+                if (index < weakSelf.imageURLs.count) weakSelf.selectedImageURL = weakSelf.imageURLs[index];
+            };
+        }
+        [self.imageStrip setImageURLs:URLs selectedIndex:selected];
+        YTKACEMediaAction *strip = [YTKACEMediaAction action:@"post.images.strip" title:@"" symbol:nil handler:nil];
+        strip.customView = self.imageStrip;
+        [rows addObject:strip];
+    }
+    // One image confirmed by the post needs no separate save-all row.
+    if (!(self.imagesResolved && URLs.count == 1)) {
+        YTKACEMediaAction *saveAll = [YTKACEMediaAction action:@"post.images.saveAll"
+            title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square"
+            handler:^{ [weakSelf saveAllImages]; }];
+        saveAll.detail = self.resolvingImages ? YTKACELocalized(@"Loading images…") :
+            (URLs.count ? [NSString stringWithFormat:YTKACELocalized(@"Images: %lu"), (unsigned long)URLs.count] :
+                YTKACELocalized(@"Image list unavailable"));
+        [rows addObject:saveAll];
+    }
+    if (URLs.count) [rows addObjectsFromArray:[self selectedImageActions]];
+    return rows;
 }
 - (void)buildPostActions {
     __weak YTKACECommunityPostSheet *weakSelf = self;
@@ -406,31 +518,14 @@ static NSURL *YTKACEPostLink(id node) {
         ];
         [rows addObject:[YTKACEMediaAction group:@"post.snapshot" title:YTKACELocalized(@"Post as image") symbol:@"photo.on.rectangle" children:actions]];
     }
-    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) {
-        YTKACEMediaAction *saveAll = [YTKACEMediaAction action:@"post.images.saveAll"
-            title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square"
-            handler:^{ [weakSelf saveAllImages]; }];
-        saveAll.detail = self.resolvingImages ? YTKACELocalized(@"Loading images…") :
-            (self.imageURLs.count ? [NSString stringWithFormat:YTKACELocalized(@"Images: %lu"), (unsigned long)self.imageURLs.count] :
-                YTKACELocalized(@"Image list unavailable"));
-        [rows addObject:saveAll];
-    }
-    if (self.imageURLs.count && YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) {
-        [rows addObject:[YTKACEMediaAction group:@"post.image" title:YTKACELocalized(@"Image") symbol:@"photo" children:[self actionsForImage:self.currentImageURL ?: self.imageURLs.firstObject identifier:@"post.image"]]];
-        if (self.imageURLs.count > 1) {
-            NSMutableArray *images = [NSMutableArray array];
-            for (NSUInteger i = 0; i < self.imageURLs.count; i++) {
-                NSString *identifier = [NSString stringWithFormat:@"post.images.%lu", (unsigned long)i];
-                [images addObject:[YTKACEMediaAction group:identifier title:[NSString stringWithFormat:YTKACELocalized(@"Image %lu"), (unsigned long)i + 1] symbol:nil children:[self actionsForImage:self.imageURLs[i] identifier:identifier]]];
-            }
-            [rows addObject:[YTKACEMediaAction group:@"post.images" title:YTKACELocalized(@"Images") symbol:@"photo.stack" children:images]];
-        }
-    }
     if (self.postURL) [rows addObject:[YTKACEMediaAction action:@"post.copy.link" title:YTKACELocalized(@"Copy post link") symbol:@"link" handler:^{
         UIPasteboard.generalPasteboard.URL = weakSelf.postURL;
         YTKACEShowNotice(YTKACELocalized(@"Link copied"));
     }]];
-    self.actionSections = rows.count ? @[rows] : @[];
+    NSMutableArray *sections = [NSMutableArray array];
+    if (YTKACEFeatureEnabled(@"YTKACE.Preference.Posts.SaveImage")) [sections addObject:[self imageRows]];
+    if (rows.count) [sections addObject:rows];
+    self.actionSections = sections;
 }
 @end
 
