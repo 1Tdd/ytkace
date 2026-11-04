@@ -2490,6 +2490,63 @@ static void YTKACEChipBarUpdate(__unsafe_unretained id receiver, SEL selector,
     }
 }
 
+// Newer builds draw the bar from an Elements renderer instead of YTChipCloudCell.
+static IMP OriginalSubheaderChipsEnable;
+static IMP OriginalSubheaderChipsLoadRenderer;
+static IMP OriginalSubheaderChipsLoadModel;
+static IMP OriginalChipCloudEnable;
+static IMP OriginalFeedFilterEnable;
+static IMP OriginalFilterBarLayout;
+static IMP OriginalFilterBarSize;
+
+static void YTKACESubheaderChipsEnable(__unsafe_unretained id receiver, SEL selector) {
+    if (!YTKACEHideTopics() && OriginalSubheaderChipsEnable != NULL) {
+        ((void (*)(id, SEL))OriginalSubheaderChipsEnable)(receiver, selector);
+    }
+}
+
+static void YTKACESubheaderChipsLoadRenderer(__unsafe_unretained id receiver, SEL selector,
+                                             __unsafe_unretained id renderer) {
+    if (!YTKACEHideTopics() && OriginalSubheaderChipsLoadRenderer != NULL) {
+        ((void (*)(id, SEL, id))OriginalSubheaderChipsLoadRenderer)(receiver, selector, renderer);
+    }
+}
+
+static void YTKACESubheaderChipsLoadModel(__unsafe_unretained id receiver, SEL selector,
+                                          __unsafe_unretained id model) {
+    if (!YTKACEHideTopics() && OriginalSubheaderChipsLoadModel != NULL) {
+        ((void (*)(id, SEL, id))OriginalSubheaderChipsLoadModel)(receiver, selector, model);
+    }
+}
+
+static void YTKACEChipCloudEnable(__unsafe_unretained id receiver, SEL selector) {
+    if (!YTKACEHideTopics() && OriginalChipCloudEnable != NULL) {
+        ((void (*)(id, SEL))OriginalChipCloudEnable)(receiver, selector);
+    }
+}
+
+static void YTKACEFeedFilterEnable(__unsafe_unretained id receiver, SEL selector) {
+    if (!YTKACEHideTopics() && OriginalFeedFilterEnable != NULL) {
+        ((void (*)(id, SEL))OriginalFeedFilterEnable)(receiver, selector);
+    }
+}
+
+static void YTKACEFilterBarLayout(UIView *receiver, SEL selector) {
+    if (OriginalFilterBarLayout != NULL) {
+        ((void (*)(id, SEL))OriginalFilterBarLayout)(receiver, selector);
+    }
+    if (YTKACEHideTopics()) {
+        receiver.hidden = YES;
+        receiver.userInteractionEnabled = NO;
+    }
+}
+
+static CGSize YTKACEFilterBarSize(__unsafe_unretained id receiver, SEL selector, CGSize size) {
+    if (YTKACEHideTopics()) return CGSizeZero;
+    return OriginalFilterBarSize == NULL ? CGSizeZero
+        : ((CGSize (*)(id, SEL, CGSize))OriginalFilterBarSize)(receiver, selector, size);
+}
+
 static void YTKACEChipCloudSetEntry(__unsafe_unretained id receiver, SEL selector,
                                     __unsafe_unretained id entry) {
     if (OriginalChipCloudSetEntry != NULL) {
@@ -2754,6 +2811,20 @@ void YTKACEInstallContentVisibilityHooks(void) {
                               @"shouldHideSubHeader",
                               (IMP)YTKACEShouldHideSubheader,
                               &OriginalShouldHideSubheader);
+    YTKACEInstallInstanceHook(@"YTElementsSubheaderChipBarController", @"enableFilterChips",
+                              (IMP)YTKACESubheaderChipsEnable, &OriginalSubheaderChipsEnable);
+    YTKACEInstallInstanceHook(@"YTElementsSubheaderChipBarController", @"loadWithElementRenderer:",
+                              (IMP)YTKACESubheaderChipsLoadRenderer, &OriginalSubheaderChipsLoadRenderer);
+    YTKACEInstallInstanceHook(@"YTElementsSubheaderChipBarController", @"loadWithModel:",
+                              (IMP)YTKACESubheaderChipsLoadModel, &OriginalSubheaderChipsLoadModel);
+    YTKACEInstallInstanceHook(@"YTChipCloudCollectionViewController", @"enableFilterChips",
+                              (IMP)YTKACEChipCloudEnable, &OriginalChipCloudEnable);
+    YTKACEInstallInstanceHook(@"YTFeedFilterChipBarController", @"enableFeedFilterBar",
+                              (IMP)YTKACEFeedFilterEnable, &OriginalFeedFilterEnable);
+    YTKACEInstallInstanceHook(@"YTFilterChipBarView", @"layoutSubviews",
+                              (IMP)YTKACEFilterBarLayout, &OriginalFilterBarLayout);
+    YTKACEInstallInstanceHook(@"YTFilterChipBarView", @"sizeThatFits:",
+                              (IMP)YTKACEFilterBarSize, &OriginalFilterBarSize);
     YTKACEInstallInstanceHook(@"YTMySubsFilterHeaderView",
                               @"setChipFilterView:",
                               (IMP)YTKACESubsSetChipFilterView,

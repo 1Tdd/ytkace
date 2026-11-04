@@ -26,12 +26,18 @@ added to the class at install time.
 The `YTISlimVideo…ActionBarRenderer` array accessors and `YTIElementRenderer contentsArray`
 are guesses at protobuf fields that this version does not have.
 
-## Still to confirm on a device
-These have no clear replacement, so `docs/TESTING.md` covers them:
-- `YTHeaderContentComboView` subheader methods: hiding topics also uses `setMaximumSubheaderHeight:`.
-- `ASDisplayNode didLoad`: copying comments also uses three other hooks.
-- `YTPivotBarView liquidGlassEffect`: the method moved to `+[YTFrostedGlassView liquidGlassEffect]`.
-- `setControlsOverlayVisible:` and `setOverlayVisible:`: overlay buttons also follow layout.
+## Confirmed on a device
+These have no direct replacement, but the features work on 21.44.4:
+- `ASDisplayNode didLoad`: the runtime hook installs and copying comments works.
+- `YTPivotBarView liquidGlassEffect`: the method moved to `+[YTFrostedGlassView liquidGlassEffect]`;
+  the tab bar glass options still work.
+- `setControlsOverlayVisible:` and `setOverlayVisible:`: overlay buttons follow the controls.
+- The OLED theme and removing the startup animation work despite the failed palette and Rive hooks.
+
+## Filter chips
+Remove Filter Chips did not work: the bar comes from `YTElementsSubheaderChipBarController`
+and `YTFilterChipBarView`, which are hooked now. The `YTHeaderContentComboView`
+height methods remain unmatched.
 
 ## Deliberately not moved
 `spamSignalsDictionary` moved to `+[YTAdShieldUtils …]`. It feeds YouTube's ad
