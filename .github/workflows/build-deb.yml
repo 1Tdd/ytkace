@@ -1,11 +1,29 @@
 name: Deb
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - "screenshots/**"
+      - "web/**"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - "screenshots/**"
+      - "web/**"
   workflow_dispatch:
   workflow_call:
 
 permissions:
   contents: read
+
+# Only the latest push matters; a build started by the IPA workflow has its own group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

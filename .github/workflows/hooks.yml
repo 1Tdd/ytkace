@@ -1,0 +1,60 @@
+name: Hooks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Tweak/**"
+      - "Tools/check_hooks.py"
+      - "Tools/hook_baselines/**"
+      - ".github/workflows/hooks.yml"
+  pull_request:
+    paths:
+      - "Tweak/**"
+      - "Tools/check_hooks.py"
+      - "Tools/hook_baselines/**"
+      - ".github/workflows/hooks.yml"
+  workflow_dispatch:
+    inputs:
+      ipa_url:
+        description: YouTube IPA URL to check instead of the default, for example a new version
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  DEFAULT_IPA_URL: "https://www.dropbox.com/scl/fi/5t2vjoy3om4z25vr9al4x/com.google.ios.youtube-21.44.4-eeveedecrypter.ipa?rlkey=3trqmmwud6ieittgiuwk9h6oy&st=xvpxx0rv&dl=1"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/cache@v4
+        id: youtube
+        if: inputs.ipa_url == ''
+        with:
+          path: YouTube.ipa
+          key: hooks-youtube-21.44.4
+
+      - name: YouTube
+        if: steps.youtube.outputs.cache-hit != 'true'
+        env:
+          IPA_URL: ${{ inputs.ipa_url || env.DEFAULT_IPA_URL }}
+        run: curl --fail --location "$IPA_URL" --output YouTube.ipa
+
+      - name: Check hook targets
+        run: |
+          set -o pipefail
+          status=0
+          python3 Tools/check_hooks.py YouTube.ipa | tee hooks.txt || status=$?
+          {
+            echo '### Hook targets'
+            echo '```'
+            cat hooks.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
