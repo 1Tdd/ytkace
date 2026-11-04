@@ -135,10 +135,13 @@
             [response isKindOfClass:NSHTTPURLResponse.class]
                 ? (NSHTTPURLResponse *)response
                 : nil;
+        // The API answers 404 when a video has no segments.
+        BOOL serverAnswered = error == nil && http.statusCode == 404;
 
-        if (error == nil && http.statusCode == 200 && data.length <= 1024 * 1024) {
+        if (error == nil && http.statusCode == 200 && data.length > 0 && data.length <= 1024 * 1024) {
             id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
             if ([json isKindOfClass:NSArray.class]) {
+                serverAnswered = YES;
                 for (id item in (NSArray *)json) {
                     if (![item isKindOfClass:NSDictionary.class]) {
                         continue;
@@ -212,7 +215,8 @@
             ^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
                 return [left[@"start"] compare:right[@"start"]];
             }];
-        if (result.count != 0) {
+        // A failed request may leave only local segments: never cache that as the answer.
+        if (result.count != 0 && serverAnswered) {
             [weakSelf.cache setObject:result forKey:cacheKey];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
