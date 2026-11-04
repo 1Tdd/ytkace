@@ -12,11 +12,20 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, assign) BOOL enabled;
 @property(nonatomic, assign) BOOL selected;
 @property(nonatomic, assign) BOOL dismissesSheet;
+// Marks the action the whole sheet leads to.
+@property(nonatomic, assign) BOOL prominent;
 @property(nonatomic, copy, nullable) dispatch_block_t handler;
 + (instancetype)action:(NSString *)identifier title:(NSString *)title
                 symbol:(nullable NSString *)symbol handler:(nullable dispatch_block_t)handler;
 + (instancetype)group:(NSString *)identifier title:(NSString *)title
                symbol:(nullable NSString *)symbol children:(NSArray<YTKACEMediaAction *> *)children;
+@end
+
+// A row of choices that stay visible, for use as a customView.
+@interface YTKACEChoiceStrip : UIScrollView
+@property(nonatomic, copy, nullable) void (^selectionHandler)(NSUInteger index);
+- (void)setTitles:(NSArray<NSString *> *)titles subtitles:(NSArray<NSString *> *)subtitles
+    selectedIndex:(NSUInteger)selectedIndex;
 @end
 
 @interface YTKACEMediaActionSheet : UIViewController

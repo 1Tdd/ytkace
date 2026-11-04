@@ -10,6 +10,7 @@
 #import "../../UI/Assets.h"
 #import "../../UI/Notice.h"
 #import "../../UI/OverlayButtonHost.h"
+#import "../../UI/MediaActionSheet.h"
 #import "../../Settings/YTKACESettingsPages.h"
 #import "../Downloads/StreamResolver.h"
 #import "../Downloads/SABRDownloader.h"
@@ -329,176 +330,98 @@ static UIViewController *YTKACEFindTopController(void) {
     YTKACEPresentSponsorSubmitController(videoID, start, end, nil);
 }
 
-- (void)presentChapterPickerForVideoID:(NSString *)videoID {
-    NSArray<YTKACEVideoChapter *> *chapters = YTKACESponsorCurrentChapters();
-    if (chapters.count == 0) {
-        YTKACEShowNotice(YTKACELocalized(@"No chapters found for this video"));
-        return;
-    }
+- (void)presentSheetWithHeading:(NSString *)heading sections:(NSArray<NSArray<YTKACEMediaAction *> *> *)sections {
     UIViewController *presenter = YTKACEFindTopController();
     if (!presenter) return;
-
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:YTKACELocalized(@"Select Video Chapter")
-                         message:YTKACELocalized(@"Choose a chapter to fill as a segment:")
-                  preferredStyle:UIAlertControllerStyleActionSheet];
-
-    for (YTKACEVideoChapter *ch in chapters) {
-        NSString *cat = YTKACESponsorCategoryTitle(ch.suggestedCategory);
-        NSString *prefix = ch.isLikelySponsor ? @"★ " : @"";
-        NSString *title = [NSString stringWithFormat:@"%@%@ (%@ - %@) [%@]",
-            prefix,
-            ch.title,
-            YTKACEFormatSponsorTime(ch.startTime),
-            YTKACEFormatSponsorTime(ch.endTime),
-            cat];
-
-        UIAlertAction *action = [UIAlertAction actionWithTitle:title
-                                                         style:UIAlertActionStyleDefault
-                                                       handler:^(__unused UIAlertAction *act) {
-            YTKACEPresentSponsorSubmitController(videoID, ch.startTime, ch.endTime, nil);
-        }];
-        [alert addAction:action];
-    }
-    [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
-                                             style:UIAlertActionStyleCancel
-                                           handler:nil]];
-
-    if (alert.popoverPresentationController != nil) {
-        if (self.presentationAnchor != nil && self.presentationAnchor.window != nil) {
-            alert.popoverPresentationController.sourceView = self.presentationAnchor;
-            alert.popoverPresentationController.sourceRect = self.presentationAnchor.bounds;
-        } else if (presenter.view != nil) {
-            alert.popoverPresentationController.sourceView = presenter.view;
-            alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1.0, 1.0);
-        }
-    }
-    [presenter presentViewController:alert animated:YES completion:nil];
+    YTKACEMediaActionSheet *sheet = [YTKACEMediaActionSheet new];
+    sheet.heading = heading;
+    sheet.actionSections = sections;
+    [presenter presentViewController:sheet animated:YES completion:nil];
 }
 
-- (void)presentSegmentsViewerForVideoID:(NSString *)videoID {
-    NSArray<NSDictionary<NSString *, id> *> *segments = YTKACESponsorCurrentSegments();
-    if (segments.count == 0) {
-        YTKACEShowNotice(YTKACELocalized(@"No SponsorBlock segments found for this video"));
-        return;
+- (YTKACEMediaAction *)chaptersActionForVideoID:(NSString *)videoID chapters:(NSArray<YTKACEVideoChapter *> *)chapters {
+    NSMutableArray *rows = [NSMutableArray array];
+    for (NSUInteger i = 0; i < chapters.count; i++) {
+        YTKACEVideoChapter *chapter = chapters[i];
+        YTKACEMediaAction *row = [YTKACEMediaAction action:[NSString stringWithFormat:@"sponsor.chapter.%lu", (unsigned long)i]
+            title:chapter.isLikelySponsor ? [@"★ " stringByAppendingString:chapter.title ?: @""] : chapter.title ?: @""
+            symbol:nil handler:^{
+                YTKACEPresentSponsorSubmitController(videoID, chapter.startTime, chapter.endTime, nil);
+            }];
+        row.detail = [NSString stringWithFormat:@"%@ – %@",
+            YTKACEFormatSponsorTime(chapter.startTime), YTKACEFormatSponsorTime(chapter.endTime)];
+        [rows addObject:row];
     }
-    UIViewController *presenter = YTKACEFindTopController();
-    if (!presenter) return;
-
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:YTKACELocalized(@"Current Video Segments")
-                         message:YTKACELocalized(@"Tap a segment to jump or vote:")
-                  preferredStyle:UIAlertControllerStyleActionSheet];
-
-    for (NSDictionary *seg in segments) {
-        double start = [seg[@"start"] doubleValue];
-        double end = [seg[@"end"] doubleValue];
-        NSString *cat = seg[@"category"] ?: @"sponsor";
-        NSString *actType = [seg[@"actionType"] isKindOfClass:NSString.class] ? seg[@"actionType"] : @"skip";
-        NSString *title = [actType isEqualToString:@"full"]
-            ? [NSString stringWithFormat:@"%@: %@", YTKACESponsorCategoryTitle(cat), YTKACELocalized(@"Full Video")]
-            : [NSString stringWithFormat:@"%@: %@ - %@ (%.1fs)",
-                YTKACESponsorCategoryTitle(cat),
-                YTKACEFormatSponsorTime(start),
-                YTKACEFormatSponsorTime(end),
-                MAX(0.0, end - start)];
-
-        UIAlertAction *action = [UIAlertAction actionWithTitle:title
-                                                         style:UIAlertActionStyleDefault
-                                                       handler:^(__unused UIAlertAction *act) {
-            [self presentSegmentDetailForSegment:seg videoID:videoID];
-        }];
-        [alert addAction:action];
-    }
-
-    [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
-                                             style:UIAlertActionStyleCancel
-                                           handler:nil]];
-
-    if (alert.popoverPresentationController != nil) {
-        if (self.presentationAnchor != nil && self.presentationAnchor.window != nil) {
-            alert.popoverPresentationController.sourceView = self.presentationAnchor;
-            alert.popoverPresentationController.sourceRect = self.presentationAnchor.bounds;
-        } else if (presenter.view != nil) {
-            alert.popoverPresentationController.sourceView = presenter.view;
-            alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1.0, 1.0);
-        }
-    }
-    [presenter presentViewController:alert animated:YES completion:nil];
+    YTKACEMediaAction *group = [YTKACEMediaAction group:@"sponsor.chapters" title:YTKACELocalized(@"Select from Chapters")
+        symbol:@"list.bullet.rectangle" children:rows];
+    group.detail = [NSString stringWithFormat:@"%lu", (unsigned long)chapters.count];
+    return group;
 }
 
-- (void)presentSegmentDetailForSegment:(NSDictionary *)seg videoID:(__unused NSString *)videoID {
-    UIViewController *presenter = YTKACEFindTopController();
-    if (!presenter) return;
+- (void)voteForSegmentUUID:(NSString *)uuid type:(NSInteger)type {
+    [YTKACESponsorClient.sharedClient voteForSegmentUUID:uuid type:type completion:^(BOOL success, NSString *message) {
+        AudioServicesPlaySystemSound(success ? 1519 : 1520);
+        if (success) YTKACESponsorRefreshCurrentVideo();
+        NSString *confirmation = type == 1 ? YTKACELocalized(@"Upvote submitted!") : YTKACELocalized(@"Downvote submitted!");
+        YTKACEShowNotice(success ? confirmation : (message ?: YTKACELocalized(@"Voting failed")));
+    }];
+}
 
+- (YTKACEMediaAction *)actionForSegment:(NSDictionary *)seg index:(NSUInteger)index {
     double start = [seg[@"start"] doubleValue];
     double end = [seg[@"end"] doubleValue];
-    NSString *cat = seg[@"category"] ?: @"sponsor";
     NSString *actType = [seg[@"actionType"] isKindOfClass:NSString.class] ? seg[@"actionType"] : @"skip";
+    BOOL full = [actType isEqualToString:@"full"];
     NSString *uuid = seg[@"uuid"] ?: @"";
-
-    NSString *title = [actType isEqualToString:@"full"]
-        ? [NSString stringWithFormat:@"%@ (%@)", YTKACESponsorCategoryTitle(cat), YTKACELocalized(@"Full Video")]
-        : [NSString stringWithFormat:@"%@ (%@ - %@)",
-           YTKACESponsorCategoryTitle(cat),
-           YTKACEFormatSponsorTime(start),
-           YTKACEFormatSponsorTime(end)];
-
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:title
-                         message:YTKACELocalized(@"Choose an action for this segment:")
-                  preferredStyle:UIAlertControllerStyleActionSheet];
-
-    if (![actType isEqualToString:@"full"]) {
-        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Jump to Segment")
-                                                 style:UIAlertActionStyleDefault
-                                               handler:^(__unused UIAlertAction *action) {
-            YTKACESponsorSeek(start);
-            YTKACEPlayYouTubePlayer();
-            AudioServicesPlaySystemSound(1519);
-        }]];
+    NSString *identifier = [NSString stringWithFormat:@"sponsor.segment.%lu", (unsigned long)index];
+    __weak YTKACESponsorSubmitCoordinator *weakSelf = self;
+    NSMutableArray *rows = [NSMutableArray array];
+    if (!full) {
+        [rows addObject:[YTKACEMediaAction action:[identifier stringByAppendingString:@".jump"]
+            title:YTKACELocalized(@"Jump to Segment") symbol:nil handler:^{
+                YTKACESponsorSeek(start);
+                YTKACEPlayYouTubePlayer();
+                AudioServicesPlaySystemSound(1519);
+            }]];
     }
-
     if (uuid.length > 0) {
-        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Upvote Segment (Thumbs Up)")
-                                                 style:UIAlertActionStyleDefault
-                                               handler:^(__unused UIAlertAction *action) {
-            [YTKACESponsorClient.sharedClient voteForSegmentUUID:uuid type:1 completion:^(BOOL success, NSString *message) {
-                AudioServicesPlaySystemSound(success ? 1519 : 1520);
-                if (success) {
-                    YTKACESponsorRefreshCurrentVideo();
-                }
-                YTKACEShowNotice(success ? YTKACELocalized(@"Upvote submitted!") : (message ?: YTKACELocalized(@"Voting failed")));
-            }];
-        }]];
-
-        [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Downvote Segment (Thumbs Down)")
-                                                 style:UIAlertActionStyleDestructive
-                                               handler:^(__unused UIAlertAction *action) {
-            [YTKACESponsorClient.sharedClient voteForSegmentUUID:uuid type:0 completion:^(BOOL success, NSString *message) {
-                AudioServicesPlaySystemSound(success ? 1519 : 1520);
-                if (success) {
-                    YTKACESponsorRefreshCurrentVideo();
-                }
-                YTKACEShowNotice(success ? YTKACELocalized(@"Downvote submitted!") : (message ?: YTKACELocalized(@"Voting failed")));
-            }];
-        }]];
+        [rows addObject:[YTKACEMediaAction action:[identifier stringByAppendingString:@".up"]
+            title:YTKACELocalized(@"Upvote Segment (Thumbs Up)") symbol:nil handler:^{
+                [weakSelf voteForSegmentUUID:uuid type:1];
+            }]];
+        [rows addObject:[YTKACEMediaAction action:[identifier stringByAppendingString:@".down"]
+            title:YTKACELocalized(@"Downvote Segment (Thumbs Down)") symbol:nil handler:^{
+                [weakSelf voteForSegmentUUID:uuid type:0];
+            }]];
     }
+    YTKACEMediaAction *group = [YTKACEMediaAction group:identifier
+        title:YTKACESponsorCategoryTitle(seg[@"category"] ?: @"sponsor") symbol:nil children:rows];
+    group.detail = full ? YTKACELocalized(@"Full Video")
+        : [NSString stringWithFormat:@"%@ – %@", YTKACEFormatSponsorTime(start), YTKACEFormatSponsorTime(end)];
+    return group;
+}
 
-    [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
-                                             style:UIAlertActionStyleCancel
-                                           handler:nil]];
-
-    if (alert.popoverPresentationController != nil) {
-        if (self.presentationAnchor != nil && self.presentationAnchor.window != nil) {
-            alert.popoverPresentationController.sourceView = self.presentationAnchor;
-            alert.popoverPresentationController.sourceRect = self.presentationAnchor.bounds;
-        } else if (presenter.view != nil) {
-            alert.popoverPresentationController.sourceView = presenter.view;
-            alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(presenter.view.bounds), CGRectGetMidY(presenter.view.bounds), 1.0, 1.0);
-        }
+- (void)openSponsorSettings {
+    UIViewController *presenter = YTKACEFindTopController();
+    UIViewController *settings = YTKACEMakeSponsorBlockController();
+    if (!presenter || !settings) return;
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:settings];
+    nav.modalPresentationStyle = UIModalPresentationPageSheet;
+    if (@available(iOS 15.0, *)) {
+        UISheetPresentationController *sheet = nav.sheetPresentationController;
+        sheet.detents = @[UISheetPresentationControllerDetent.largeDetent];
+        sheet.prefersGrabberVisible = YES;
+        sheet.prefersEdgeAttachedInCompactHeight = NO;
+        sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = YES;
     }
-    [presenter presentViewController:alert animated:YES completion:nil];
+    if (YTKACELiquidGlassAvailable()) {
+        YTKACEApplyMenuGlassBackground(nav.view, 24.0);
+        nav.navigationBar.backgroundColor = UIColor.clearColor;
+        nav.navigationBar.translucent = YES;
+        [nav.navigationBar setBackgroundImage:[UIImage new] forBarMetrics:UIBarMetricsDefault];
+        nav.navigationBar.shadowImage = [UIImage new];
+    }
+    [presenter presentViewController:nav animated:YES completion:nil];
 }
 
 - (void)handleButtonTap {
@@ -530,7 +453,9 @@ static UIViewController *YTKACEFindTopController(void) {
     __weak YTKACESponsorSubmitCoordinator *weakSelf = self;
 
     if (!self.hasDraftStart) {
-        NSMutableArray<NSDictionary *> *actions = [NSMutableArray array];
+        NSMutableArray<YTKACEMediaAction *> *segmentRows = [NSMutableArray array];
+        NSMutableArray<YTKACEMediaAction *> *submitRows = [NSMutableArray array];
+        NSMutableArray<YTKACEMediaAction *> *otherRows = [NSMutableArray array];
 
         NSArray *segments = YTKACESponsorCurrentSegments();
         NSDictionary *highlightSeg = nil;
@@ -543,53 +468,42 @@ static UIViewController *YTKACEFindTopController(void) {
         }
         if (highlightSeg != nil) {
             double hlTime = [highlightSeg[@"start"] doubleValue];
-            [actions addObject:@{
-                @"title": [NSString stringWithFormat:@"%@ (%@)",
-                           YTKACELocalized(@"Jump to Highlight"),
-                           YTKACEFormatSponsorTime(hlTime)],
-                @"icon": [UIImage systemImageNamed:@"scope"] ?: [UIImage new],
-                @"handler": [^{
+            YTKACEMediaAction *highlight = [YTKACEMediaAction action:@"sponsor.highlight"
+                title:YTKACELocalized(@"Jump to Highlight") symbol:@"scope" handler:^{
                     if (![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                     YTKACESponsorSeek(hlTime);
                     YTKACEPlayYouTubePlayer();
                     AudioServicesPlaySystemSound(1519);
-                } copy]
-            }];
+                }];
+            highlight.detail = YTKACEFormatSponsorTime(hlTime);
+            [segmentRows addObject:highlight];
         }
 
         if (segments.count > 0) {
-            [actions addObject:@{
-                @"title": [NSString stringWithFormat:@"%@ (%lu)...",
-                           YTKACELocalized(@"View Segments & Vote"), (unsigned long)segments.count],
-                @"icon": [UIImage systemImageNamed:@"hand.thumbsup"] ?: [UIImage new],
-                @"handler": [^{
-                    YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                    if (strongSelf) {
-                        [strongSelf presentSegmentsViewerForVideoID:videoID];
-                    }
-                } copy]
-            }];
+            NSMutableArray *rows = [NSMutableArray array];
+            for (NSUInteger i = 0; i < segments.count; i++) {
+                [rows addObject:[self actionForSegment:segments[i] index:i]];
+            }
+            YTKACEMediaAction *group = [YTKACEMediaAction group:@"sponsor.segments"
+                title:YTKACELocalized(@"View Segments & Vote") symbol:@"hand.thumbsup" children:rows];
+            group.detail = [NSString stringWithFormat:@"%lu", (unsigned long)segments.count];
+            [segmentRows addObject:group];
         }
 
-        NSString *channelTitle = YTKACESponsorCurrentChannelTitle();
-        if (channelTitle.length > 0) {
-            BOOL whitelisted = YTKACESponsorIsChannelWhitelisted(channelTitle);
-            NSString *wlTitle = whitelisted
-                ? [NSString stringWithFormat:@"%@: \"%@\"", YTKACELocalized(@"Remove from Whitelist"), channelTitle]
-                : [NSString stringWithFormat:@"%@: \"%@\"", YTKACELocalized(@"Whitelist Channel"), channelTitle];
-            [actions addObject:@{
-                @"title": wlTitle,
-                @"icon": [UIImage systemImageNamed:whitelisted ? @"star.slash" : @"star.fill"] ?: [UIImage new],
-                @"handler": [^{
-                    YTKACESponsorSetChannelWhitelisted(channelTitle, !whitelisted);
-                    AudioServicesPlaySystemSound(1519);
-                    NSString *noticeMsg = !whitelisted
-                        ? [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Channel whitelisted"), channelTitle]
-                        : [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Channel removed from whitelist"), channelTitle];
-                    YTKACEShowNotice(noticeMsg);
-                } copy]
+        YTKACEMediaAction *setStart = [YTKACEMediaAction action:@"sponsor.start"
+            title:YTKACELocalized(@"Set Start Time") symbol:@"timer" handler:^{
+                YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
+                if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
+                strongSelf.draftVideoID = videoID;
+                strongSelf.draftStartTime = now;
+                strongSelf.hasDraftStart = YES;
+                [strongSelf updateButton];
+                AudioServicesPlaySystemSound(1519);
+                [strongSelf showDraftStartBannerWithMessage:[NSString stringWithFormat:@"%@: %@",
+                    YTKACELocalized(@"Segment start set"), nowText]];
             }];
-        }
+        setStart.detail = nowText;
+        [submitRows addObject:setStart];
 
         NSArray<YTKACEVideoChapter *> *chapters = YTKACESponsorCurrentChapters();
         YTKACEVideoChapter *sponsorChapter = nil;
@@ -600,148 +514,101 @@ static UIViewController *YTKACEFindTopController(void) {
             }
         }
         if (sponsorChapter != nil) {
-            NSString *chTitle = sponsorChapter.title.length > 25
-                ? [NSString stringWithFormat:@"%@...", [sponsorChapter.title substringToIndex:22]]
-                : sponsorChapter.title;
-            NSString *timeRange = [NSString stringWithFormat:@"%@ - %@",
-                YTKACEFormatSponsorTime(sponsorChapter.startTime),
-                YTKACEFormatSponsorTime(sponsorChapter.endTime)];
-            [actions addObject:@{
-                @"title": [NSString stringWithFormat:@"%@: \"%@\" (%@)",
-                           YTKACELocalized(@"Sponsor Chapter"), chTitle, timeRange],
-                @"icon": [UIImage systemImageNamed:@"sparkles"] ?: [UIImage new],
-                @"handler": [^{
+            YTKACEMediaAction *suggested = [YTKACEMediaAction action:@"sponsor.chapter.suggested"
+                title:[NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Sponsor Chapter"), sponsorChapter.title]
+                symbol:@"sparkles" handler:^{
                     YTKACEPresentSponsorSubmitController(videoID,
                                                          sponsorChapter.startTime,
                                                          sponsorChapter.endTime,
                                                          nil);
-                } copy]
-            }];
+                }];
+            suggested.detail = [NSString stringWithFormat:@"%@ – %@",
+                YTKACEFormatSponsorTime(sponsorChapter.startTime),
+                YTKACEFormatSponsorTime(sponsorChapter.endTime)];
+            [submitRows addObject:suggested];
         }
         if (chapters.count > 0) {
-            [actions addObject:@{
-                @"title": [NSString stringWithFormat:@"%@ (%lu)...",
-                           YTKACELocalized(@"Select from Chapters"), (unsigned long)chapters.count],
-                @"icon": [UIImage systemImageNamed:@"list.bullet.rectangle"] ?: [UIImage new],
-                @"handler": [^{
-                    YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                    if (strongSelf) {
-                        [strongSelf presentChapterPickerForVideoID:videoID];
-                    }
-                } copy]
-            }];
+            [submitRows addObject:[self chaptersActionForVideoID:videoID chapters:chapters]];
         }
 
-        [actions addObject:@{
-            @"title": [NSString stringWithFormat:@"%@ (%@)", YTKACELocalized(@"Set Start Time"), nowText],
-            @"icon": [UIImage systemImageNamed:@"timer"] ?: [UIImage new],
-            @"handler": [^{
-                YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
-                strongSelf.draftVideoID = videoID;
-                strongSelf.draftStartTime = now;
-                strongSelf.hasDraftStart = YES;
-                [strongSelf updateButton];
-                AudioServicesPlaySystemSound(1519);
-                [strongSelf showDraftStartBannerWithMessage:[NSString stringWithFormat:@"%@: %@",
-                    YTKACELocalized(@"Segment start set"), nowText]];
-            } copy]
-        }];
-        [actions addObject:@{
-            @"title": YTKACELocalized(@"Open Segment Editor..."),
-            @"icon": [UIImage systemImageNamed:@"square.and.pencil"] ?: [UIImage new],
-            @"handler": [^{
+        [submitRows addObject:[YTKACEMediaAction action:@"sponsor.editor"
+            title:YTKACELocalized(@"Open Segment Editor...") symbol:@"square.and.pencil" handler:^{
                 YTKACEPresentSponsorSubmitController(videoID, now, now, nil);
-            } copy]
-        }];
-        [actions addObject:@{
-            @"title": YTKACELocalized(isShort ? @"Label Entire Short..." : @"Mark Full Video..."),
-            @"icon": [UIImage systemImageNamed:@"film.stack"] ?: [UIImage new],
-            @"handler": [^{
-                YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
-                if (strongSelf) {
-                    [strongSelf presentFullVideoPickerForVideoID:videoID];
-                }
-            } copy]
-        }];
-        [actions addObject:@{
-            @"title": YTKACELocalized(@"SponsorBlock Settings"),
-            @"icon": [UIImage systemImageNamed:@"gearshape"] ?: [UIImage new],
-            @"handler": [^{
-                UIViewController *presenter = YTKACEFindTopController();
-                UIViewController *settings = YTKACEMakeSponsorBlockController();
-                if (presenter && settings) {
-                    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:settings];
-                    nav.modalPresentationStyle = UIModalPresentationPageSheet;
-                    if (@available(iOS 15.0, *)) {
-                        UISheetPresentationController *sheet = nav.sheetPresentationController;
-                        sheet.detents = @[UISheetPresentationControllerDetent.largeDetent];
-                        sheet.prefersGrabberVisible = YES;
-                        sheet.prefersEdgeAttachedInCompactHeight = NO;
-                        sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = YES;
-                    }
-                    if (YTKACELiquidGlassAvailable()) {
-                        YTKACEApplyMenuGlassBackground(nav.view, 24.0);
-                        nav.navigationBar.backgroundColor = UIColor.clearColor;
-                        nav.navigationBar.translucent = YES;
-                        [nav.navigationBar setBackgroundImage:[UIImage new] forBarMetrics:UIBarMetricsDefault];
-                        nav.navigationBar.shadowImage = [UIImage new];
-                    }
-                    [presenter presentViewController:nav animated:YES completion:nil];
-                }
-            } copy]
-        }];
-        YTKACEPresentNativeSheet(YTKACELocalized(@"SponsorBlock"),
-                                 YTKACELocalized(@"Mark segment to submit"),
-                                 self.presentationAnchor,
-                                 actions);
+            }]];
+
+        NSMutableArray *fullRows = [NSMutableArray array];
+        for (NSString *category in @[@"sponsor", @"selfpromo"]) {
+            [fullRows addObject:[YTKACEMediaAction action:[@"sponsor.full." stringByAppendingString:category]
+                title:YTKACESponsorCategoryTitle(category) symbol:nil handler:^{
+                    [weakSelf openFullVideoEditorForVideoID:videoID category:category];
+                }]];
+        }
+        [submitRows addObject:[YTKACEMediaAction group:@"sponsor.full"
+            title:YTKACELocalized(isShort ? @"Label Entire Short..." : @"Mark Full Video...")
+            symbol:@"film.stack" children:fullRows]];
+
+        NSString *channelTitle = YTKACESponsorCurrentChannelTitle();
+        if (channelTitle.length > 0) {
+            BOOL whitelisted = YTKACESponsorIsChannelWhitelisted(channelTitle);
+            YTKACEMediaAction *whitelist = [YTKACEMediaAction action:@"sponsor.whitelist"
+                title:YTKACELocalized(whitelisted ? @"Remove from Whitelist" : @"Whitelist Channel")
+                symbol:whitelisted ? @"star.slash" : @"star" handler:^{
+                    YTKACESponsorSetChannelWhitelisted(channelTitle, !whitelisted);
+                    AudioServicesPlaySystemSound(1519);
+                    NSString *noticeMsg = !whitelisted
+                        ? [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Channel whitelisted"), channelTitle]
+                        : [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Channel removed from whitelist"), channelTitle];
+                    YTKACEShowNotice(noticeMsg);
+                }];
+            whitelist.detail = channelTitle;
+            [otherRows addObject:whitelist];
+        }
+        [otherRows addObject:[YTKACEMediaAction action:@"sponsor.settings"
+            title:YTKACELocalized(@"SponsorBlock Settings") symbol:@"gearshape" handler:^{
+                [weakSelf openSponsorSettings];
+            }]];
+
+        [self presentSheetWithHeading:YTKACELocalized(@"SponsorBlock")
+                             sections:@[segmentRows, submitRows, otherRows]];
     } else {
         [self dismissDraftBanner];
         NSString *startText = YTKACEFormatSponsorTime(self.draftStartTime);
-        NSMutableArray<NSDictionary *> *actions = [NSMutableArray array];
-        [actions addObject:@{
-            @"title": [NSString stringWithFormat:@"%@ (%@ → %@)...",
-                       YTKACELocalized(@"Set End Time & Review"), startText, nowText],
-            @"icon": [UIImage systemImageNamed:@"checkmark.circle"] ?: [UIImage new],
-            @"handler": [^{
+        NSMutableArray<YTKACEMediaAction *> *finishRows = [NSMutableArray array];
+        YTKACEMediaAction *setEnd = [YTKACEMediaAction action:@"sponsor.draft.end"
+            title:YTKACELocalized(@"Set End Time & Review") symbol:@"checkmark.circle" handler:^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
                 if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 strongSelf.draftEndTime = now;
                 strongSelf.hasDraftEnd = YES;
                 YTKACEPresentSponsorSubmitController(videoID, strongSelf.draftStartTime, now, nil);
-            } copy]
-        }];
+            }];
+        setEnd.detail = [NSString stringWithFormat:@"%@ → %@", startText, nowText];
+        setEnd.prominent = YES;
+        [finishRows addObject:setEnd];
         if (dur > self.draftStartTime) {
-            [actions addObject:@{
-                @"title": [NSString stringWithFormat:@"%@ (%@ → %@)...",
-                           YTKACELocalized(@"Set End to Video End"), startText, YTKACEFormatSponsorTime(dur)],
-                @"icon": [UIImage systemImageNamed:@"forward.end.alt"] ?: [UIImage new],
-                @"handler": [^{
+            YTKACEMediaAction *setVideoEnd = [YTKACEMediaAction action:@"sponsor.draft.videoEnd"
+                title:YTKACELocalized(@"Set End to Video End") symbol:@"forward.end.alt" handler:^{
                     YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
                     if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                     strongSelf.draftEndTime = dur;
                     strongSelf.hasDraftEnd = YES;
                     YTKACEPresentSponsorSubmitController(videoID, strongSelf.draftStartTime, dur, nil);
-                } copy]
-            }];
+                }];
+            setVideoEnd.detail = [NSString stringWithFormat:@"%@ → %@", startText, YTKACEFormatSponsorTime(dur)];
+            [finishRows addObject:setVideoEnd];
         }
-        [actions addObject:@{
-            @"title": YTKACELocalized(@"Edit Segment..."),
-            @"icon": [UIImage systemImageNamed:@"slider.horizontal.3"] ?: [UIImage new],
-            @"handler": [^{
+        NSMutableArray<YTKACEMediaAction *> *editRows = [NSMutableArray array];
+        [editRows addObject:[YTKACEMediaAction action:@"sponsor.draft.edit"
+            title:YTKACELocalized(@"Edit Segment...") symbol:@"slider.horizontal.3" handler:^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
                 if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 double end = strongSelf.hasDraftEnd ? strongSelf.draftEndTime : now;
                 YTKACEPresentSponsorSubmitController(videoID, strongSelf.draftStartTime, end, nil);
-            } copy]
-        }];
+            }]];
         double rawCurTime = YTKACESponsorCurrentTime();
         if (dur > 0.0 && rawCurTime > dur) rawCurTime = dur;
-        NSString *rawCurText = YTKACEFormatSponsorTime(rawCurTime);
-        [actions addObject:@{
-            @"title": [NSString stringWithFormat:@"%@ (%@)", YTKACELocalized(@"Update Start Time"), rawCurText],
-            @"icon": [UIImage systemImageNamed:@"arrow.counterclockwise"] ?: [UIImage new],
-            @"handler": [^{
+        YTKACEMediaAction *updateStart = [YTKACEMediaAction action:@"sponsor.draft.start"
+            title:YTKACELocalized(@"Update Start Time") symbol:@"arrow.counterclockwise" handler:^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
                 if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 double curTime = YTKACESponsorCurrentTime();
@@ -752,88 +619,58 @@ static UIViewController *YTKACEFindTopController(void) {
                 AudioServicesPlaySystemSound(1519);
                 [strongSelf showDraftStartBannerWithMessage:[NSString stringWithFormat:@"%@: %@",
                     YTKACELocalized(@"Segment start updated"), YTKACEFormatSponsorTime(curTime)]];
-            } copy]
-        }];
-        [actions addObject:@{
-            @"title": YTKACELocalized(@"Cancel Segment"),
-            @"icon": [UIImage systemImageNamed:@"xmark.circle"] ?: [UIImage new],
-            @"handler": [^{
+            }];
+        updateStart.detail = YTKACEFormatSponsorTime(rawCurTime);
+        [editRows addObject:updateStart];
+        [editRows addObject:[YTKACEMediaAction action:@"sponsor.draft.cancel"
+            title:YTKACELocalized(@"Cancel Segment") symbol:@"xmark.circle" handler:^{
                 YTKACESponsorSubmitCoordinator *strongSelf = weakSelf;
                 if (!strongSelf || ![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
                 [strongSelf clearDraft];
                 AudioServicesPlaySystemSound(1520);
                 YTKACEShowNotice(YTKACELocalized(@"Draft discarded"));
-            } copy]
-        }];
-        YTKACEPresentNativeSheet(YTKACELocalized(@"SponsorBlock Draft"),
-                                 [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Recording segment from"), startText],
-                                 self.presentationAnchor,
-                                 actions);
+            }]];
+        [self presentSheetWithHeading:[NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Recording segment from"), startText]
+                             sections:@[finishRows, editRows]];
     }
 }
 
-- (void)presentFullVideoPickerForVideoID:(NSString *)videoID {
-    BOOL isShort = YTKACEResolveShortsPlayback(YTKACEActivePlayerViewController(), NULL);
-    void (^openFullEditor)(NSString *) = ^(NSString *categoryID) {
-        if (![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
-        UIViewController *presenter = YTKACEFindTopController();
-        if (!presenter) return;
-        YTKACESponsorSubmitController *controller = [YTKACESponsorSubmitController new];
-        controller.videoID = videoID.length > 0 ? videoID : YTKACESponsorCurrentVideoID();
-        controller.videoTitle = YTKACESponsorCurrentVideoTitle();
-        controller.videoDuration = YTKACESponsorCurrentDuration();
-        controller.startTime = 0.0;
-        controller.endTime = controller.videoDuration;
-        controller.selectedCategory = categoryID;
-        controller.actionType = @"full";
+- (void)openFullVideoEditorForVideoID:(NSString *)videoID category:(NSString *)categoryID {
+    if (![videoID isEqualToString:YTKACESponsorCurrentVideoID()]) return;
+    UIViewController *presenter = YTKACEFindTopController();
+    if (!presenter) return;
+    YTKACESponsorSubmitController *controller = [YTKACESponsorSubmitController new];
+    controller.videoID = videoID.length > 0 ? videoID : YTKACESponsorCurrentVideoID();
+    controller.videoTitle = YTKACESponsorCurrentVideoTitle();
+    controller.videoDuration = YTKACESponsorCurrentDuration();
+    controller.startTime = 0.0;
+    controller.endTime = controller.videoDuration;
+    controller.selectedCategory = categoryID;
+    controller.actionType = @"full";
 
-        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:controller];
-        nav.modalPresentationStyle = UIModalPresentationPageSheet;
-        if (@available(iOS 15.0, *)) {
-            UISheetPresentationController *sheet = nav.sheetPresentationController;
-            sheet.detents = @[
-                UISheetPresentationControllerDetent.mediumDetent,
-                UISheetPresentationControllerDetent.largeDetent
-            ];
-            sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
-            sheet.largestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
-            sheet.prefersGrabberVisible = YES;
-            sheet.prefersEdgeAttachedInCompactHeight = NO;
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = NO;
-            sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = YES;
-        }
-        if (YTKACELiquidGlassAvailable()) {
-            YTKACEApplyMenuGlassBackground(nav.view, 24.0);
-            nav.navigationBar.backgroundColor = UIColor.clearColor;
-            nav.navigationBar.translucent = YES;
-            [nav.navigationBar setBackgroundImage:[UIImage new] forBarMetrics:UIBarMetricsDefault];
-            nav.navigationBar.shadowImage = [UIImage new];
-        }
-        [presenter presentViewController:nav animated:YES completion:nil];
-    };
-
-    NSMutableArray<NSDictionary *> *actions = [NSMutableArray array];
-    [actions addObject:@{
-        @"title": [NSString stringWithFormat:@"%@: %@", YTKACELocalized(isShort ? @"Entire Short" : @"Full Video"), YTKACESponsorCategoryTitle(@"sponsor")],
-        @"subtitle": YTKACESponsorCategoryDescription(@"sponsor"),
-        @"icon": [UIImage systemImageNamed:@"dollarsign.circle.fill"] ?: [UIImage new],
-        @"handler": [^{
-            openFullEditor(@"sponsor");
-        } copy]
-    }];
-    [actions addObject:@{
-        @"title": [NSString stringWithFormat:@"%@: %@", YTKACELocalized(isShort ? @"Entire Short" : @"Full Video"), YTKACESponsorCategoryTitle(@"selfpromo")],
-        @"subtitle": YTKACESponsorCategoryDescription(@"selfpromo"),
-        @"icon": [UIImage systemImageNamed:@"megaphone.fill"] ?: [UIImage new],
-        @"handler": [^{
-            openFullEditor(@"selfpromo");
-        } copy]
-    }];
-
-    YTKACEPresentNativeSheet(YTKACELocalized(isShort ? @"Label Entire Short..." : @"Mark Full Video..."),
-                             YTKACELocalized(isShort ? @"Labels the entire Short without skipping it. Choose a category:" : @"Choose a category for the entire video:"),
-                             self.presentationAnchor,
-                             actions);
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:controller];
+    nav.modalPresentationStyle = UIModalPresentationPageSheet;
+    if (@available(iOS 15.0, *)) {
+        UISheetPresentationController *sheet = nav.sheetPresentationController;
+        sheet.detents = @[
+            UISheetPresentationControllerDetent.mediumDetent,
+            UISheetPresentationControllerDetent.largeDetent
+        ];
+        sheet.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
+        sheet.largestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
+        sheet.prefersGrabberVisible = YES;
+        sheet.prefersEdgeAttachedInCompactHeight = NO;
+        sheet.prefersScrollingExpandsWhenScrolledToEdge = NO;
+        sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = YES;
+    }
+    if (YTKACELiquidGlassAvailable()) {
+        YTKACEApplyMenuGlassBackground(nav.view, 24.0);
+        nav.navigationBar.backgroundColor = UIColor.clearColor;
+        nav.navigationBar.translucent = YES;
+        [nav.navigationBar setBackgroundImage:[UIImage new] forBarMetrics:UIBarMetricsDefault];
+        nav.navigationBar.shadowImage = [UIImage new];
+    }
+    [presenter presentViewController:nav animated:YES completion:nil];
 }
 
 @end

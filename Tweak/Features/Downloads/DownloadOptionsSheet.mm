@@ -28,6 +28,8 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
 @property(nonatomic, assign) BOOL submitted;
 @property(nonatomic, assign) BOOL captionManuallyChanged;
 @property(nonatomic, strong) NSMutableSet<NSString *> *selectedSegments;
+@property(nonatomic, strong) YTKACEChoiceStrip *qualityStrip;
+@property(nonatomic, copy) NSArray<YTKACEStreamOption *> *qualityOptions;
 @property(nonatomic, copy, readwrite) NSArray<NSDictionary *> *allSponsorSegments;
 @end
 
@@ -150,37 +152,45 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     if (!photosCompatible && self.destination == YTKACEDownloadDestinationPhotos) self.destination = YTKACEDownloadDestinationDownloads;
     NSMutableArray<YTKACEMediaAction *> *rows = [NSMutableArray array];
     NSArray *codecs = [self codecs];
-    NSMutableArray *titles = [codecs mutableCopy];
-    NSUInteger audioIndex = [titles indexOfObject:@"audio"];
-    if (audioIndex != NSNotFound) titles[audioIndex] = YTKACELocalized(@"Audio only");
+    NSDictionary *codecNames = @{@"avc1": @"H.264", @"av01": @"AV1", @"vp9": @"VP9", @"hevc": @"HEVC", @"audio": YTKACELocalized(@"Audio only")};
+    NSMutableArray *titles = [NSMutableArray array];
+    for (NSString *codec in codecs) [titles addObject:codecNames[codec] ?: codec];
     UISegmentedControl *tabs = [[UISegmentedControl alloc] initWithItems:titles];
     tabs.selectedSegmentIndex = [codecs indexOfObject:self.isAudioOnly ? @"audio" : self.selectedCodec];
     [tabs addTarget:self action:@selector(codecChanged:) forControlEvents:UIControlEventValueChanged];
     tabs.accessibilityLabel = YTKACELocalized(@"Quality");
     YTKACEMediaAction *tabRow = [YTKACEMediaAction action:@"download.codec" title:@"" symbol:nil handler:nil];
     tabRow.customView = tabs;
-    NSMutableArray *qualities = [NSMutableArray arrayWithObject:tabRow];
-    NSArray *formats = self.isAudioOnly ? self.audioOptions : self.videoOptions;
-    for (YTKACEStreamOption *option in formats) {
+    NSMutableArray<YTKACEStreamOption *> *qualityOptions = [NSMutableArray array];
+    NSMutableArray<NSString *> *qualityTitles = [NSMutableArray array], *qualitySizes = [NSMutableArray array];
+    YTKACEStreamOption *selected = self.isAudioOnly ? self.selectedAudio : self.selectedVideo;
+    NSUInteger selectedQuality = NSNotFound;
+    for (YTKACEStreamOption *option in self.isAudioOnly ? self.audioOptions : self.videoOptions) {
         if (self.isAudioOnly) {
             if (self.selectedAudio && ![option.audioTrackKey isEqual:self.selectedAudio.audioTrackKey]) continue;
         } else if (![option.codecIdentifier isEqual:self.selectedCodec]) continue;
-        NSString *size = [self sizeForVideo:self.isAudioOnly ? nil : option audio:self.isAudioOnly ? option : self.selectedAudio];
-        NSString *title = size.length ? [NSString stringWithFormat:@"%@ · %@", [self qualityTitle:option], size] : [self qualityTitle:option];
-        YTKACEMediaAction *choice = [self choice:[NSString stringWithFormat:@"download.quality.%ld.%@", (long)option.itag, option.audioTrackKey]
-            title:title selected:[option isEqual:self.isAudioOnly ? self.selectedAudio : self.selectedVideo] handler:^{
-                if (weakSelf.isAudioOnly) weakSelf.selectedAudio = option;
-                else weakSelf.selectedVideo = option;
-                [weakSelf rebuildForm];
-            }];
-        [qualities addObject:choice];
+        if ([option isEqual:selected]) selectedQuality = qualityOptions.count;
+        [qualityOptions addObject:option];
+        [qualityTitles addObject:[self qualityTitle:option]];
+        [qualitySizes addObject:[self sizeForVideo:self.isAudioOnly ? nil : option audio:self.isAudioOnly ? option : self.selectedAudio]];
     }
-    YTKACEMediaAction *quality = [YTKACEMediaAction group:@"download.quality" title:YTKACELocalized(@"Quality")
-        symbol:self.isAudioOnly ? @"music.note" : @"play.rectangle" children:qualities];
-    YTKACEStreamOption *selected = self.isAudioOnly ? self.selectedAudio : self.selectedVideo;
+    self.qualityOptions = qualityOptions;
+    YTKACEMediaAction *quality = [YTKACEMediaAction action:@"download.quality" title:YTKACELocalized(@"None available") symbol:nil handler:nil];
+    if (qualityOptions.count) {
+        if (!self.qualityStrip) {
+            self.qualityStrip = [YTKACEChoiceStrip new];
+            self.qualityStrip.accessibilityLabel = YTKACELocalized(@"Quality");
+            self.qualityStrip.selectionHandler = ^(NSUInteger index) {
+                if (index >= weakSelf.qualityOptions.count) return;
+                if (weakSelf.isAudioOnly) weakSelf.selectedAudio = weakSelf.qualityOptions[index];
+                else weakSelf.selectedVideo = weakSelf.qualityOptions[index];
+                [weakSelf rebuildForm];
+            };
+        }
+        [self.qualityStrip setTitles:qualityTitles subtitles:qualitySizes selectedIndex:selectedQuality];
+        quality.customView = self.qualityStrip;
+    }
     NSString *size = [self sizeForVideo:self.isAudioOnly ? nil : self.selectedVideo audio:self.selectedAudio];
-    quality.detail = selected ? (size.length ? [NSString stringWithFormat:@"%@ · %@", [self qualityTitle:selected], size] : [self qualityTitle:selected]) : YTKACELocalized(@"None available");
-    [rows addObject:quality];
     if (convertible) {
         NSArray *values = @[@"skip", @"hardware", @"ultrafast", @"veryfast", @"medium"];
         NSArray *names = @[YTKACELocalized(@"Skip conversion"), YTKACELocalized(@"Hardware accelerated"), YTKACELocalized(@"Ultra fast"), YTKACELocalized(@"Very fast"), YTKACELocalized(@"Medium")];
@@ -238,9 +248,9 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
     }
     YTKACEMediaAction *audio = [YTKACEMediaAction group:@"download.audio" title:YTKACELocalized(@"Audio track") symbol:@"person.wave.2" children:tracks];
     audio.detail = self.selectedAudio.languageLabel.length ? self.selectedAudio.languageLabel : YTKACELocalized(@"Original audio");
-    audio.enabled = tracks.count > 0;
-    [rows addObject:audio];
-    if (!self.isAudioOnly) {
+    // A single track and an empty list offer no choice, so they take no room.
+    if (tracks.count > 1) [rows addObject:audio];
+    if (!self.isAudioOnly && self.captionChoices.count > 0) {
         NSMutableArray *captions = [NSMutableArray arrayWithObject:[self choice:@"download.caption.none"
             title:YTKACELocalized(@"Don't add captions") selected:self.selectedCaption == nil handler:^{
                 weakSelf.captionManuallyChanged = YES; weakSelf.selectedCaption = nil; [weakSelf rebuildForm];
@@ -255,7 +265,7 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
         caption.detail = self.selectedCaption[@"label"] ?: YTKACELocalized(@"Don't add captions");
         [rows addObject:caption];
     }
-    if (YTKACESponsorBlockEnabled()) {
+    if (YTKACESponsorBlockEnabled() && self.sponsorSegments.count > 0) {
         NSMutableArray *segments = [NSMutableArray array];
         for (NSDictionary *segment in self.sponsorSegments) {
             NSString *key = [self segmentKey:segment];
@@ -298,7 +308,8 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
         [self.selectedAudio.codecIdentifier isEqual:@"opus"] || (self.isAudioOnly && [self.audioFormat isEqual:@"mp3"]))
         ? [NSString stringWithFormat:YTKACELocalized(@"Download: %@ · Output size varies"), size.length ? size : @"—"] : size;
     download.dismissesSheet = NO;
-    self.actionSections = @[rows, @[download]];
+    download.prominent = YES;
+    self.actionSections = @[@[tabRow, quality], rows, @[download]];
 }
 
 - (void)codecChanged:(UISegmentedControl *)control {

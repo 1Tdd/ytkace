@@ -23,6 +23,91 @@
 }
 @end
 
+static UIColor *YTKACEMediaSheetAccent(void) {
+    return [UIColor colorWithRed:0.73 green:0.43 blue:0.91 alpha:1];
+}
+
+@implementation YTKACEChoiceStrip {
+    UIStackView *_stack;
+    NSArray<NSString *> *_titles;
+    NSArray<NSString *> *_subtitles;
+    NSMutableArray<UIButton *> *_buttons;
+}
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.showsHorizontalScrollIndicator = NO;
+        _buttons = [NSMutableArray array];
+        _stack = [UIStackView new];
+        _stack.axis = UILayoutConstraintAxisHorizontal;
+        _stack.spacing = 8;
+        _stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:_stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [_stack.topAnchor constraintEqualToAnchor:self.topAnchor],
+            [_stack.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            [_stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [_stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+            [_stack.heightAnchor constraintEqualToAnchor:self.heightAnchor],
+            [self.heightAnchor constraintEqualToConstant:56]
+        ]];
+    }
+    return self;
+}
+- (void)setTitles:(NSArray<NSString *> *)titles subtitles:(NSArray<NSString *> *)subtitles
+    selectedIndex:(NSUInteger)selectedIndex {
+    BOOL changed = ![_titles isEqualToArray:titles] || ![_subtitles isEqualToArray:subtitles];
+    if (changed) {
+        BOOL firstLoad = _titles == nil;
+        _titles = [titles copy];
+        _subtitles = [subtitles copy];
+        for (UIButton *button in _buttons) [button removeFromSuperview];
+        [_buttons removeAllObjects];
+        for (NSUInteger i = 0; i < titles.count; i++) {
+            UIButtonConfiguration *configuration = UIButtonConfiguration.plainButtonConfiguration;
+            configuration.title = titles[i];
+            configuration.subtitle = i < subtitles.count && subtitles[i].length ? subtitles[i] : nil;
+            configuration.titleAlignment = UIButtonConfigurationTitleAlignmentCenter;
+            configuration.baseForegroundColor = UIColor.labelColor;
+            configuration.cornerStyle = UIButtonConfigurationCornerStyleMedium;
+            configuration.contentInsets = NSDirectionalEdgeInsetsMake(6, 14, 6, 14);
+            UIButton *button = [UIButton buttonWithConfiguration:configuration primaryAction:nil];
+            button.tag = (NSInteger)i;
+            [button addTarget:self action:@selector(choiceTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [_stack addArrangedSubview:button];
+            [_buttons addObject:button];
+        }
+        if (firstLoad && selectedIndex < _buttons.count) {
+            UIButton *selected = _buttons[selectedIndex];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self layoutIfNeeded];
+                [self scrollRectToVisible:selected.frame animated:NO];
+            });
+        }
+    }
+    [self selectIndex:selectedIndex];
+}
+- (void)selectIndex:(NSUInteger)selectedIndex {
+    for (UIButton *button in _buttons) {
+        BOOL selected = (NSUInteger)button.tag == selectedIndex;
+        UIButtonConfiguration *configuration = button.configuration;
+        UIBackgroundConfiguration *background = configuration.background;
+        background.backgroundColor = selected
+            ? [YTKACEMediaSheetAccent() colorWithAlphaComponent:0.28] : [UIColor colorWithWhite:1 alpha:0.08];
+        background.strokeColor = selected ? YTKACEMediaSheetAccent() : UIColor.clearColor;
+        background.strokeWidth = selected ? 1.5 : 0;
+        configuration.background = background;
+        button.configuration = configuration;
+        if (selected) button.accessibilityTraits |= UIAccessibilityTraitSelected;
+        else button.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+    }
+}
+- (void)choiceTapped:(UIButton *)button {
+    [self selectIndex:(NSUInteger)button.tag];
+    if (self.selectionHandler) self.selectionHandler((NSUInteger)button.tag);
+}
+@end
+
 @interface YTKACEMediaActionSheet () <UITableViewDataSource, UITableViewDelegate>
 @property(nonatomic, strong) UITableView *tableView;
 @property(nonatomic, strong) UILabel *headingLabel;
@@ -229,6 +314,13 @@
         config.imageProperties.maximumSize = CGSizeMake(24, 24);
         config.imageToTextPadding = 14;
     }
+    if (action.prominent) {
+        cell.backgroundColor = YTKACEMediaSheetAccent();
+        config.textProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+        config.textProperties.color = UIColor.whiteColor;
+        config.secondaryTextProperties.color = [UIColor colorWithWhite:1 alpha:0.85];
+        config.imageProperties.tintColor = UIColor.whiteColor;
+    }
     cell.contentConfiguration = config;
     NSString *accessory = action.children.count
         ? ([self.expandedActions containsObject:action.identifier] ? @"chevron.up" : @"chevron.down")
@@ -236,7 +328,7 @@
     if (accessory != nil) {
         UIImageView *image = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:accessory]];
         image.tintColor = action.selected && !action.children.count
-            ? [UIColor colorWithRed:0.73 green:0.43 blue:0.91 alpha:1] : UIColor.tertiaryLabelColor;
+            ? YTKACEMediaSheetAccent() : UIColor.tertiaryLabelColor;
         image.contentMode = UIViewContentModeScaleAspectFit;
         image.frame = CGRectMake(0, 0, 20, 20);
         cell.accessoryView = image;
