@@ -1367,6 +1367,8 @@ Licensed under CC BY-NC-SA 4.0.";
 
 "Image list unavailable" = "Image list unavailable";
 
+"Saved %lu images; the full post list was unavailable, so some may be missing." = "Saved %lu images; the full post list was unavailable, so some may be missing.";
+
 "Could not load all post images. Open the post and try again." = "Could not load all post images. Open the post and try again.";
 
 "Keep Shorts in Home" = "Keep Shorts in Home";

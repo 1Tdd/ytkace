@@ -47,7 +47,7 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
         NSString *token = [identifier isKindOfClass:NSString.class] ? [identifier lowercaseString] : @"";
         id templateURI = YTKACEPostValue(item, @"templateURI");
         if ([templateURI isKindOfClass:NSString.class]) token = [token stringByAppendingFormat:@" %@", [templateURI lowercaseString]];
-        attachment |= [name containsString:@"BackstageImage"] || [name isEqual:@"YTImageZoomNode"] || [token containsString:@"post_attachment"] ||
+        attachment |= [name containsString:@"BackstageImage"] || [name isEqual:@"YTImageZoomNode"] || [name isEqual:@"YTImageZoomView"] || [token containsString:@"post_attachment"] ||
             [token containsString:@"image_carousel"] || [token containsString:@"post_image"] ||
             [token containsString:@"image_gallery"] || [token containsString:@"image_viewer"];
         if ([name isEqualToString:@"ELMCollectionNode"]) {
@@ -59,9 +59,11 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
         NSHashTable *visited = attachment ? seenAttachments : seen;
         if ([visited containsObject:item]) continue;
         [visited addObject:item];
-        id value = YTKACEPostValue(item, @"URL") ?: YTKACEPostValue(item, @"url");
+        // RenderNext image views expose currentImageURL instead of URL.
+        id value = YTKACEPostValue(item, @"URL") ?: YTKACEPostValue(item, @"url") ?: YTKACEPostValue(item, @"currentImageURL");
         NSURL *URL = [value isKindOfClass:NSURL.class] ? value : ([value isKindOfClass:NSString.class] ? [NSURL URLWithString:value] : nil);
-        if (URL) {
+        // Video thumbnails and link previews also live in post cells but are not post images.
+        if (URL && YTKACEIsPostImageURL(URL)) {
             UIView *view = attachment ? nil : YTKACEPostValue(item, @"view");
             if (attachment || ([view isKindOfClass:UIView.class] && CGRectGetWidth(view.bounds) >= 100 && CGRectGetHeight(view.bounds) >= 70))
                 [URLs addObject:URL];
@@ -102,6 +104,23 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
                 if (pending.count >= 512) break;
                 [pending addObject:@[child, @(childAttachment)]];
             }
+        }
+        // RenderNext posts have no node or ELMElement tree: only their views are reachable,
+        // so offscreen carousel images come from the post page instead.
+        NSMutableArray *renderNextChildren = [NSMutableArray array];
+        if ([name isEqualToString:@"ELMNCellNode"]) {
+            id renderNode = YTKACEPostValue(item, @"renderNextNode");
+            SEL loaded = NSSelectorFromString(@"isNodeLoaded");
+            if ([renderNode respondsToSelector:loaded] && ((BOOL (*)(id, SEL))objc_msgSend)(renderNode, loaded)) {
+                id view = YTKACEPostValue(renderNode, @"view");
+                if (view) [renderNextChildren addObject:view];
+            }
+        } else if ([item isKindOfClass:UIView.class]) {
+            [renderNextChildren addObjectsFromArray:((UIView *)item).subviews];
+        }
+        for (id child in renderNextChildren) {
+            if (pending.count >= 512) break;
+            [pending addObject:@[child, @(attachment)]];
         }
         NSArray *ivarNames = [name isEqualToString:@"ELMCollectionNode"]
             ? @[@"_singleSectionController", @"_pendingSectionNodes", @"_lazyPendingSectionNodeControllers"]
@@ -223,6 +242,7 @@ static NSURL *YTKACEPostLink(id node) {
 @property(nonatomic, assign) BOOL resolvingImages;
 @property(nonatomic, assign) BOOL imagesResolved;
 @property(nonatomic, assign) BOOL saveWhenResolved;
+@property(nonatomic, assign) BOOL imageListIncomplete;
 @property(nonatomic, assign) BOOL communityPost;
 @property(nonatomic, weak) id postNode;
 @end
@@ -246,7 +266,7 @@ static NSURL *YTKACEPostLink(id node) {
         self.savingImages = NO;
         NSString *message = !saved ? YTKACELocalized(@"The image could not be saved.") :
             (failed ? [NSString stringWithFormat:YTKACELocalized(@"Saved %lu images; %lu could not be loaded."), (unsigned long)saved, (unsigned long)failed] :
-                [NSString stringWithFormat:YTKACELocalized(@"Saved %lu images."), (unsigned long)saved]);
+                [NSString stringWithFormat:YTKACELocalized(self.imageListIncomplete ? @"Saved %lu images; the full post list was unavailable, so some may be missing." : @"Saved %lu images."), (unsigned long)saved]);
         YTKACEShowNotice(message);
         return;
     }
@@ -290,21 +310,30 @@ static NSURL *YTKACEPostLink(id node) {
         NSArray<NSURL *> *URLs = YTKACEPostImageURLsInPage(page, postID);
         dispatch_async(dispatch_get_main_queue(), ^{
             self.resolvingImages = NO;
-            NSURL *current = self.currentImageURL ?: self.imageURLs.firstObject;
-            BOOL matches = !current || YTKACEUniquePostImageURLs([URLs arrayByAddingObject:current]).count == URLs.count;
+            // The page belongs to this post if any image already seen in the app is
+            // in it. Each list is unique, so a shorter merged list means an overlap.
+            NSArray<NSURL *> *local = self.imageURLs ?: @[];
+            BOOL matches = !local.count || YTKACEUniquePostImageURLs([URLs arrayByAddingObjectsFromArray:local]).count < URLs.count + local.count;
             if (URLs.count && matches) {
                 self.imageURLs = URLs;
                 self.imagesResolved = YES;
             }
-            YTKACEDownloadLog(@"posts", @"post image list status=%ld images=%lu matched=%d", (long)status, (unsigned long)URLs.count, matches);
+            YTKACEDownloadLog(@"posts", @"post image list status=%ld images=%lu local=%lu matched=%d", (long)status, (unsigned long)URLs.count, (unsigned long)local.count, matches);
             [self buildPostActions];
             if (self.saveWhenResolved) {
                 self.saveWhenResolved = NO;
-                if (self.imagesResolved) [self saveAllImages];
-                else YTKACEShowNotice(YTKACELocalized(@"Could not load all post images. Open the post and try again."));
+                [self saveKnownImages];
             }
         });
     }] resume];
+}
+- (void)saveKnownImages {
+    if (self.savingImages) return;
+    if (!self.imageURLs.count) { YTKACEShowNotice(YTKACELocalized(@"No images found")); return; }
+    // A failed list lookup must not block images that are already known.
+    self.imageListIncomplete = !self.imagesResolved;
+    self.savingImages = YES;
+    [self saveImages:[self.imageURLs copy] atIndex:0 saved:0 failed:0];
 }
 - (void)saveAllImages {
     if (self.savingImages) return;
@@ -314,14 +343,8 @@ static NSURL *YTKACEPostLink(id node) {
         if (resolved.count > self.imageURLs.count) self.imageURLs = resolved;
         [self resolvePostImages];
         if (self.resolvingImages) { self.saveWhenResolved = YES; return; }
-        if (!self.imagesResolved) {
-            YTKACEShowNotice(YTKACELocalized(@"Could not load all post images. Open the post and try again."));
-            return;
-        }
     }
-    if (!self.imageURLs.count) { YTKACEShowNotice(YTKACELocalized(@"No images found")); return; }
-    self.savingImages = YES;
-    [self saveImages:[self.imageURLs copy] atIndex:0 saved:0 failed:0];
+    [self saveKnownImages];
 }
 - (NSArray<YTKACEMediaAction *> *)actionsForImage:(NSURL *)URL identifier:(NSString *)identifier {
     __weak YTKACECommunityPostSheet *weakSelf = self;
@@ -363,7 +386,7 @@ static NSURL *YTKACEPostLink(id node) {
             title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square"
             handler:^{ [weakSelf saveAllImages]; }];
         saveAll.detail = self.resolvingImages ? YTKACELocalized(@"Loading images…") :
-            (self.imagesResolved ? [NSString stringWithFormat:YTKACELocalized(@"Images: %lu"), (unsigned long)self.imageURLs.count] :
+            (self.imageURLs.count ? [NSString stringWithFormat:YTKACELocalized(@"Images: %lu"), (unsigned long)self.imageURLs.count] :
                 YTKACELocalized(@"Image list unavailable"));
         [rows addObject:saveAll];
     }

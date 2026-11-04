@@ -40,9 +40,10 @@ static const void *YTKACEPostSaveButtonKey = &YTKACEPostSaveButtonKey;
     }
 
     SEL urlGetter = NSSelectorFromString(@"URL");
+    SEL viewURLGetter = NSSelectorFromString(@"currentImageURL");
     NSURL *url = [node respondsToSelector:urlGetter]
         ? ((id (*)(id, SEL))objc_msgSend)(node, urlGetter)
-        : nil;
+        : ([node respondsToSelector:viewURLGetter] ? ((id (*)(id, SEL))objc_msgSend)(node, viewURLGetter) : nil);
     if (url == nil) {
         YTKACEShowNotice(YTKACELocalized(@"The image is still loading."));
         return;
@@ -126,6 +127,25 @@ static void YTKACEZoomNodeDidEnterVisibleState(id receiver, SEL selector) {
         Class viewerClass =
             NSClassFromString(@"YTInterstitialElementsViewControllerImpl");
         if (viewerClass == Nil || ![owner isKindOfClass:viewerClass]) return;
+        YTKACECurrentZoomNode = receiver;
+        YTKACEAttachSaveButton(owner.view);
+    });
+}
+
+// RenderNext replaces YTImageZoomNode with this view, which has no visibility callback.
+static IMP OriginalZoomViewLayout;
+static void YTKACEZoomViewLayoutSubviews(UIView *receiver, SEL selector) {
+    if (OriginalZoomViewLayout != NULL) {
+        ((void (*)(id, SEL))OriginalZoomViewLayout)(receiver, selector);
+    }
+    if (YTKACECurrentZoomNode == receiver || receiver.window == nil) return;
+    if (!YTKACEFeatureEnabled(YTKACEPostImageSaveKey)) return;
+
+    UIViewController *owner = YTKACEOwningController(receiver);
+    Class viewerClass = NSClassFromString(@"YTInterstitialElementsViewControllerImpl");
+    if (viewerClass == Nil || ![owner isKindOfClass:viewerClass]) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (receiver.window == nil || owner.view == nil) return;
         YTKACECurrentZoomNode = receiver;
         YTKACEAttachSaveButton(owner.view);
     });
@@ -216,10 +236,13 @@ static UIView *YTKACEPostCellForGesture(UIGestureRecognizer *gesture) {
     // Photos can be nested collection cells. Continue to the enclosing post.
     UIView *hit = [gesture.view hitTest:[gesture locationInView:gesture.view] withEvent:nil];
     UIView *candidate = nil;
+    BOOL onZoomImage = NO;
     for (UIView *view = hit; view && view != gesture.view; view = view.superview) {
+        // RenderNext cells expose no post metadata; a zoomable image identifies them.
+        onZoomImage |= [NSStringFromClass(view.class) isEqualToString:@"YTImageZoomView"];
         if (![view isKindOfClass:UICollectionViewCell.class] && ![view isKindOfClass:UITableViewCell.class]) continue;
         id node = YTKACENodeValue(view, @"node") ?: YTKACENodeValue(view, @"keepalive_node");
-        if (YTKACEIsPostNode(node)) candidate = view;
+        if (YTKACEIsPostNode(node) || (onZoomImage && [NSStringFromClass([node class]) isEqualToString:@"ELMNCellNode"])) candidate = view;
     }
     if (candidate) return candidate;
     return nil;
@@ -251,7 +274,7 @@ static UIView *YTKACEPostCellForGesture(UIGestureRecognizer *gesture) {
     UIView *hit = [gesture.view hitTest:[gesture locationInView:gesture.view] withEvent:nil];
     for (UIView *view = hit; view && view != cell; view = view.superview) {
         id imageNode = YTKACENodeValue(view, @"keepalive_node") ?: YTKACENodeValue(view, @"node");
-        id URL = YTKACENodeValue(imageNode, @"URL");
+        id URL = YTKACENodeValue(imageNode, @"URL") ?: YTKACENodeValue(view, @"currentImageURL");
         if ([URL isKindOfClass:NSString.class]) URL = [NSURL URLWithString:URL];
         if ([URL isKindOfClass:NSURL.class] && CGRectGetWidth(view.bounds) >= 100) { imageURL = URL; break; }
     }
@@ -291,5 +314,8 @@ void YTKACEInstallPostImageSaverHooks(void) {
     YTKACEInstallInstanceHook(
         @"YTImageZoomNode", @"didEnterVisibleState",
         (IMP)YTKACEZoomNodeDidEnterVisibleState, &OriginalZoomNodeVisible);
+    YTKACEInstallInstanceHook(
+        @"YTImageZoomView", @"layoutSubviews",
+        (IMP)YTKACEZoomViewLayoutSubviews, &OriginalZoomViewLayout);
     dispatch_async(dispatch_get_main_queue(), ^{ YTKACEAttachPostCopyGestures(); });
 }

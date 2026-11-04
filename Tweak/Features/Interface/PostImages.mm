@@ -6,6 +6,10 @@ static BOOL YTKACEPostImageHost(NSString *host) {
         [host isEqualToString:@"googleusercontent.com"] || [host hasSuffix:@".googleusercontent.com"];
 }
 
+BOOL YTKACEIsPostImageURL(NSURL *URL) {
+    return YTKACEPostImageHost(URL.host);
+}
+
 NSURL *YTKACEPostOriginalImageURL(NSURL *URL) {
     NSURLComponents *parts = [NSURLComponents componentsWithURL:URL resolvingAgainstBaseURL:NO];
     if (!YTKACEPostImageHost(parts.host)) return URL;
@@ -76,7 +80,15 @@ NSString *YTKACEPostIDInText(NSString *text) {
         [IDs addObject:[text substringWithRange:[match rangeAtIndex:1]]];
     }
     if (IDs.count == 1) return IDs.anyObject;
-    return nil;
+    if (IDs.count > 1) return nil;
+    // Commands embedded as serialized bytes print the ID unquoted, directly after
+    // its length prefix and before the next field tag, so it has no end delimiter.
+    NSRegularExpression *serializedID = [NSRegularExpression regularExpressionWithPattern:
+        @"(?<![A-Za-z0-9_-])Ugkx[A-Za-z0-9_-]{32}" options:0 error:NULL];
+    for (NSTextCheckingResult *match in [serializedID matchesInString:text options:0 range:NSMakeRange(0, text.length)]) {
+        [IDs addObject:[text substringWithRange:match.range]];
+    }
+    return IDs.count == 1 ? IDs.anyObject : nil;
 }
 
 static id YTKACEPostPageData(NSString *page) {

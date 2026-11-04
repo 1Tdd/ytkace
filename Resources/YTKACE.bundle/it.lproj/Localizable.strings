@@ -1345,6 +1345,8 @@ Concesso in licenza CC BY-NC-SA 4.0.";
 
 "Image list unavailable" = "Elenco immagini non disponibile";
 
+"Saved %lu images; the full post list was unavailable, so some may be missing." = "Salvate %lu immagini; l'elenco completo del post non era disponibile, quindi potrebbero mancarne alcune.";
+
 "Could not load all post images. Open the post and try again." = "Impossibile caricare tutte le immagini. Apri il post e riprova.";
 
 "Play any video once to refresh downloads, then try again." = "Riproduci un video una volta per aggiornare i download, poi riprova.";

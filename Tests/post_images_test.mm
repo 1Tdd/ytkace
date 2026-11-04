@@ -42,6 +42,13 @@ int main(int argc, char **argv) {
             [NSString stringWithFormat:@"{\"postId\":\"%@\"}", postID]
         ]) check([YTKACEPostIDInText(text) isEqual:postID], "Find post identity in navigation URLs and bound data");
         check(YTKACEPostIDInText(@"post_id: \"../../other\"") == nil, "Reject invalid post identifiers");
+        NSString *serialized = [NSString stringWithFormat:@"data: \"\\022$%@J\\005\"", postID];
+        check([YTKACEPostIDInText(serialized) isEqual:postID], "Find a post ID inside serialized command bytes");
+        NSString *otherID = @"UgkxoZWla5GNUdOgoW-7rWFnYZzEkOXsutA6";
+        check(YTKACEPostIDInText([NSString stringWithFormat:@"a: \"\\022$%@\" b: \"\\022$%@\"", postID, otherID]) == nil,
+              "Serialized bytes naming two posts are ambiguous");
+        check(YTKACEIsPostImageURL([NSURL URLWithString:@"https://yt3.ggpht.com/photo=s720"]), "Accept post image hosts");
+        check(!YTKACEIsPostImageURL([NSURL URLWithString:@"https://i.ytimg.com/vi/abc/hqdefault.jpg"]), "Video thumbnails are not post images");
         check(argc == 2, "Supply the real four-image post fixture");
         NSString *fixture = [NSString stringWithContentsOfFile:[NSString stringWithUTF8String:argv[1]]
             encoding:NSUTF8StringEncoding error:NULL];
