@@ -92,6 +92,12 @@ int main(int argc, char **argv) {
         check(YTKACEPostImageURLsInElementData(shelf).count == 0, "Never mix images from a cell holding several posts");
         check(YTKACEPostIDInElementData(shelf) == nil, "A cell holding several posts has no single ID");
         check(YTKACEPostImageURLsInElementData(nil).count == 0 && YTKACEPostIDInElementData(nil) == nil, "Handle missing element data");
+        NSURL *viewerImage = [NSURL URLWithString:@"https://yt3.ggpht.com/first=s2048-rw"];
+        NSData *unrelated = element(@[[@"https://yt3.ggpht.com/another" stringByAppendingString:suffix]]);
+        NSArray *mentioning = YTKACEElementDataMentioningImage(@[unrelated, post], viewerImage);
+        check(mentioning.count == 1 && [[mentioning objectAtIndex:0] isEqual:post], "Match a viewer image to its post whatever size it asks for");
+        check(YTKACEElementDataMentioningImage(@[post], [NSURL URLWithString:@"https://yt3.ggpht.com/firs=s2048"]).count == 0, "A shorter image name must not match");
+        check(YTKACEElementDataMentioningImage(@[post], [NSURL URLWithString:@"https://example.com/first=s2048"]).count == 0, "Ignore images from other hosts");
         check(argc == 2, "Supply the real four-image post fixture");
         NSString *fixture = [NSString stringWithContentsOfFile:[NSString stringWithUTF8String:argv[1]]
             encoding:NSUTF8StringEncoding error:NULL];

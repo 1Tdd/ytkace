@@ -157,6 +157,21 @@ NSArray<NSURL *> *YTKACEPostImageURLsInElementData(NSData *data) {
     return YTKACEUniquePostImageURLs(URLs);
 }
 
+NSArray<NSData *> *YTKACEElementDataMentioningImage(NSArray<NSData *> *candidates, NSURL *image) {
+    if (!YTKACEPostImageHost(image.host)) return @[];
+    // The part up to the first '=' identifies the image; the rest only picks its size.
+    NSString *path = image.path;
+    NSRange options = [path rangeOfString:@"="];
+    if (options.location != NSNotFound) path = [path substringToIndex:NSMaxRange(options)];
+    NSData *identity = [path dataUsingEncoding:NSASCIIStringEncoding];
+    if (identity.length < 6) return @[];
+    NSMutableArray *matches = [NSMutableArray array];
+    for (NSData *data in candidates) {
+        if ([data rangeOfData:identity options:0 range:NSMakeRange(0, data.length)].location != NSNotFound) [matches addObject:data];
+    }
+    return matches;
+}
+
 static id YTKACEPostPageData(NSString *page) {
     if (![page isKindOfClass:NSString.class] || page.length > 8 * 1024 * 1024) return nil;
     NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:

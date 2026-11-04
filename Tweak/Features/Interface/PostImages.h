@@ -11,4 +11,6 @@ FOUNDATION_EXPORT NSString *YTKACEPostIDInText(NSString *text);
 FOUNDATION_EXPORT BOOL YTKACEElementDataHasPostImage(NSData *data);
 FOUNDATION_EXPORT NSArray<NSURL *> *YTKACEPostImageURLsInElementData(NSData *data);
 FOUNDATION_EXPORT NSString *YTKACEPostIDInElementData(NSData *data);
+// Finds the serialized elements that name an image, whatever size the URL asks for.
+FOUNDATION_EXPORT NSArray<NSData *> *YTKACEElementDataMentioningImage(NSArray<NSData *> *candidates, NSURL *image);
 FOUNDATION_EXPORT NSArray<NSURL *> *YTKACEPostImageURLsInPage(NSString *page, NSString *postID);

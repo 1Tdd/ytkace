@@ -148,6 +148,25 @@ static NSArray<NSURL *> *YTKACEPostImages(id node) {
     return YTKACEUniquePostImageURLs(metadataURLs);
 }
 
+// Any known image leads to the post it belongs to, even from the fullscreen viewer.
+static NSArray<NSURL *> *YTKACEPostImagesInCapturedData(NSArray<NSURL *> *known, NSURL **postURL) {
+    NSArray<NSData *> *captured = YTKACECapturedPostElementData();
+    NSArray<NSURL *> *best = known;
+    NSUInteger matched = 0;
+    for (NSURL *image in known) {
+        for (NSData *data in YTKACEElementDataMentioningImage(captured, image)) {
+            matched++;
+            NSArray<NSURL *> *images = YTKACEPostImageURLsInElementData(data);
+            if (images.count > best.count) best = images;
+            NSString *postID = postURL && !*postURL ? YTKACEPostIDInElementData(data) : nil;
+            if (postID) *postURL = [NSURL URLWithString:[@"https://www.youtube.com/post/" stringByAppendingString:postID]];
+        }
+    }
+    YTKACEDownloadLog(@"posts", @"captured elements=%lu matched=%lu images=%lu known=%lu link=%d", (unsigned long)captured.count,
+        (unsigned long)matched, (unsigned long)best.count, (unsigned long)known.count, postURL && *postURL);
+    return best;
+}
+
 static NSArray<NSURL *> *YTKACEPostImagesForViewer(NSURL *current, UIView *sourceView, id imageNode, NSURL **postURL) {
     NSMutableArray *best = [YTKACEPostImages(imageNode) mutableCopy];
     if (current) [best addObject:current];
@@ -195,7 +214,7 @@ static NSArray<NSURL *> *YTKACEPostImagesForViewer(NSURL *current, UIView *sourc
         }
     }
     YTKACEDownloadLog(@"posts", @"viewer images=%lu matchedCells=%lu", (unsigned long)result.count, (unsigned long)cells);
-    return result;
+    return YTKACEPostImagesInCapturedData(result, postURL);
 }
 
 static NSURL *YTKACEPostLink(id node) {
@@ -427,7 +446,9 @@ void YTKACEPresentCommunityPostMenu(UIView *postView, id node, NSString *text, N
     sheet.postURL = YTKACEPostLink(node);
     NSMutableArray *images = [YTKACEPostImages(node) mutableCopy];
     if (currentImage) [images addObject:currentImage];
-    sheet.imageURLs = YTKACEUniquePostImageURLs(images);
+    NSURL *capturedPostURL = sheet.postURL;
+    sheet.imageURLs = YTKACEPostImagesInCapturedData(YTKACEUniquePostImageURLs(images), &capturedPostURL);
+    sheet.postURL = capturedPostURL;
     sheet.currentImageURL = currentImage;
     CGSize size = postView.bounds.size;
     if (size.width > 0 && size.height > 0 && size.width <= 4096 && size.height <= 12000) {

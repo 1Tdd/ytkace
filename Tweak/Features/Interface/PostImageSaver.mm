@@ -170,6 +170,45 @@ NSData *YTKACEPostElementData(id cellNode) {
     return cellNode ? objc_getAssociatedObject(cellNode, YTKACEPostElementDataKey) : nil;
 }
 
+// Not every post is an ELMNCellNode, and the viewer has no cell at all. Keep recent
+// post elements here so that an image URL can lead back to its whole post.
+static NSMutableOrderedSet<NSData *> *YTKACERecentPostElements;
+static const NSUInteger YTKACERecentPostElementLimit = 128;
+
+static void YTKACECapturePostElementData(id data) {
+    if (!YTKACEFeatureEnabled(YTKACEPostImageSaveKey) || !YTKACEElementDataHasPostImage(data)) return;
+    NSData *copy = [data copy];
+    @synchronized (YTKACEPostImageSaveKey) {
+        if (YTKACERecentPostElements == nil) YTKACERecentPostElements = [NSMutableOrderedSet orderedSet];
+        [YTKACERecentPostElements removeObject:copy];
+        [YTKACERecentPostElements addObject:copy];
+        if (YTKACERecentPostElements.count > YTKACERecentPostElementLimit) [YTKACERecentPostElements removeObjectAtIndex:0];
+    }
+}
+
+NSArray<NSData *> *YTKACECapturedPostElementData(void) {
+    @synchronized (YTKACEPostImageSaveKey) {
+        // -array is a live view of the set, which other threads keep changing.
+        return [YTKACERecentPostElements.array copy] ?: @[];
+    }
+}
+
+static IMP OriginalRendererElementData;
+static id YTKACERendererElementData(id receiver, SEL selector) {
+    id data = ((id (*)(id, SEL))OriginalRendererElementData)(receiver, selector);
+    YTKACECapturePostElementData(data);
+    return data;
+}
+
+static IMP OriginalProcessorInit;
+typedef id (*YTKACEProcessorInitFunction)(__attribute__((ns_consumed)) id, SEL, CGSize, id, id) __attribute__((ns_returns_retained));
+
+__attribute__((ns_returns_retained))
+static id YTKACEProcessorInit(__attribute__((ns_consumed)) id receiver, SEL selector, CGSize size, id elementData, id services) {
+    YTKACECapturePostElementData(elementData);
+    return ((YTKACEProcessorInitFunction)OriginalProcessorInit)(receiver, selector, size, elementData, services);
+}
+
 static NSString *const YTKACEPostCopyTextKey = @"YTKACE.Preference.Posts.CopyText";
 static const void *YTKACEPostCopyGestureKey = &YTKACEPostCopyGestureKey;
 
@@ -339,5 +378,11 @@ void YTKACEInstallPostImageSaverHooks(void) {
     YTKACEInstallInstanceHook(
         @"ELMNCellNode", @"initWithElementData:services:context:",
         (IMP)YTKACECellNodeInit, &OriginalCellNodeInit);
+    YTKACEInstallInstanceHook(
+        @"YTIElementRenderer", @"elementData",
+        (IMP)YTKACERendererElementData, &OriginalRendererElementData);
+    YTKACEInstallInstanceHook(
+        @"ELMNNodeTreeProcessor", @"initWithSize:elementData:services:",
+        (IMP)YTKACEProcessorInit, &OriginalProcessorInit);
     dispatch_async(dispatch_get_main_queue(), ^{ YTKACEAttachPostCopyGestures(); });
 }
