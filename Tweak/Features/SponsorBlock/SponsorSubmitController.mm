@@ -684,6 +684,78 @@ typedef NS_ENUM(NSInteger, YTKACESponsorPreviewRequest) {
 
 static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
 
+@interface YTKACESponsorPreviewTimeline : UIView
+@property(nonatomic, assign) double duration;
+@property(nonatomic, assign) double segmentStart;
+@property(nonatomic, assign) double segmentEnd;
+@property(nonatomic, assign) double currentTime;
+@property(nonatomic, strong) UIColor *segmentColor;
+- (double)timeAtX:(CGFloat)x;
+@end
+
+@implementation YTKACESponsorPreviewTimeline
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = UIColor.clearColor;
+        self.contentMode = UIViewContentModeRedraw;
+    }
+    return self;
+}
+- (CGRect)trackRect {
+    return CGRectMake(5.0, CGRectGetMidY(self.bounds) - 2.0, MAX(0.0, CGRectGetWidth(self.bounds) - 10.0), 4.0);
+}
+- (CGFloat)xForTime:(double)time {
+    CGRect track = [self trackRect];
+    return CGRectGetMinX(track) + CGRectGetWidth(track) * MIN(MAX(time / self.duration, 0.0), 1.0);
+}
+- (double)timeAtX:(CGFloat)x {
+    CGRect track = [self trackRect];
+    if (CGRectGetWidth(track) <= 0.0) return 0.0;
+    return self.duration * MIN(MAX((x - CGRectGetMinX(track)) / CGRectGetWidth(track), 0.0), 1.0);
+}
+- (void)drawRect:(__unused CGRect)rect {
+    if (self.duration <= 0.0) return;
+    CGRect track = [self trackRect];
+    [UIColor.tertiarySystemFillColor setFill];
+    [[UIBezierPath bezierPathWithRoundedRect:track cornerRadius:2.0] fill];
+    CGFloat startX = [self xForTime:self.segmentStart];
+    CGFloat endX = MAX([self xForTime:self.segmentEnd], startX + 2.0);
+    [(self.segmentColor ?: UIColor.systemGreenColor) setFill];
+    [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(startX, CGRectGetMinY(track), endX - startX, 4.0) cornerRadius:2.0] fill];
+    CGFloat headX = [self xForTime:self.currentTime];
+    [UIColor.labelColor setFill];
+    [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(headX - 5.0, CGRectGetMidY(track) - 5.0, 10.0, 10.0)] fill];
+}
+@end
+
+static void YTKACESetPreviewControl(UIButton *button, NSString *title, NSString *symbol) {
+    UIButtonConfiguration *configuration = button.configuration;
+    configuration.title = title;
+    configuration.image = [UIImage systemImageNamed:symbol];
+    button.configuration = configuration;
+}
+
+static UIButton *YTKACEMakePreviewControl(BOOL primary) {
+    UIButtonConfiguration *configuration = primary
+        ? UIButtonConfiguration.filledButtonConfiguration : UIButtonConfiguration.grayButtonConfiguration;
+    configuration.baseBackgroundColor = primary ? YTKACEAccentColor() : nil;
+    configuration.baseForegroundColor = primary ? UIColor.whiteColor : YTKACETitleColor();
+    configuration.imagePlacement = NSDirectionalRectEdgeTop;
+    configuration.imagePadding = 4.0;
+    configuration.preferredSymbolConfigurationForImage =
+        [UIImageSymbolConfiguration configurationWithPointSize:15.0 weight:UIImageSymbolWeightSemibold];
+    configuration.contentInsets = NSDirectionalEdgeInsetsMake(6.0, 2.0, 6.0, 2.0);
+    configuration.cornerStyle = UIButtonConfigurationCornerStyleMedium;
+    configuration.titleLineBreakMode = NSLineBreakByTruncatingTail;
+    configuration.titleTextAttributesTransformer = ^NSDictionary<NSAttributedStringKey, id> *(NSDictionary<NSAttributedStringKey, id> *attributes) {
+        NSMutableDictionary *updated = [attributes mutableCopy];
+        updated[NSFontAttributeName] = [UIFont systemFontOfSize:11.0 weight:UIFontWeightSemibold];
+        return updated;
+    };
+    return [UIButton buttonWithConfiguration:configuration primaryAction:nil];
+}
+
 @interface YTKACESponsorSubmitController ()
 @property(nonatomic, strong) UIScrollView *scrollView;
 @property(nonatomic, strong) UIView *contentView;
@@ -727,7 +799,8 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
 @property(nonatomic, strong) UILabel *categoryDescLabel;
 @property(nonatomic, strong) UISegmentedControl *actionSegmentedControl;
 @property(nonatomic, strong) UIButton *chapterButton;
-@property(nonatomic, strong) UIButton *previewSkipButton;
+@property(nonatomic, strong) UIImageView *previewCenterPlayView;
+@property(nonatomic, strong) YTKACESponsorPreviewTimeline *previewTimeline;
 @property(nonatomic, strong) UIButton *submitButton;
 @property(nonatomic, strong) UIActivityIndicatorView *spinner;
 @property(nonatomic, strong) NSMutableArray<UIButton *> *categoryButtons;
@@ -745,6 +818,7 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
 - (void)playPreview;
 - (void)pausePreview;
 - (void)updatePlayPauseButtonUI;
+- (void)updatePreviewTimeline;
 - (void)stopCutPreview;
 - (void)beginCutPreview;
 - (void)handleCutPreviewAction:(YTKACESponsorPreview::Action)action;
@@ -1096,6 +1170,7 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
 }
 
 - (void)updatePreviewPlayback {
+    [self updatePreviewTimeline];
     if (!self.previewVisible || self.previewSeeking || !self.isPlaying) return;
     double time = [self currentPreviewTime];
     if (fabs(time - self.previewLastMediaTime) > 0.01) {
@@ -1176,13 +1251,30 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
 
 - (void)updatePlayPauseButtonUI {
     if (self.previewPlayPauseButton == nil) return;
-    if (self.isPlaying) {
-        [self.previewPlayPauseButton setTitle:YTKACELocalized(@"Pause") forState:UIControlStateNormal];
-        [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:@"pause.fill"] forState:UIControlStateNormal];
-    } else {
-        [self.previewPlayPauseButton setTitle:YTKACELocalized(@"Play") forState:UIControlStateNormal];
-        [self.previewPlayPauseButton setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
-    }
+    self.previewCenterPlayView.hidden = self.isPlaying;
+    YTKACESetPreviewControl(self.previewPlayPauseButton, YTKACELocalized(self.isPlaying ? @"Pause" : @"Play"),
+                            self.isPlaying ? @"pause.fill" : @"play.fill");
+}
+
+- (void)updatePreviewTimeline {
+    YTKACESponsorPreviewTimeline *timeline = self.previewTimeline;
+    if (timeline == nil) return;
+    BOOL isFull = [self.actionType isEqualToString:@"full"];
+    timeline.duration = self.videoDuration;
+    timeline.segmentStart = isFull ? 0.0 : self.startTime;
+    timeline.segmentEnd = isFull ? self.videoDuration : self.endTime;
+    timeline.segmentColor = YTKACESponsorCategoryColor(self.selectedCategory);
+    timeline.currentTime = [self currentPreviewTime];
+    [timeline setNeedsDisplay];
+}
+
+- (void)previewTimelineTapped:(UITapGestureRecognizer *)gesture {
+    if (self.videoDuration <= 0.0) return;
+    BOOL wasPlaying = self.isPlaying;
+    [self stopCutPreview];
+    double time = [self.previewTimeline timeAtX:[gesture locationInView:self.previewTimeline].x];
+    [self requestPreviewAt:time play:wasPlaying];
+    [self updatePreviewTimeline];
 }
 
 - (void)stopCutPreview {
@@ -1255,20 +1347,10 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
 - (UIView *)buildVideoPreviewCard {
     UIView *card = [self buildCardView];
 
-    UILabel *header = [UILabel new];
-    header.translatesAutoresizingMaskIntoConstraints = NO;
-    header.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightBold];
-    header.textColor = YTKACESubtitleColor();
-    header.text = YTKACELocalized(@"Video Preview");
-    [card addSubview:header];
-
     // 16:9 Video container
     UIView *previewContainer = [UIView new];
     previewContainer.translatesAutoresizingMaskIntoConstraints = NO;
     previewContainer.backgroundColor = UIColor.blackColor;
-    previewContainer.layer.cornerRadius = 10.0;
-    previewContainer.layer.cornerCurve = kCACornerCurveContinuous;
-    previewContainer.layer.masksToBounds = YES;
     previewContainer.clipsToBounds = YES;
     previewContainer.userInteractionEnabled = YES;
     UITapGestureRecognizer *tapPreview = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(togglePlaybackTapped)];
@@ -1352,20 +1434,44 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
     [timeBadge addSubview:timeBadgeLabel];
     self.previewTimeLabel = timeBadgeLabel;
 
-    // Center/Bottom status label for cut playback state
+    // Bottom status pill for the cut playback state
+    UIView *statusPill = [UIView new];
+    statusPill.translatesAutoresizingMaskIntoConstraints = NO;
+    statusPill.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.6];
+    statusPill.layer.cornerRadius = 11.0;
+    statusPill.layer.masksToBounds = YES;
+    statusPill.userInteractionEnabled = NO;
+    [previewContainer addSubview:statusPill];
+
     UILabel *statusLabel = [UILabel new];
     statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    statusLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium];
+    statusLabel.font = [UIFont monospacedDigitSystemFontOfSize:12.0 weight:UIFontWeightMedium];
     statusLabel.textColor = UIColor.whiteColor;
     statusLabel.textAlignment = NSTextAlignmentCenter;
-    statusLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
-    statusLabel.layer.cornerRadius = 6.0;
-    statusLabel.layer.masksToBounds = YES;
     statusLabel.text = YTKACELocalized(@"Loading preview…");
-    [previewContainer addSubview:statusLabel];
+    [statusPill addSubview:statusLabel];
     self.previewStatusLabel = statusLabel;
 
-    // Controls Row below preview container: [▶ Play/Pause] [⏮ Start] [⏭ End] [✂ Cut]
+    // Play state in the middle of the video; tapping anywhere on it toggles playback.
+    UIImageView *centerPlay = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"play.fill"]];
+    centerPlay.translatesAutoresizingMaskIntoConstraints = NO;
+    centerPlay.tintColor = UIColor.whiteColor;
+    centerPlay.contentMode = UIViewContentModeCenter;
+    centerPlay.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
+    centerPlay.layer.cornerRadius = 26.0;
+    centerPlay.layer.masksToBounds = YES;
+    centerPlay.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:22.0];
+    [previewContainer addSubview:centerPlay];
+    self.previewCenterPlayView = centerPlay;
+
+    // Where the segment falls in the video; tapping it seeks.
+    YTKACESponsorPreviewTimeline *timeline = [YTKACESponsorPreviewTimeline new];
+    timeline.translatesAutoresizingMaskIntoConstraints = NO;
+    timeline.isAccessibilityElement = NO;
+    [timeline addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(previewTimelineTapped:)]];
+    [card addSubview:timeline];
+    self.previewTimeline = timeline;
+
     UIStackView *controlStack = [UIStackView new];
     controlStack.translatesAutoresizingMaskIntoConstraints = NO;
     controlStack.axis = UILayoutConstraintAxisHorizontal;
@@ -1373,123 +1479,34 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
     controlStack.distribution = UIStackViewDistributionFillEqually;
     [card addSubview:controlStack];
 
-    // 1. Play / Pause
-    UIButton *playBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    if (YTKACELiquidGlassAvailable()) {
-        playBtn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.10]
-                : [UIColor colorWithWhite:0.0 alpha:0.05];
-        }];
-        playBtn.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.12]
-                : [UIColor colorWithWhite:0.0 alpha:0.08];
-        }].CGColor;
-        playBtn.layer.borderWidth = 0.5;
-    } else {
-        playBtn.backgroundColor = YTKACEButtonBgColor();
-    }
-    playBtn.layer.cornerRadius = 8.0;
-    playBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [playBtn setTitle:YTKACELocalized(@"Play") forState:UIControlStateNormal];
-    [playBtn setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
-    playBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
-    [playBtn setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
-    playBtn.tintColor = YTKACEAccentColor();
-    playBtn.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
-    [playBtn addTarget:self action:@selector(togglePlaybackTapped) forControlEvents:UIControlEventTouchUpInside];
-    self.previewPlayPauseButton = playBtn;
-    [controlStack addArrangedSubview:playBtn];
-
-    // 2. Seek Start
-    UIButton *seekStartBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    if (YTKACELiquidGlassAvailable()) {
-        seekStartBtn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.10]
-                : [UIColor colorWithWhite:0.0 alpha:0.05];
-        }];
-        seekStartBtn.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.12]
-                : [UIColor colorWithWhite:0.0 alpha:0.08];
-        }].CGColor;
-        seekStartBtn.layer.borderWidth = 0.5;
-    } else {
-        seekStartBtn.backgroundColor = YTKACEButtonBgColor();
-    }
-    seekStartBtn.layer.cornerRadius = 8.0;
-    seekStartBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [seekStartBtn setTitle:YTKACELocalized(@"⏮ Start") forState:UIControlStateNormal];
-    [seekStartBtn setTitleColor:YTKACETitleColor() forState:UIControlStateNormal];
-    seekStartBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium];
+    UIButton *seekStartBtn = YTKACEMakePreviewControl(NO);
+    YTKACESetPreviewControl(seekStartBtn, YTKACELocalized(@"Start"), @"backward.end.fill");
     [seekStartBtn addTarget:self action:@selector(seekToStart) forControlEvents:UIControlEventTouchUpInside];
     self.previewSeekStartButton = seekStartBtn;
     [controlStack addArrangedSubview:seekStartBtn];
 
-    // 3. Seek End
-    UIButton *seekEndBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    if (YTKACELiquidGlassAvailable()) {
-        seekEndBtn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.10]
-                : [UIColor colorWithWhite:0.0 alpha:0.05];
-        }];
-        seekEndBtn.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.12]
-                : [UIColor colorWithWhite:0.0 alpha:0.08];
-        }].CGColor;
-        seekEndBtn.layer.borderWidth = 0.5;
-    } else {
-        seekEndBtn.backgroundColor = YTKACEButtonBgColor();
-    }
-    seekEndBtn.layer.cornerRadius = 8.0;
-    seekEndBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [seekEndBtn setTitle:YTKACELocalized(@"⏭ End") forState:UIControlStateNormal];
-    [seekEndBtn setTitleColor:YTKACETitleColor() forState:UIControlStateNormal];
-    seekEndBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium];
+    UIButton *playBtn = YTKACEMakePreviewControl(YES);
+    YTKACESetPreviewControl(playBtn, YTKACELocalized(@"Play"), @"play.fill");
+    [playBtn addTarget:self action:@selector(togglePlaybackTapped) forControlEvents:UIControlEventTouchUpInside];
+    self.previewPlayPauseButton = playBtn;
+    [controlStack addArrangedSubview:playBtn];
+
+    UIButton *seekEndBtn = YTKACEMakePreviewControl(NO);
+    YTKACESetPreviewControl(seekEndBtn, YTKACELocalized(@"End"), @"forward.end.fill");
     [seekEndBtn addTarget:self action:@selector(seekToEnd) forControlEvents:UIControlEventTouchUpInside];
     self.previewSeekEndButton = seekEndBtn;
     [controlStack addArrangedSubview:seekEndBtn];
 
-    // 4. Test Cut Preview
-    UIButton *cutBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    if (YTKACELiquidGlassAvailable()) {
-        cutBtn.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.10]
-                : [UIColor colorWithWhite:0.0 alpha:0.05];
-        }];
-        cutBtn.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.12]
-                : [UIColor colorWithWhite:0.0 alpha:0.08];
-        }].CGColor;
-        cutBtn.layer.borderWidth = 0.5;
-    } else {
-        cutBtn.backgroundColor = YTKACEButtonBgColor();
-    }
-    cutBtn.layer.cornerRadius = 8.0;
-    cutBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    [cutBtn setTitle:YTKACELocalized(@"↺ Replay") forState:UIControlStateNormal];
-    [cutBtn setTitleColor:YTKACETitleColor() forState:UIControlStateNormal];
-    cutBtn.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightMedium];
-    [cutBtn setImage:[UIImage systemImageNamed:@"arrow.counterclockwise"] forState:UIControlStateNormal];
-    cutBtn.tintColor = YTKACETitleColor();
-    cutBtn.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
+    UIButton *cutBtn = YTKACEMakePreviewControl(NO);
+    YTKACESetPreviewControl(cutBtn, YTKACELocalized(@"Cut"), @"scissors");
     [cutBtn addTarget:self action:@selector(previewSkipTapped) forControlEvents:UIControlEventTouchUpInside];
     self.previewCutButton = cutBtn;
     [controlStack addArrangedSubview:cutBtn];
 
     [NSLayoutConstraint activateConstraints:@[
-        [header.topAnchor constraintEqualToAnchor:card.topAnchor constant:10.0],
-        [header.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
-
-        [previewContainer.topAnchor constraintEqualToAnchor:header.bottomAnchor constant:8.0],
-        [previewContainer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
-        [previewContainer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
+        [previewContainer.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [previewContainer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [previewContainer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
         [previewContainer.heightAnchor constraintEqualToAnchor:previewContainer.widthAnchor multiplier:(9.0 / 16.0)],
 
         [categoryBadge.topAnchor constraintEqualToAnchor:previewContainer.topAnchor constant:8.0],
@@ -1513,15 +1530,29 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
         [timeBadgeLabel.leadingAnchor constraintEqualToAnchor:timeBadge.leadingAnchor constant:8.0],
         [timeBadgeLabel.trailingAnchor constraintEqualToAnchor:timeBadge.trailingAnchor constant:-8.0],
 
-        [statusLabel.bottomAnchor constraintEqualToAnchor:previewContainer.bottomAnchor constant:-8.0],
-        [statusLabel.leadingAnchor constraintEqualToAnchor:previewContainer.leadingAnchor constant:12.0],
-        [statusLabel.trailingAnchor constraintEqualToAnchor:previewContainer.trailingAnchor constant:-12.0],
-        [statusLabel.heightAnchor constraintEqualToConstant:24.0],
+        [statusPill.bottomAnchor constraintEqualToAnchor:previewContainer.bottomAnchor constant:-8.0],
+        [statusPill.centerXAnchor constraintEqualToAnchor:previewContainer.centerXAnchor],
+        [statusPill.leadingAnchor constraintGreaterThanOrEqualToAnchor:previewContainer.leadingAnchor constant:12.0],
+        [statusPill.heightAnchor constraintEqualToConstant:22.0],
 
-        [controlStack.topAnchor constraintEqualToAnchor:previewContainer.bottomAnchor constant:10.0],
+        [statusLabel.centerYAnchor constraintEqualToAnchor:statusPill.centerYAnchor],
+        [statusLabel.leadingAnchor constraintEqualToAnchor:statusPill.leadingAnchor constant:10.0],
+        [statusLabel.trailingAnchor constraintEqualToAnchor:statusPill.trailingAnchor constant:-10.0],
+
+        [centerPlay.centerXAnchor constraintEqualToAnchor:previewContainer.centerXAnchor],
+        [centerPlay.centerYAnchor constraintEqualToAnchor:previewContainer.centerYAnchor],
+        [centerPlay.widthAnchor constraintEqualToConstant:52.0],
+        [centerPlay.heightAnchor constraintEqualToConstant:52.0],
+
+        [timeline.topAnchor constraintEqualToAnchor:previewContainer.bottomAnchor constant:4.0],
+        [timeline.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
+        [timeline.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
+        [timeline.heightAnchor constraintEqualToConstant:24.0],
+
+        [controlStack.topAnchor constraintEqualToAnchor:timeline.bottomAnchor constant:4.0],
         [controlStack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
         [controlStack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
-        [controlStack.heightAnchor constraintEqualToConstant:32.0],
+        [controlStack.heightAnchor constraintEqualToConstant:54.0],
         [controlStack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-12.0]
     ]];
 
@@ -1653,39 +1684,6 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
     UIView *categoryCard = [self buildCategoryCard];
     [self.contentView addSubview:categoryCard];
 
-    // 7. Preview Skip Button
-    self.previewSkipButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.previewSkipButton.translatesAutoresizingMaskIntoConstraints = NO;
-    if (YTKACELiquidGlassAvailable()) {
-        self.previewSkipButton.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.10]
-                : [UIColor colorWithWhite:0.0 alpha:0.05];
-        }];
-        self.previewSkipButton.layer.borderColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
-            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-                ? [UIColor colorWithWhite:1.0 alpha:0.14]
-                : [UIColor colorWithWhite:0.0 alpha:0.10];
-        }].CGColor;
-        self.previewSkipButton.layer.borderWidth = 0.5;
-    } else {
-        self.previewSkipButton.backgroundColor = YTKACEButtonBgColor();
-    }
-    self.previewSkipButton.layer.cornerRadius = 12.0;
-    self.previewSkipButton.layer.cornerCurve = kCACornerCurveContinuous;
-    self.previewSkipButton.layer.masksToBounds = YES;
-    [self.previewSkipButton setTitle:YTKACELocalized(@"Preview Cut") forState:UIControlStateNormal];
-    [self.previewSkipButton setTitleColor:YTKACEAccentColor() forState:UIControlStateNormal];
-    self.previewSkipButton.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightSemibold];
-    UIImage *scissors = [UIImage systemImageNamed:@"scissors"];
-    if (scissors != nil) {
-        [self.previewSkipButton setImage:scissors forState:UIControlStateNormal];
-        self.previewSkipButton.tintColor = YTKACEAccentColor();
-        self.previewSkipButton.imageEdgeInsets = UIEdgeInsetsMake(0, -8, 0, 8);
-    }
-    [self.previewSkipButton addTarget:self action:@selector(previewSkipTapped) forControlEvents:UIControlEventTouchUpInside];
-    [self.contentView addSubview:self.previewSkipButton];
-
     // 8. Big Bottom Submit Button
     self.submitButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.submitButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1732,12 +1730,7 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
         [categoryCard.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16.0],
         [categoryCard.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16.0],
 
-        [self.previewSkipButton.topAnchor constraintEqualToAnchor:categoryCard.bottomAnchor constant:12.0],
-        [self.previewSkipButton.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16.0],
-        [self.previewSkipButton.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16.0],
-        [self.previewSkipButton.heightAnchor constraintEqualToConstant:44.0],
-
-        [self.submitButton.topAnchor constraintEqualToAnchor:self.previewSkipButton.bottomAnchor constant:14.0],
+        [self.submitButton.topAnchor constraintEqualToAnchor:categoryCard.bottomAnchor constant:14.0],
         [self.submitButton.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16.0],
         [self.submitButton.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16.0],
         [self.submitButton.heightAnchor constraintEqualToConstant:50.0],
@@ -2295,6 +2288,7 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
             }
         }
     }
+    [self updatePreviewTimeline];
     if (self.previewCategoryDot != nil) {
         self.previewCategoryDot.backgroundColor = YTKACESponsorCategoryColor(self.selectedCategory);
     }
@@ -2345,13 +2339,9 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
     YTKACESponsorPreview check;
     BOOL canPreviewCut = !isFull && !isPOI && check.begin(self.startTime, self.endTime, self.videoDuration, false);
     BOOL isMute = [self.actionType isEqualToString:@"mute"];
-    for (UIButton *button in @[self.previewCutButton, self.previewSkipButton]) {
-        button.enabled = canPreviewCut;
-        button.alpha = canPreviewCut ? 1.0 : 0.4;
-        NSString *title = button == self.previewCutButton ? (isMute ? @"Mute" : @"Cut") : (isMute ? @"Preview Mute" : @"Preview Cut");
-        [button setTitle:YTKACELocalized(title) forState:UIControlStateNormal];
-        [button setImage:[UIImage systemImageNamed:isMute ? @"speaker.slash.fill" : @"scissors"] forState:UIControlStateNormal];
-    }
+    self.previewCutButton.enabled = canPreviewCut;
+    YTKACESetPreviewControl(self.previewCutButton, YTKACELocalized(isMute ? @"Mute" : @"Cut"), isMute ? @"speaker.slash.fill" : @"scissors");
+    [self updatePreviewTimeline];
 
     if (self.previewTimeLabel != nil) {
         self.previewTimeLabel.text = [NSString stringWithFormat:@"%@ → %@",
@@ -2375,8 +2365,6 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
         self.navigationItem.rightBarButtonItem.enabled = YES;
         self.submitButton.enabled = YES;
         self.submitButton.alpha = 1.0;
-        self.previewSkipButton.enabled = NO;
-        self.previewSkipButton.alpha = 0.4;
         return;
     }
 
@@ -2396,8 +2384,6 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
         self.navigationItem.rightBarButtonItem.enabled = YES;
         self.submitButton.enabled = YES;
         self.submitButton.alpha = 1.0;
-        self.previewSkipButton.enabled = canPreviewCut;
-        self.previewSkipButton.alpha = canPreviewCut ? 1.0 : 0.4;
     } else {
         self.lengthBadgeView.backgroundColor = [UIColor.systemRedColor colorWithAlphaComponent:0.18];
         self.lengthBadgeLabel.textColor = UIColor.systemRedColor;
@@ -2405,8 +2391,6 @@ static void *YTKACESponsorPreviewItemContext = &YTKACESponsorPreviewItemContext;
         self.navigationItem.rightBarButtonItem.enabled = NO;
         self.submitButton.enabled = NO;
         self.submitButton.alpha = 0.5;
-        self.previewSkipButton.enabled = NO;
-        self.previewSkipButton.alpha = 0.4;
     }
 }
 
