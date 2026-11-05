@@ -15,6 +15,7 @@ static IMP OriginalVideoSetControlsVisible;
 static IMP OriginalControlsSetHidden;
 static const void *YTKACEOverlayStackAssociation = &YTKACEOverlayStackAssociation;
 static const void *YTKACEOverlayTrailingAssociation = &YTKACEOverlayTrailingAssociation;
+static const void *YTKACEOverlayTopAssociation = &YTKACEOverlayTopAssociation;
 static const void *YTKACEOverlayAlignmentAssociation = &YTKACEOverlayAlignmentAssociation;
 static NSMutableArray<NSDictionary *> *YTKACEOverlayConfigurators;
 static BOOL YTKACENativeControlsVisible = YES;
@@ -145,8 +146,13 @@ static BOOL YTKACEAlignOverlayStack(UIView *overlay, UIStackView *stack) {
     }
     state[@"constant"] = @(constant);
     state[@"stable"] = @(stable);
+    // Vertical fullscreen shows the title and channel below the top row: stay under them.
+    BOOL fillsPortraitWindow = windowSize.height > windowSize.width &&
+        CGRectGetHeight(overlay.bounds) >= windowSize.height * 0.85;
+    NSLayoutConstraint *top = objc_getAssociatedObject(overlay, YTKACEOverlayTopAssociation);
     [UIView performWithoutAnimation:^{
         trailing.constant = constant;
+        top.constant = fillsPortraitWindow ? 94.0 : 50.0;
     }];
 
     BOOL ready = hasGearAlignment || stable >= 2;
@@ -256,13 +262,17 @@ static UIStackView *YTKACEStackForOverlay(UIView *overlay) {
     NSLayoutConstraint *trailing =
         [stack.trailingAnchor constraintEqualToAnchor:overlay.safeAreaLayoutGuide.trailingAnchor
                                              constant:-10.0];
+    NSLayoutConstraint *top =
+        [stack.topAnchor constraintEqualToAnchor:overlay.safeAreaLayoutGuide.topAnchor constant:50.0];
     [NSLayoutConstraint activateConstraints:@[
         trailing,
-        [stack.topAnchor constraintEqualToAnchor:overlay.safeAreaLayoutGuide.topAnchor constant:50.0],
+        top,
         [stack.heightAnchor constraintEqualToConstant:40.0]
     ]];
     objc_setAssociatedObject(overlay, YTKACEOverlayTrailingAssociation,
                              trailing, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(overlay, YTKACEOverlayTopAssociation,
+                             top, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(overlay,
                              YTKACEOverlayStackAssociation,
                              stack,

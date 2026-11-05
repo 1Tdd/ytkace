@@ -2,7 +2,10 @@
 #include "../../Runtime/MediaPolicy.h"
 #import "../../Runtime/Hooking.h"
 #import "../../Runtime/Preferences.h"
+#import "../Downloads/DownloadLog.h"
 #import "../Downloads/YTKACEDownloadPlayerController.h"
+#import "../SponsorBlock/SponsorHooks.h"
+#import "ShortsPlayback.h"
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -172,6 +175,43 @@ static BOOL YTKACEPiPDefaultOff(id self, SEL _cmd) {
     return YTKACEOrigPiPDefaultOff != NULL && ((BOOL (*)(id, SEL))YTKACEOrigPiPDefaultOff)(self, _cmd);
 }
 
+// iOS shows a video without a finite time range as live: a stop button and no skipping.
+static BOOL YTKACEPiPShortDuration(id player, double *duration) {
+    if (player == nil || !YTKACEResolveShortsPlayback(player, NULL)) return NO;
+    *duration = YTKACESponsorCurrentDuration();
+    return isfinite(*duration) && *duration > 0.0;
+}
+
+static IMP YTKACEOrigPiPTimeRange;
+static CMTimeRange YTKACEPiPTimeRange(id self, SEL _cmd, id controller) {
+    CMTimeRange range = YTKACEOrigPiPTimeRange != NULL
+        ? ((CMTimeRange (*)(id, SEL, id))YTKACEOrigPiPTimeRange)(self, _cmd, controller)
+        : kCMTimeRangeInvalid;
+    if (CMTIMERANGE_IS_VALID(range) && CMTIME_IS_NUMERIC(range.duration) &&
+        CMTimeGetSeconds(range.duration) > 0.0) {
+        return range;
+    }
+    double duration = 0.0;
+    BOOL isShort = YTKACEPiPShortDuration(YTKACEActivePlayerViewController(), &duration);
+    YTKACEDebugLog(@"shorts", @"pip range valid=%d short=%d duration=%.1f",
+        CMTIMERANGE_IS_VALID(range), isShort, duration);
+    return isShort ? CMTimeRangeMake(kCMTimeZero, CMTimeMakeWithSeconds(duration, 600)) : range;
+}
+
+static IMP YTKACEOrigPiPSeek;
+static void YTKACEPiPSeek(id self, SEL _cmd, double interval) {
+    id player = YTKACEActivePlayerViewController();
+    double duration = 0.0;
+    SEL seek = @selector(seekToTime:);
+    if (YTKACEPiPShortDuration(player, &duration) && [player respondsToSelector:seek]) {
+        double target = MAX(0.0, MIN(duration, YTKACESponsorCurrentTime() + interval));
+        YTKACEDebugLog(@"shorts", @"pip seek interval=%.0f target=%.1f", interval, target);
+        ((void (*)(id, SEL, double))objc_msgSend)(player, seek, target);
+        return;
+    }
+    if (YTKACEOrigPiPSeek != NULL) ((void (*)(id, SEL, double))YTKACEOrigPiPSeek)(self, _cmd, interval);
+}
+
 static void YTKACEDidPressPause(id self, SEL _cmd, id sender) {
     YTKACENotifyPlaybackPaused();
     if (YTKACEOrigDidPressPause != NULL) {
@@ -198,6 +238,19 @@ void YTKACEInstallShortsPiPHooks(void) {
         (IMP)YTKACEPiPByUserSettings, &YTKACEOrigPiPByUserSettings);
     YTKACEInstallInstanceHook(@"YTHotConfig", @"iosPlayerClientSharedConfigDefaultOffPremiumPip",
         (IMP)YTKACEPiPDefaultOff, &YTKACEOrigPiPDefaultOff);
+    YTKACEInstallInstanceHook(@"MLPIPControllerImpl", @"pictureInPictureControllerTimeRangeForPlayback:",
+        (IMP)YTKACEPiPTimeRange, &YTKACEOrigPiPTimeRange);
+    // Only with the argument this hook expects: a double.
+    Method seekMethod = class_getInstanceMethod(NSClassFromString(pipClass),
+        NSSelectorFromString(@"pictureInPicturePlaybackRequestedSeekWithInterval:"));
+    char *seekArgument = seekMethod != NULL ? method_copyArgumentType(seekMethod, 2) : NULL;
+    if (seekArgument != NULL && seekArgument[0] == 'd') {
+        YTKACEInstallInstanceHook(pipClass, @"pictureInPicturePlaybackRequestedSeekWithInterval:",
+            (IMP)YTKACEPiPSeek, &YTKACEOrigPiPSeek);
+    } else {
+        YTKACEDownloadLog(@"shorts", @"pip seek hook skipped argument=%s", seekArgument ?: "none");
+    }
+    free(seekArgument);
 
     YTKACEInstallInstanceHook(@"AVPictureInPictureController",
         @"canStartPictureInPictureAutomaticallyFromInline",
