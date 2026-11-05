@@ -487,8 +487,8 @@ static NSURL *YTKACEPostLink(id node) {
         strip.customView = self.imageStrip;
         [rows addObject:strip];
     }
-    // One image confirmed by the post needs no separate save-all row.
-    if (!(self.imagesResolved && URLs.count == 1)) {
+    // A single image has only "Save current image"; the row returns if the post page finds more.
+    if (URLs.count != 1) {
         YTKACEMediaAction *saveAll = [YTKACEMediaAction action:@"post.images.saveAll"
             title:YTKACELocalized(@"Save all images") symbol:@"square.and.arrow.down.on.square"
             handler:^{ [weakSelf saveAllImages]; }];
