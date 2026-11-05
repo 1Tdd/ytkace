@@ -15,7 +15,6 @@ static const NSUInteger YTKACENativeSettingsCategory = 0x796b6361;
 static const NSUInteger YTKACENativeSettingsGroup = 0x796b6163;
 static NSString *const YTKACEInertIdentifier = @"YTKACEInertItem";
 static const NSInteger YTKACESearchFieldTag = 0x5954534B;
-static const void *YTKACEDeveloperHoldKey = &YTKACEDeveloperHoldKey;
 static const void *YTKACESettingIconImageKey = &YTKACESettingIconImageKey;
 static IMP OriginalSettingsCategoryOrder;
 static IMP OriginalUpdateSettingsSection;
@@ -39,7 +38,8 @@ static NSArray<NSDictionary *> *YTKACENativeLayout(void) {
     }
     [layout addObjectsFromArray:@[
         @{@"kind": @"header", @"title": @"ABOUT"},
-        @{@"kind": @"row", @"title": @"itzzace", @"developer": @YES},
+        @{@"kind": @"row", @"title": @"itzzace"},
+        @{@"kind": @"row", @"title": @"Download Log"},
         @{@"kind": @"footer"}
     ]];
     return layout;
@@ -95,6 +95,7 @@ static NSString *YTKACENativeSettingsSubtitle(NSString *title) {
     NSString *value = YTKACENativeMenuRow(title)[@"detail"];
     if ([title isEqualToString:@"Downloads & Library"]) value = @"Saved video, audio, Shorts, imports and backups";
     if ([title isEqualToString:@"itzzace"]) value = @"Developer";
+    if ([title isEqualToString:@"Download Log"]) value = @"View, copy, or share the log";
     return value != nil ? YTKACELocalized(value) : nil;
 }
 
@@ -242,26 +243,6 @@ static void YTKACEMakeItemInert(id item) {
     }
 }
 
-@interface YTKACEDeveloperHoldTarget : NSObject
-@property(nonatomic, weak) UIView *cell;
-@end
-
-@implementation YTKACEDeveloperHoldTarget
-
-- (void)handleHold:(UILongPressGestureRecognizer *)recognizer {
-    if (recognizer.state != UIGestureRecognizerStateBegan) return;
-    UIResponder *responder = self.cell;
-    while (responder != nil && ![responder isKindOfClass:UIViewController.class]) {
-        responder = responder.nextResponder;
-    }
-    UINavigationController *navigation =
-        ((UIViewController *)responder).navigationController;
-    if (navigation == nil) return;
-    [navigation pushViewController:YTKACEMakeDownloadLogController() animated:YES];
-}
-
-@end
-
 static void YTKACESettingsCellLayout(id receiver, SEL selector) {
     if (OriginalSettingsCellLayout != NULL) {
         ((void (*)(id, SEL))OriginalSettingsCellLayout)(receiver, selector);
@@ -291,18 +272,6 @@ static void YTKACESettingsCellLayout(id receiver, SEL selector) {
         return;
     }
     if (field != nil) [field removeFromSuperview];
-    if ([identifier isEqualToString:@"YTKACEDeveloperItem"] &&
-        objc_getAssociatedObject(cell, YTKACEDeveloperHoldKey) == nil) {
-        YTKACEDeveloperHoldTarget *target = [YTKACEDeveloperHoldTarget new];
-        target.cell = cell;
-        UILongPressGestureRecognizer *hold =
-            [[UILongPressGestureRecognizer alloc] initWithTarget:target
-                                                          action:@selector(handleHold:)];
-        hold.minimumPressDuration = 4.0;
-        [cell addGestureRecognizer:hold];
-        objc_setAssociatedObject(cell, YTKACEDeveloperHoldKey, target,
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
     cell.userInteractionEnabled = ![identifier isEqualToString:YTKACEInertIdentifier];
 }
 
@@ -389,6 +358,9 @@ static void YTKACEUpdateNativeSettingsSection(id receiver, SEL selector,
             controller.hidesSettingsButton = YES;
             return controller;
         } copy],
+        @"Download Log": [^UIViewController *{
+            return YTKACEMakeDownloadLogController();
+        } copy],
         @"itzzace": [^UIViewController *{
             NSURL *URL = [NSURL URLWithString:@"https://github.com/itzzace/ytkace"];
             [UIApplication.sharedApplication openURL:URL options:@{}
@@ -420,13 +392,6 @@ static void YTKACEUpdateNativeSettingsSection(id receiver, SEL selector,
             YTKACEMakeItemInert(item);
         } else {
             item = YTKACENativeSettingsItem(title, settingsController, builders[title]);
-            if ([definition[@"developer"] boolValue] && item != nil) {
-                SEL setIdentifier = NSSelectorFromString(@"setAccessibilityIdentifier:");
-                if ([item respondsToSelector:setIdentifier]) {
-                    ((void (*)(id, SEL, id))objc_msgSend)(
-                        item, setIdentifier, @"YTKACEDeveloperItem");
-                }
-            }
         }
         if (item != nil) [items addObject:item];
     }

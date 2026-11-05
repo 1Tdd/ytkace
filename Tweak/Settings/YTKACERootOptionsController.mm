@@ -256,27 +256,12 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
     [self.view addGestureRecognizer:dismissTap];
     self.settingsHeader = [self makeSettingsHeader];
     [self.view addSubview:self.settingsHeader];
-    UILongPressGestureRecognizer *developerHold =
-        [[UILongPressGestureRecognizer alloc]
-            initWithTarget:self action:@selector(handleDeveloperHold:)];
-    developerHold.minimumPressDuration = 3.0;
-    developerHold.cancelsTouchesInView = YES;
-    [self.tableView addGestureRecognizer:developerHold];
 }
 
 - (void)showDownloadLog {
     [self.navigationController setNavigationBarHidden:NO animated:NO];
     [self.navigationController pushViewController:
         [YTKACEDownloadLogController new] animated:YES];
-}
-
-- (void)handleDeveloperHold:(UILongPressGestureRecognizer *)recognizer {
-    if (recognizer.state != UIGestureRecognizerStateBegan) return;
-    NSIndexPath *indexPath = [self.tableView indexPathForRowAtPoint:
-        [recognizer locationInView:self.tableView]];
-    if (indexPath.section == (NSInteger)YTKACESettingsMenu().count && indexPath.row == 0) {
-        [self showDownloadLog];
-    }
 }
 
 - (void)viewSafeAreaInsetsDidChange {
@@ -482,7 +467,7 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
     }
     NSArray *menu = YTKACESettingsMenu();
     if (section < (NSInteger)menu.count) return (NSInteger)[menu[(NSUInteger)section][@"rows"] count];
-    return 2;
+    return 3;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -516,7 +501,7 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     (void)tableView;
     if (self.searchResults != nil) return 62.0;
-    if (indexPath.section == (NSInteger)YTKACESettingsMenu().count && indexPath.row == 1) {
+    if (indexPath.section == (NSInteger)YTKACESettingsMenu().count && indexPath.row == 2) {
         return 92.0;
     }
     return 62.0;
@@ -606,6 +591,15 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
     }
 
     if (indexPath.row == 1) {
+        UITableViewCell *cell = [self baseCellForTableView:tableView style:UITableViewCellStyleSubtitle];
+        cell.textLabel.text = YTKACELocalized(@"Download Log");
+        cell.detailTextLabel.text = YTKACELocalized(@"View, copy, or share the log");
+        [self configureImageForCell:cell asset:@"" symbol:@"doc.text"];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
+
+    if (indexPath.row == 2) {
         UITableViewCell *cell = [self baseCellForTableView:tableView style:UITableViewCellStyleDefault];
         cell.textLabel.text = [self deviceInformationText];
         cell.textLabel.textColor = UIColor.secondaryLabelColor;
@@ -633,6 +627,10 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
     }
     NSArray *menu = YTKACESettingsMenu();
     if (indexPath.section >= (NSInteger)menu.count) {
+        if (indexPath.row == 1) {
+            [self showDownloadLog];
+            return;
+        }
         if (indexPath.row != 0) return;
         NSURL *URL = [NSURL URLWithString:@"https://github.com/itzzace/ytkace"];
         [UIApplication.sharedApplication openURL:URL options:@{}

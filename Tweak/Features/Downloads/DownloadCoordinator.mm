@@ -1084,7 +1084,9 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
 
 - (void)presentMediaMenuForResponse:(id)response sourceView:(UIView *)sourceView shorts:(BOOL)shorts {
     YTKACEMediaActionSheet *sheet = [YTKACEMediaActionSheet new];
-    sheet.heading = [NSString stringWithFormat:@"%@ — %@", [YTKACEStreamResolver authorFromPlayerResponse:response], [YTKACEStreamResolver titleFromPlayerResponse:response]];
+    NSString *author = [YTKACEStreamResolver authorFromPlayerResponse:response];
+    NSString *videoTitle = [YTKACEStreamResolver titleFromPlayerResponse:response] ?: @"";
+    sheet.heading = author.length != 0 ? [NSString stringWithFormat:@"%@ — %@", author, videoTitle] : videoTitle;
     __weak YTKACEDownloadCoordinator *weakSelf = self;
     NSMutableArray *rows = [NSMutableArray arrayWithObject:[YTKACEMediaAction action:@"media.download" title:YTKACELocalized(@"Download") symbol:@"play.rectangle" handler:^{
         weakSelf.playerResponse = response;

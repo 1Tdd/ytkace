@@ -55,7 +55,18 @@ static NSInteger YTKACEMatchScore(NSDictionary *record, NSString *query) {
     if ([record[@"subtitle"] rangeOfString:query options:options].location != NSNotFound) return 2;
     if ([record[@"header"] rangeOfString:query options:options].location != NSNotFound ||
         [record[@"pageTitle"] rangeOfString:query options:options].location != NSNotFound) return 3;
-    return NSNotFound;
+    // Several words may be spread across the setting, in any order: "nascondi shorts home".
+    NSArray<NSString *> *words = [query componentsSeparatedByCharactersInSet:
+        NSCharacterSet.whitespaceCharacterSet];
+    NSString *all = [NSString stringWithFormat:@"%@ %@ %@ %@ %@", record[@"title"], record[@"en"],
+        record[@"subtitle"], record[@"header"], record[@"pageTitle"]];
+    BOOL found = NO;
+    for (NSString *word in words) {
+        if (word.length == 0) continue;
+        if ([all rangeOfString:word options:options].location == NSNotFound) return NSNotFound;
+        found = YES;
+    }
+    return found ? 4 : NSNotFound;
 }
 
 NSArray<NSDictionary *> *YTKACEFilterSettings(NSString *query) {

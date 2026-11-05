@@ -1749,24 +1749,14 @@ static UIButton *YTKACEMakePreviewControl(BOOL primary) {
         return;
     }
     AudioServicesPlaySystemSound(1519);
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:YTKACELocalized(@"Select Video Chapter")
-                         message:YTKACELocalized(@"Choose a chapter to automatically fill start time, end time, and category:")
-                  preferredStyle:UIAlertControllerStyleActionSheet];
-
-    for (YTKACEVideoChapter *ch in chapters) {
-        NSString *categoryTitle = YTKACESponsorCategoryTitle(ch.suggestedCategory);
-        NSString *prefix = ch.isLikelySponsor ? @"★ " : @"";
-        NSString *actionTitle = [NSString stringWithFormat:@"%@%@ (%@ - %@) [%@]",
-            prefix,
-            ch.title,
-            YTKACEFormatSponsorTime(ch.startTime),
-            YTKACEFormatSponsorTime(ch.endTime),
-            categoryTitle];
-
-        UIAlertAction *action = [UIAlertAction actionWithTitle:actionTitle
-                                                         style:UIAlertActionStyleDefault
-                                                       handler:^(__unused UIAlertAction *act) {
+    NSMutableArray<YTKACEMediaAction *> *rows = [NSMutableArray array];
+    for (NSUInteger index = 0; index < chapters.count; index++) {
+        YTKACEVideoChapter *ch = chapters[index];
+        YTKACEMediaAction *action = [YTKACEMediaAction
+            action:[NSString stringWithFormat:@"editor.chapter.%lu", (unsigned long)index]
+             title:ch.title
+            symbol:ch.isLikelySponsor ? @"star.fill" : @"list.number"
+           handler:^{
             self.startTime = ch.startTime;
             self.endTime = ch.endTime;
             self.selectedCategory = ch.suggestedCategory;
@@ -1781,18 +1771,15 @@ static UIButton *YTKACEMakePreviewControl(BOOL primary) {
             NSString *msg = [NSString stringWithFormat:@"%@: %@", YTKACELocalized(@"Selected chapter"), ch.title];
             YTKACEShowNotice(msg);
         }];
-        [alert addAction:action];
+        action.detail = [NSString stringWithFormat:@"%@ - %@ · %@",
+            YTKACEFormatSponsorTime(ch.startTime), YTKACEFormatSponsorTime(ch.endTime),
+            YTKACESponsorCategoryTitle(ch.suggestedCategory)];
+        [rows addObject:action];
     }
-
-    [alert addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
-                                             style:UIAlertActionStyleCancel
-                                           handler:nil]];
-
-    if (alert.popoverPresentationController != nil) {
-        alert.popoverPresentationController.sourceView = self.contentView;
-        alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.contentView.bounds), 100.0, 1.0, 1.0);
-    }
-    [self presentViewController:alert animated:YES completion:nil];
+    YTKACEMediaActionSheet *sheet = [YTKACEMediaActionSheet new];
+    sheet.heading = YTKACELocalized(@"Select Video Chapter");
+    sheet.actionSections = @[rows];
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (UIView *)buildTimeCardWithTitle:(NSString *)title
@@ -2012,30 +1999,15 @@ static UIButton *YTKACEMakePreviewControl(BOOL primary) {
 
 - (void)presentCategoryPicker {
     AudioServicesPlaySystemSound(1519);
-    UIAlertController *sheet = [UIAlertController
-        alertControllerWithTitle:YTKACELocalized(@"Select Category")
-        message:YTKACELocalized(@"Choose a SponsorBlock category:")
-        preferredStyle:UIAlertControllerStyleActionSheet];
-
-    NSArray *definitions = YTKACESponsorCategoryDefinitions();
-    for (NSDictionary *def in definitions) {
+    NSMutableArray<YTKACEMediaAction *> *rows = [NSMutableArray array];
+    for (NSDictionary *def in YTKACESponsorCategoryDefinitions()) {
         NSString *catID = def[@"id"];
-        NSString *catTitle = def[@"title"];
         NSString *catDesc = def[@"description"];
-        BOOL isSelected = [catID isEqualToString:self.selectedCategory];
-
-        NSString *actionTitle = isSelected
-            ? [NSString stringWithFormat:@"✓ %@", catTitle]
-            : catTitle;
-
-        if (catDesc.length > 0) {
-            actionTitle = [actionTitle stringByAppendingFormat:@" (%@)", catDesc];
-        }
-
-        UIAlertAction *action = [UIAlertAction
-            actionWithTitle:actionTitle
-                      style:UIAlertActionStyleDefault
-                    handler:^(__unused UIAlertAction *act) {
+        YTKACEMediaAction *action = [YTKACEMediaAction
+            action:[@"editor.category." stringByAppendingString:catID]
+             title:def[@"title"]
+            symbol:nil
+           handler:^{
             self.selectedCategory = catID;
             if ([self.actionType isEqualToString:@"full"] &&
                 ![catID isEqualToString:@"sponsor"] &&
@@ -2049,15 +2021,13 @@ static UIButton *YTKACEMakePreviewControl(BOOL primary) {
             AudioServicesPlaySystemSound(1519);
             [self updateCategorySelection];
         }];
-        [sheet addAction:action];
+        action.detail = catDesc.length > 0 ? catDesc : nil;
+        action.selected = [catID isEqualToString:self.selectedCategory];
+        [rows addObject:action];
     }
-
-    [sheet addAction:[UIAlertAction actionWithTitle:YTKACELocalized(@"Cancel")
-                                             style:UIAlertActionStyleCancel
-                                           handler:nil]];
-
-    sheet.popoverPresentationController.sourceView = self.view;
-    sheet.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2.0, self.view.bounds.size.height / 2.0, 1, 1);
+    YTKACEMediaActionSheet *sheet = [YTKACEMediaActionSheet new];
+    sheet.heading = YTKACELocalized(@"Select Category");
+    sheet.actionSections = @[rows];
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
