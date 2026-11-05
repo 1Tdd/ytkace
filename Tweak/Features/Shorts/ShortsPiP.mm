@@ -13,6 +13,7 @@
 #import <AVKit/AVKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <math.h>
 
 BOOL YTKACEManualPiPRequested = NO;
 static YTKACEMedia::PlaybackActivity YTKACEPlaybackActivity;
@@ -182,29 +183,93 @@ static BOOL YTKACEPiPShortDuration(id player, double *duration) {
     return isfinite(*duration) && *duration > 0.0;
 }
 
+static __weak AVPictureInPictureController *YTKACEPiPActiveController;
+static __weak id YTKACEPiPShortPlayer;
+static double YTKACEPiPShortTime;
+static double YTKACEPiPShortLength;
+
+// Auto-advance keeps the same PiP session: iOS asks for the range again only when told to.
+void YTKACEPiPObservePlayback(id player, double time, double duration) {
+    AVPictureInPictureController *controller = YTKACEPiPActiveController;
+    if (controller == nil || !controller.isPictureInPictureActive) {
+        YTKACEPiPShortPlayer = nil;
+        return;
+    }
+    if (!isfinite(time) || !isfinite(duration) || duration <= 0.0) return;
+    SEL active = NSSelectorFromString(@"isActivePlayback");
+    if ([player respondsToSelector:active] && !((BOOL (*)(id, SEL))objc_msgSend)(player, active)) return;
+    if (!YTKACEResolveShortsPlayback(player, NULL)) {
+        YTKACEPiPShortPlayer = nil;
+        return;
+    }
+    BOOL changed = player != YTKACEPiPShortPlayer || fabs(duration - YTKACEPiPShortLength) > 0.5 ||
+        time < YTKACEPiPShortTime - 1.0;
+    YTKACEPiPShortPlayer = player;
+    YTKACEPiPShortTime = time;
+    YTKACEPiPShortLength = duration;
+    if (!changed) return;
+    YTKACEDebugLog(@"shorts", @"pip new clip time=%.1f duration=%.1f", time, duration);
+    SEL invalidate = NSSelectorFromString(@"invalidatePlaybackState");
+    if ([controller respondsToSelector:invalidate]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            ((void (*)(id, SEL))objc_msgSend)(controller, invalidate);
+        });
+    }
+}
+
+// The sample buffer clock keeps running across clips, so the range has to start where this one did.
+static double YTKACEPiPClipStart(id controller, double time) {
+    SEL sourceSelector = NSSelectorFromString(@"contentSource");
+    id source = [controller respondsToSelector:sourceSelector]
+        ? ((id (*)(id, SEL))objc_msgSend)(controller, sourceSelector) : nil;
+    SEL layerSelector = NSSelectorFromString(@"sampleBufferDisplayLayer");
+    id layer = [source respondsToSelector:layerSelector]
+        ? ((id (*)(id, SEL))objc_msgSend)(source, layerSelector) : nil;
+    if (![layer isKindOfClass:AVSampleBufferDisplayLayer.class]) return 0.0;
+    CMTimebaseRef timebase = ((AVSampleBufferDisplayLayer *)layer).controlTimebase;
+    if (timebase == NULL) return 0.0;
+    double clock = CMTimeGetSeconds(CMTimebaseGetTime(timebase));
+    return isfinite(clock) ? MAX(0.0, clock - time) : 0.0;
+}
+
 static IMP YTKACEOrigPiPTimeRange;
 static CMTimeRange YTKACEPiPTimeRange(id self, SEL _cmd, id controller) {
     CMTimeRange range = YTKACEOrigPiPTimeRange != NULL
         ? ((CMTimeRange (*)(id, SEL, id))YTKACEOrigPiPTimeRange)(self, _cmd, controller)
         : kCMTimeRangeInvalid;
-    if (CMTIMERANGE_IS_VALID(range) && CMTIME_IS_NUMERIC(range.duration) &&
-        CMTimeGetSeconds(range.duration) > 0.0) {
-        return range;
+    if ([controller isKindOfClass:AVPictureInPictureController.class]) YTKACEPiPActiveController = controller;
+    double duration = YTKACEPiPShortLength;
+    double time = YTKACEPiPShortTime;
+    // YouTube's own range can still describe the previous clip, so a tracked Short comes first.
+    BOOL isShort = YTKACEPiPShortPlayer != nil && duration > 0.0;
+    if (!isShort) {
+        if (CMTIMERANGE_IS_VALID(range) && CMTIME_IS_NUMERIC(range.duration) &&
+            CMTimeGetSeconds(range.duration) > 0.0) {
+            return range;
+        }
+        isShort = YTKACEPiPShortDuration(YTKACEActivePlayerViewController(), &duration);
+        time = YTKACESponsorCurrentTime();
     }
-    double duration = 0.0;
-    BOOL isShort = YTKACEPiPShortDuration(YTKACEActivePlayerViewController(), &duration);
-    YTKACEDebugLog(@"shorts", @"pip range valid=%d short=%d duration=%.1f",
-        CMTIMERANGE_IS_VALID(range), isShort, duration);
-    return isShort ? CMTimeRangeMake(kCMTimeZero, CMTimeMakeWithSeconds(duration, 600)) : range;
+    double start = isShort ? YTKACEPiPClipStart(controller, time) : 0.0;
+    YTKACEDebugLog(@"shorts", @"pip range valid=%d short=%d start=%.1f time=%.1f duration=%.1f",
+        CMTIMERANGE_IS_VALID(range), isShort, start, time, duration);
+    return isShort ? CMTimeRangeMake(CMTimeMakeWithSeconds(start, 600), CMTimeMakeWithSeconds(duration, 600)) : range;
 }
 
 static IMP YTKACEOrigPiPSeek;
 static void YTKACEPiPSeek(id self, SEL _cmd, double interval) {
-    id player = YTKACEActivePlayerViewController();
-    double duration = 0.0;
+    id player = YTKACEPiPShortPlayer;
+    double duration = YTKACEPiPShortLength;
+    double current = YTKACEPiPShortTime;
+    BOOL isShort = player != nil && duration > 0.0;
+    if (!isShort) {
+        player = YTKACEActivePlayerViewController();
+        isShort = YTKACEPiPShortDuration(player, &duration);
+        current = YTKACESponsorCurrentTime();
+    }
     SEL seek = @selector(seekToTime:);
-    if (YTKACEPiPShortDuration(player, &duration) && [player respondsToSelector:seek]) {
-        double target = MAX(0.0, MIN(duration, YTKACESponsorCurrentTime() + interval));
+    if (isShort && [player respondsToSelector:seek]) {
+        double target = MAX(0.0, MIN(duration, current + interval));
         YTKACEDebugLog(@"shorts", @"pip seek interval=%.0f target=%.1f", interval, target);
         ((void (*)(id, SEL, double))objc_msgSend)(player, seek, target);
         return;

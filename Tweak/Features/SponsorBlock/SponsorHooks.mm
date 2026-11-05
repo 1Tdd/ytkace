@@ -2017,6 +2017,7 @@ static void YTKACESingleVideoTimeChanged(id receiver,
             YTKACEUpdatePlayerBarDuration(bar);
         }
     }
+    YTKACEPiPObservePlayback(receiver, resolved, duration);
     YTKACEPublishPlaybackTime(receiver, resolved, duration);
 }
 
@@ -2057,6 +2058,7 @@ static void YTKACEMutatedVideoTimeChanged(id receiver,
             YTKACEUpdatePlayerBarDuration(bar);
         }
     }
+    YTKACEPiPObservePlayback(receiver, resolved, duration);
     YTKACEPublishPlaybackTime(receiver, resolved, duration);
 }
 

@@ -128,6 +128,7 @@ FOUNDATION_EXPORT BOOL YTKACEManualPiPRequested;
 void YTKACENotifyPlaybackTick(void);
 void YTKACENotifyPlaybackPaused(void);
 void YTKACENotifyVideoTime(double time);
+void YTKACEPiPObservePlayback(id _Nullable player, double time, double duration);
 BOOL YTKACEIsPlaybackPaused(id _Nullable sender);
 id _Nullable YTKACEActivePlayerViewController(void);
 NSDictionary<NSString *, NSString *> * _Nullable YTKACESolveChallenges(NSString * _Nullable playerID,
