@@ -657,6 +657,12 @@ static void YTKACEStoreCompleted(NSURL *URL, NSTimeInterval duration,
     [self configureAudioSession];
     [self configureRemoteCommands];
     [self beginTrackingPosition];
+    // An AVPlayer left at the end of its item does not restart by itself.
+    NSTimeInterval total = CMTimeGetSeconds(self.player.currentItem.duration);
+    NSTimeInterval position = CMTimeGetSeconds(self.player.currentTime);
+    if (isfinite(total) && total > 0.0 && isfinite(position) && position >= total - 0.05) {
+        [self.player seekToTime:kCMTimeZero];
+    }
     [self.player play];
     self.player.rate = MAX(0.25f, MIN(self.playbackRate, 5.0f));
     if ([YTKACELibraryPiP sharedPiP].automatic) [[YTKACELibraryPiP sharedPiP] silenceOtherControllers];
