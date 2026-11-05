@@ -1016,7 +1016,14 @@ static void YTKACEQueueSyncFromController(id controller) {
         if (existing == NSNotFound) continue;
         [ordered addObject:YTKACEQueue()[existing]];
     }
-    if (ordered.count == 0) return;
+    if (ordered.count == 0) {
+        // The panel's last item was just removed: keep it from returning at the next launch.
+        if ([items isKindOfClass:NSArray.class] && items.count == 0) {
+            [YTKACEQueue() removeAllObjects];
+            YTKACEQueueSave();
+        }
+        return;
+    }
     if (ordered.count == YTKACEQueue().count) {
         BOOL identical = YES;
         for (NSUInteger index = 0; index < ordered.count; index++) {

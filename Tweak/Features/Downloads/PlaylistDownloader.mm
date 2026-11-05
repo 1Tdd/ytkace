@@ -84,19 +84,22 @@ static void YTKACERecordPlaylistItem(NSString *playlistID, id renderer) {
 static NSArray *YTKACEPlaylistContents(id receiver, SEL selector) {
     NSArray *items = OriginalPlaylistContents == NULL ? nil :
         ((id (*)(id, SEL))OriginalPlaylistContents)(receiver, selector);
-    if (![items isKindOfClass:NSArray.class] || items.count == 0) return items;
+    if (!YTKACEPlaylistDownloadEnabled() ||
+        ![items isKindOfClass:NSArray.class] || items.count == 0) return items;
     NSString *playlistID = YTKACEPlaylistText(
         YTKACEPlaylistValue(receiver, @"playlistId"));
     if (playlistID.length == 0) playlistID = YTKACECurrentPlaylistID;
     if (playlistID.length == 0) return items;
-    NSUInteger before = YTKACEPlaylistItems[playlistID].count;
-    for (id entry in items) {
-        id renderer = YTKACEPlaylistVideoRenderer(entry);
-        if (renderer != nil) YTKACERecordPlaylistItem(playlistID, renderer);
-    }
-    NSUInteger after = YTKACEPlaylistItems[playlistID].count;
-    if (after != before) {
-        YTKACECurrentPlaylistID = playlistID;
+    // This getter may run away from the main thread, where the list is read.
+    @synchronized (YTKACEPlaylistItems) {
+        NSUInteger before = YTKACEPlaylistItems[playlistID].count;
+        for (id entry in items) {
+            id renderer = YTKACEPlaylistVideoRenderer(entry);
+            if (renderer != nil) YTKACERecordPlaylistItem(playlistID, renderer);
+        }
+        if (YTKACEPlaylistItems[playlistID].count != before) {
+            YTKACECurrentPlaylistID = playlistID;
+        }
     }
     return items;
 }
@@ -290,8 +293,11 @@ static UIView *YTKACESheetAnchorForView(UIView *source) {
 static void YTKACEWaitForIdleDownloads(NSUInteger attempt,
                                        dispatch_block_t next) {
     NSUInteger active = [YTKACEDownloadCoordinator.sharedCoordinator activeJobCount];
-    if (active == 0 || attempt > 1200) {
-        if (attempt > 1200) {
+    // Checked every half second. A long SABR download can take hours: moving on while
+    // it still runs would count it as saved and start the next video alongside it.
+    const NSUInteger limit = 6 * 60 * 60 * 2;
+    if (active == 0 || attempt > limit) {
+        if (attempt > limit) {
             YTKACEDownloadLog(@"playlist", @"idle wait timed out active=%lu",
                 (unsigned long)active);
         }
@@ -984,20 +990,22 @@ static NSArray<NSDictionary *> *YTKACECurrentPlaylistItems(void) {
         if (items.count != 0) { found = items; break; }
     }
     if (playlistID.length == 0) return found ?: @[];
-    NSMutableArray<NSDictionary *> *cached = YTKACEPlaylistItems[playlistID];
-    if (cached == nil) {
-        cached = [NSMutableArray array];
-        YTKACEPlaylistItems[playlistID] = cached;
-        YTKACEPlaylistSeen[playlistID] = [NSMutableSet set];
+    @synchronized (YTKACEPlaylistItems) {
+        NSMutableArray<NSDictionary *> *cached = YTKACEPlaylistItems[playlistID];
+        if (cached == nil) {
+            cached = [NSMutableArray array];
+            YTKACEPlaylistItems[playlistID] = cached;
+            YTKACEPlaylistSeen[playlistID] = [NSMutableSet set];
+        }
+        NSMutableSet<NSString *> *seen = YTKACEPlaylistSeen[playlistID];
+        for (NSDictionary *item in found) {
+            NSString *videoID = item[@"videoId"];
+            if ([seen containsObject:videoID]) continue;
+            [seen addObject:videoID];
+            [cached addObject:item];
+        }
+        return [cached copy];
     }
-    NSMutableSet<NSString *> *seen = YTKACEPlaylistSeen[playlistID];
-    for (NSDictionary *item in found) {
-        NSString *videoID = item[@"videoId"];
-        if ([seen containsObject:videoID]) continue;
-        [seen addObject:videoID];
-        [cached addObject:item];
-    }
-    return [cached copy];
 }
 
 static IMP OriginalBrowseAppear;
