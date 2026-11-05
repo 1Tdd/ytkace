@@ -378,7 +378,7 @@ static NSString *YTKACEHideKeyForToken(NSString *token) {
         [token containsString:@"gaming"]) {
         return @"YTKACE.Preference.Tabs.Hidden.Gaming";
     }
-    if ([token containsString:@"ucyfdidrxb8qhf0nx7iooyw"] ||
+    if ([token containsString:@"ucyfdidrxbb8qhf0nx7iooyw"] ||
         [token containsString:@"news"]) {
         return @"YTKACE.Preference.Tabs.Hidden.News";
     }
@@ -451,7 +451,7 @@ static NSString *YTKACECanonicalTabToken(NSString *token) {
         [token containsString:@"gaming"]) {
         return @"gaming";
     }
-    if ([token containsString:@"ucyfdidrxb8qhf0nx7iooyw"] ||
+    if ([token containsString:@"ucyfdidrxbb8qhf0nx7iooyw"] ||
         [token containsString:@"news"]) {
         return @"news";
     }
@@ -3961,7 +3961,11 @@ static void YTKACEScheduleStartupTab(id controller) {
     static BOOL scheduled = NO;
     if (scheduled) return;
     scheduled = YES;
-    const double delay = YTKACEStartupNative ? 0.0 : 0.35;
+    // Only the first try is immediate: a hidden startup tab never gets selected, and
+    // retrying without a pause would keep the main thread busy until the 8 s limit.
+    static BOOL attempted = NO;
+    const double delay = YTKACEStartupNative && !attempted ? 0.0 : 0.35;
+    attempted = YES;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         scheduled = NO;
