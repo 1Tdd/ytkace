@@ -1664,8 +1664,14 @@ static IMP YTKACEOrigPivotSetFloatingStyle;
 static BOOL YTKACEFloatyValue(IMP original, id receiver, SEL selector) {
     BOOL value = original != NULL ? ((BOOL (*)(id, SEL))original)(receiver, selector) : NO;
     NSInteger mode = YTKACETabBarGlassMode();
-    YTKACEDebugLog(@"glass", @"%@ %@ original=%d mode=%ld", NSStringFromClass(object_getClass(receiver)),
-                   NSStringFromSelector(selector), value, (long)mode);
+    // Read many times a second: only a change is worth a line.
+    static NSInteger loggedState = -1;
+    NSInteger state = mode * 2 + (value ? 1 : 0);
+    if (state != loggedState) {
+        loggedState = state;
+        YTKACEDebugLog(@"glass", @"%@ %@ original=%d mode=%ld", NSStringFromClass(object_getClass(receiver)),
+                       NSStringFromSelector(selector), value, (long)mode);
+    }
     if (mode == 2) return YES;
     if (mode == 1 || mode == 3) return NO;
     return value;
@@ -2989,6 +2995,10 @@ static UIView *YTKACEInlinePlayerBar(UIView *bar);
         return;
     }
     BOOL dragging = self.dragging;
+    YTKACEDebugLog(@"tabbar", @"press end state=%ld lifted=%d dragging=%d touched=%@ selected=%@ background=%d",
+                   (long)gesture.state, self.lifted, dragging, YTKACEPivotItemIdentifier(self.touchedItem) ?: @"-",
+                   YTKACEPivotItemIdentifier(selectedNow) ?: @"-",
+                   UIApplication.sharedApplication.applicationState == UIApplicationStateBackground);
     self.pressID += 1;
     YTKACESetBarExpanded(bar, NO);
     UIView *draggedFrom = self.touchedItem;
