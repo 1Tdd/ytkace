@@ -6,8 +6,10 @@
 #import "../Runtime/Preferences.h"
 #import "../Runtime/Localization.h"
 #import "../UI/Assets.h"
+#import "../UI/MediaActionSheet.h"
 #import "../UI/Notice.h"
 #import "../Features/Downloads/DownloadLog.h"
+#import "../Features/Downloads/DownloadLogFilter.h"
 
 #import <objc/runtime.h>
 #import <stdlib.h>
@@ -113,8 +115,11 @@ void YTKACEApplyAppearance(UIViewController *controller) {
     }
 }
 
-@interface YTKACEDownloadLogController : UIViewController
+@interface YTKACEDownloadLogController : UIViewController <UISearchBarDelegate>
 @property(nonatomic, strong) UITextView *textView;
+@property(nonatomic, strong) UISearchBar *searchBar;
+@property(nonatomic, strong) YTKACEChoiceStrip *filterStrip;
+@property(nonatomic, assign) YTKACELogFilter filter;
 @end
 
 @implementation YTKACEDownloadLogController
@@ -122,14 +127,51 @@ void YTKACEApplyAppearance(UIViewController *controller) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = YTKACELocalized(@"Download Log");
-    self.textView = [[UITextView alloc] initWithFrame:self.view.bounds];
-    self.textView.autoresizingMask = UIViewAutoresizingFlexibleWidth |
-        UIViewAutoresizingFlexibleHeight;
+    self.searchBar = [UISearchBar new];
+    self.searchBar.delegate = self;
+    self.searchBar.placeholder = YTKACELocalized(@"Search the log");
+    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
+    self.searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.searchBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.searchBar];
+
+    self.filterStrip = [YTKACEChoiceStrip new];
+    self.filterStrip.contentInset = UIEdgeInsetsMake(0.0, 12.0, 0.0, 12.0);
+    [self.filterStrip setTitles:@[YTKACELocalized(@"All"), YTKACELocalized(@"Downloads"),
+                                  YTKACELocalized(@"Posts"), YTKACELocalized(@"Home & Shorts"),
+                                  YTKACELocalized(@"Interface"), YTKACELocalized(@"Startup"),
+                                  YTKACELocalized(@"Errors")]
+                      subtitles:@[] selectedIndex:0];
+    __weak YTKACEDownloadLogController *weakSelf = self;
+    self.filterStrip.selectionHandler = ^(NSUInteger index) {
+        weakSelf.filter = (YTKACELogFilter)index;
+        [weakSelf reloadLog];
+    };
+    self.filterStrip.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.filterStrip];
+
+    self.textView = [UITextView new];
+    self.textView.translatesAutoresizingMaskIntoConstraints = NO;
     self.textView.editable = NO;
+    self.textView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
     self.textView.font = [UIFont monospacedSystemFontOfSize:13.0
         weight:UIFontWeightRegular];
     self.textView.textContainerInset = UIEdgeInsetsMake(14.0, 14.0, 14.0, 14.0);
     [self.view addSubview:self.textView];
+    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [self.searchBar.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [self.searchBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.searchBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.filterStrip.topAnchor constraintEqualToAnchor:self.searchBar.bottomAnchor],
+        [self.filterStrip.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.filterStrip.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.textView.topAnchor constraintEqualToAnchor:self.filterStrip.bottomAnchor constant:4.0],
+        [self.textView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.textView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.textView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+    ]];
     self.navigationItem.rightBarButtonItems = @[
         [[UIBarButtonItem alloc] initWithTitle:YTKACELocalized(@"Clear") style:UIBarButtonItemStylePlain
             target:self action:@selector(clearLog)],
@@ -155,7 +197,7 @@ void YTKACEApplyAppearance(UIViewController *controller) {
     YTKACEDownloadLog(@"debug", @"debug logs %@", enabled ? @"on" : @"off");
     [self updateDebugButton];
     YTKACEShowNotice(enabled ? YTKACELocalized(@"Debug logs on") : YTKACELocalized(@"Debug logs off"));
-    self.textView.text = YTKACEDownloadLogContents();
+    [self reloadLog];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -163,9 +205,24 @@ void YTKACEApplyAppearance(UIViewController *controller) {
     YTKACEApplyAppearance(self);
     self.textView.backgroundColor = YTKACERootBackground();
     self.textView.textColor = UIColor.labelColor;
-    self.textView.text = YTKACEDownloadLogContents();
-    NSRange end = NSMakeRange(self.textView.text.length, 0);
-    [self.textView scrollRangeToVisible:end];
+    [self reloadLog];
+}
+
+// Copy and Share send what is on screen, so they follow the filter.
+- (void)reloadLog {
+    NSString *visible = YTKACEFilteredLog(YTKACEDownloadLogContents(), self.filter, self.searchBar.text);
+    self.textView.text = visible.length != 0 ? visible : YTKACELocalized(@"No matching entries");
+    [self.textView scrollRangeToVisible:NSMakeRange(self.textView.text.length, 0)];
+}
+
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+    (void)searchBar;
+    (void)searchText;
+    [self reloadLog];
+}
+
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
+    [searchBar resignFirstResponder];
 }
 
 - (void)shareLog {
@@ -193,7 +250,7 @@ void YTKACEApplyAppearance(UIViewController *controller) {
 
 - (void)clearLog {
     YTKACEClearDownloadLog();
-    self.textView.text = YTKACEDownloadLogContents();
+    [self reloadLog];
 }
 
 @end

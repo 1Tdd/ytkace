@@ -37,6 +37,7 @@ YTKACE_FILES = \
 	Tweak/Features/Downloads/YTKACEMediaImporter.mm \
 	Tweak/Features/Downloads/MediaArtwork.mm \
 	Tweak/Features/Downloads/DownloadLog.mm \
+	Tweak/Features/Downloads/DownloadLogFilter.mm \
 	Tweak/Features/Downloads/DownloadProgressView.mm \
 	Tweak/Features/Downloads/DownloadCoordinator.mm \
 	Tweak/Features/Downloads/DownloadOptionsSheet.mm \

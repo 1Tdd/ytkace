@@ -36,6 +36,12 @@ clang++ $(gnustep-config --objc-flags) \
 
 clang++ $(gnustep-config --objc-flags) \
   -I"$OBJC_RUNTIME/include" -L"$OBJC_RUNTIME" -std=c++17 \
+  "$ROOT/Tweak/Features/Downloads/DownloadLogFilter.mm" "$ROOT/Tests/log_filter_test.mm" \
+  -o "$OUTPUT/log-filter-test" $(gnustep-config --base-libs)
+"$OUTPUT/log-filter-test"
+
+clang++ $(gnustep-config --objc-flags) \
+  -I"$OBJC_RUNTIME/include" -L"$OBJC_RUNTIME" -std=c++17 \
   "$ROOT/Tests/media_import_files_test.mm" \
   -o "$OUTPUT/media-import-files-test" $(gnustep-config --base-libs)
 "$OUTPUT/media-import-files-test"
