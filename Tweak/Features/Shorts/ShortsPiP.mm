@@ -196,13 +196,23 @@ void YTKACEPiPObservePlayback(id player, double time, double duration) {
         YTKACEPiPShortPlayer = nil;
         return;
     }
-    if (!isfinite(time) || !isfinite(duration) || duration <= 0.0) return;
     SEL active = NSSelectorFromString(@"isActivePlayback");
     if ([player respondsToSelector:active] && !((BOOL (*)(id, SEL))objc_msgSend)(player, active)) return;
+    // Checked before the times: a live video has no duration and must not keep the last Short's range.
     if (!YTKACEResolveShortsPlayback(player, NULL)) {
+        BOOL wasShort = YTKACEPiPShortPlayer != nil;
         YTKACEPiPShortPlayer = nil;
+        YTKACEPiPShortLength = 0.0;
+        SEL refresh = NSSelectorFromString(@"invalidatePlaybackState");
+        if (wasShort && [controller respondsToSelector:refresh]) {
+            YTKACEDebugLog(@"shorts", @"pip left shorts time=%.1f duration=%.1f", time, duration);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                ((void (*)(id, SEL))objc_msgSend)(controller, refresh);
+            });
+        }
         return;
     }
+    if (!isfinite(time) || !isfinite(duration) || duration <= 0.0) return;
     // A new clip or a skip: the clock and the clip time move apart, so the range has to be read again.
     BOOL changed = player != YTKACEPiPShortPlayer || fabs(duration - YTKACEPiPShortLength) > 0.5 ||
         time < YTKACEPiPShortTime - 1.0 || time > YTKACEPiPShortTime + 2.5;
