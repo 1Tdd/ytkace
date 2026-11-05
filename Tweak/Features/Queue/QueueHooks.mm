@@ -1018,7 +1018,8 @@ static void YTKACEQueueSyncFromController(id controller) {
     }
     if (ordered.count == 0) {
         // The panel's last item was just removed: keep it from returning at the next launch.
-        if ([items isKindOfClass:NSArray.class] && items.count == 0) {
+        // Emptying an ordinary playlist must not touch the saved queue.
+        if (YTKACEQueueIsActive() && [items isKindOfClass:NSArray.class] && items.count == 0) {
             [YTKACEQueue() removeAllObjects];
             YTKACEQueueSave();
         }
@@ -1198,6 +1199,13 @@ static void YTKACEQueueUpdateCellForIndex(id receiver, SEL selector, id cell,
 }
 
 static void YTKACEQueueCellPrepareForReuse(id receiver, SEL selector) {
+    // Ordinary playlists use this cell too, and keep YouTube's own swipe handling.
+    if (!YTKACEQueueIsActive()) {
+        if (OriginalCellPrepareForReuse != NULL) {
+            ((void (*)(id, SEL))OriginalCellPrepareForReuse)(receiver, selector);
+        }
+        return;
+    }
     @try {
         id button = [receiver valueForKey:@"_swipeToRevealButton"];
         if ([button isKindOfClass:UIView.class]) {
