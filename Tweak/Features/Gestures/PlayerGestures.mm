@@ -179,47 +179,6 @@ static void YTKACEStyleGestureIndicator(UIView *indicator, CGFloat alpha, CGFloa
                                                    YTKACEEdgePanAssociation);
 }
 
-- (UIViewController *)playerControllerForView:(UIView *)view {
-    UIResponder *responder = view;
-    while (responder != nil) {
-        if ([NSStringFromClass(responder.class)
-                isEqualToString:@"YTPlayerViewController"] &&
-            [responder isKindOfClass:UIViewController.class]) {
-            return (UIViewController *)responder;
-        }
-        responder = responder.nextResponder;
-    }
-    return nil;
-}
-
-- (BOOL)isFullscreenPlayerSurface:(UIView *)view {
-    UIViewController *controller = [self playerControllerForView:view];
-    for (NSString *name in @[
-        @"isFullscreen",
-        @"isFullScreen",
-        @"isFullscreenPlayer",
-        @"isFullScreenPresented",
-        @"isFullScreenMode",
-        @"fullscreenMode",
-        @"fullScreenMode"
-    ]) {
-        SEL selector = NSSelectorFromString(name);
-        if (controller != nil && [controller respondsToSelector:selector] &&
-            ((BOOL (*)(id, SEL))objc_msgSend)(controller, selector)) {
-            return YES;
-        }
-    }
-
-    UIWindow *window = view.window;
-    if (window == nil || CGRectIsEmpty(view.bounds)) return NO;
-    CGRect frame = [view convertRect:view.bounds toView:window];
-    CGRect bounds = window.bounds;
-    if (CGRectIsEmpty(bounds)) return NO;
-    CGFloat widthRatio = CGRectGetWidth(frame) / CGRectGetWidth(bounds);
-    CGFloat heightRatio = CGRectGetHeight(frame) / CGRectGetHeight(bounds);
-    return widthRatio >= 0.82 && heightRatio >= 0.82;
-}
-
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
 shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
     if (gestureRecognizer == objc_getAssociatedObject(gestureRecognizer.view,

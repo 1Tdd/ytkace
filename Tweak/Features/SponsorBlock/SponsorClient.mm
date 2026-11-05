@@ -2,6 +2,7 @@
 #import "SponsorPreferences.h"
 #import "SponsorThumbnailBadge.h"
 #import "../../Runtime/Localization.h"
+#import "../../YTKACE.h"
 #import <math.h>
 
 @interface YTKACESponsorClient ()
@@ -322,7 +323,8 @@
     request.HTTPMethod = @"POST";
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-    [request setValue:@"YTKACE/1.1.3 (iOS)" forHTTPHeaderField:@"User-Agent"];
+    NSString *userAgent = [NSString stringWithFormat:@"YTKACE/%@ (iOS)", YTKACEVersion];
+    [request setValue:userAgent forHTTPHeaderField:@"User-Agent"];
 
     BOOL isFullVideo = [resolvedAction isEqualToString:@"full"];
     double resolvedStart = start;
@@ -352,7 +354,7 @@
         @"videoID": videoID,
         @"userID": userID,
         @"videoDuration": @(duration > 0.0 ? duration : 0.0),
-        @"userAgent": @"YTKACE/1.1.3 (iOS)",
+        @"userAgent": userAgent,
         @"segments": @[segment]
     };
 

@@ -1324,10 +1324,6 @@ static void YTKACEQueueDidTapShuffle(id receiver, SEL selector) {
     }
     [queue insertObject:entry atIndex:0];
     YTKACEQueueSave();
-    NSMutableArray<NSString *> *order = [NSMutableArray array];
-    for (NSDictionary *item in queue) {
-        [order addObject:item[@"videoId"] ?: @"?"];
-    }
     YTKACEQueueRebuildWatchPage();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{

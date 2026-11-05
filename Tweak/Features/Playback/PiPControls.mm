@@ -94,30 +94,6 @@ static BOOL YTKACEPiPBool(id object, NSString *name) {
     return nil;
 }
 
-- (BOOL)askResponderForPiP {
-    UIResponder *responder = self.overlay;
-    NSArray<NSString *> *selectors = @[
-        @"startPictureInPicture",
-        @"activatePictureInPicture",
-        @"startPiP"
-    ];
-    while (responder != nil) {
-        for (NSString *name in selectors) {
-            SEL selector = NSSelectorFromString(name);
-            if ([responder respondsToSelector:selector]) {
-                YTKACEManualPiPRequested = YES;
-                ((void (*)(id, SEL))objc_msgSend)(responder, selector);
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    YTKACEManualPiPRequested = NO;
-                });
-                return YES;
-            }
-        }
-        responder = responder.nextResponder;
-    }
-    return NO;
-}
-
 - (id)currentPlayerResponse {
     id player = [self activeYouTubePlayer];
     for (NSString *name in @[@"contentPlayerResponse", @"playerResponse"]) {
@@ -179,14 +155,6 @@ static BOOL YTKACEPiPBool(id object, NSString *name) {
         }
     }
     self.youtubePlayer = nil;
-}
-
-- (UIViewController *)topController {
-    UIViewController *controller = [self keyWindow].rootViewController;
-    while (controller.presentedViewController != nil) {
-        controller = controller.presentedViewController;
-    }
-    return controller;
 }
 
 - (void)showLoading {

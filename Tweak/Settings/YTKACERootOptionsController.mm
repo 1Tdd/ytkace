@@ -667,7 +667,7 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
     }
 
     UITableViewCell *cell = [self baseCellForTableView:tableView style:UITableViewCellStyleValue1];
-    cell.textLabel.text = YTKACELocalized(@"itzzace");
+    cell.textLabel.text = @"1Tdd";
     cell.detailTextLabel.text = @"YTKACE";
     cell.imageView.image = YTKACEAssetImage(@"YTKIco", @"person.crop.circle");
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
@@ -689,7 +689,7 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
             return;
         }
         if (indexPath.row != 0) return;
-        NSURL *URL = [NSURL URLWithString:@"https://github.com/itzzace/ytkace"];
+        NSURL *URL = [NSURL URLWithString:@"https://github.com/1Tdd/ytkace"];
         [UIApplication.sharedApplication openURL:URL options:@{}
                                completionHandler:nil];
         return;
@@ -700,13 +700,6 @@ UIViewController *YTKACEMakeDownloadLogController(void) {
         [self.navigationController setNavigationBarHidden:NO animated:NO];
         [self.navigationController pushViewController:controller animated:YES];
     }
-}
-
-- (void)masterChanged:(UISwitch *)sender {
-    (void)sender;
-    YTKACESetPreference(YTKACEMasterEnabledKey, YES);
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0]
-                 withRowAnimation:UITableViewRowAnimationNone];
 }
 
 - (void)applySettings {

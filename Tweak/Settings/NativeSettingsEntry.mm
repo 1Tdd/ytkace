@@ -38,7 +38,7 @@ static NSArray<NSDictionary *> *YTKACENativeLayout(void) {
     }
     [layout addObjectsFromArray:@[
         @{@"kind": @"header", @"title": @"ABOUT"},
-        @{@"kind": @"row", @"title": @"itzzace"},
+        @{@"kind": @"row", @"title": @"1Tdd"},
         @{@"kind": @"row", @"title": @"Download Log"},
         @{@"kind": @"footer"}
     ]];
@@ -94,7 +94,7 @@ static NSArray *YTKACEOrderedGroupCategories(id receiver, SEL selector, NSUInteg
 static NSString *YTKACENativeSettingsSubtitle(NSString *title) {
     NSString *value = YTKACENativeMenuRow(title)[@"detail"];
     if ([title isEqualToString:@"Downloads & Library"]) value = @"Saved video, audio, Shorts, imports and backups";
-    if ([title isEqualToString:@"itzzace"]) value = @"Developer";
+    if ([title isEqualToString:@"1Tdd"]) value = @"Developer";
     if ([title isEqualToString:@"Download Log"]) value = @"View, copy, or share the log";
     return value != nil ? YTKACELocalized(value) : nil;
 }
@@ -179,7 +179,7 @@ static UIImage *YTKACENativeSettingsIconImage(NSString *title) {
     if ([title isEqualToString:@"Downloads & Library"]) {
         return YTKACEDownloadTabImage(NO);
     }
-    NSString *symbol = [title isEqualToString:@"itzzace"] ? @"person.crop.circle" : YTKACENativeMenuRow(title)[@"symbol"];
+    NSString *symbol = [title isEqualToString:@"1Tdd"] ? @"person.crop.circle" : YTKACENativeMenuRow(title)[@"symbol"];
     return symbol.length != 0 ? [UIImage systemImageNamed:symbol] : nil;
 }
 
@@ -361,8 +361,8 @@ static void YTKACEUpdateNativeSettingsSection(id receiver, SEL selector,
         @"Download Log": [^UIViewController *{
             return YTKACEMakeDownloadLogController();
         } copy],
-        @"itzzace": [^UIViewController *{
-            NSURL *URL = [NSURL URLWithString:@"https://github.com/itzzace/ytkace"];
+        @"1Tdd": [^UIViewController *{
+            NSURL *URL = [NSURL URLWithString:@"https://github.com/1Tdd/ytkace"];
             [UIApplication.sharedApplication openURL:URL options:@{}
                                    completionHandler:nil];
             return nil;

@@ -735,74 +735,6 @@ referenceSizeForHeaderInSection:(NSInteger)section {
     [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 
-- (void)closeDownloads {
-    [self dismissViewControllerAnimated:YES completion:nil];
-}
-
-- (void)buildMiniPlayer {
-    self.miniPlayerBar = [UIView new];
-    self.miniPlayerBar.layer.cornerRadius = 11.0;
-    self.miniPlayerBar.layer.masksToBounds = YES;
-    self.miniPlayerBar.translatesAutoresizingMaskIntoConstraints = NO;
-    self.miniPlayerBar.hidden = YES;
-    [self.view addSubview:self.miniPlayerBar];
-
-    self.miniVideoView = [YTKACEMiniPlayerView new];
-    self.miniVideoView.clipsToBounds = YES;
-    self.miniVideoView.layer.cornerRadius = 8.0;
-    self.miniVideoView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.miniTitleLabel = [UILabel new];
-    self.miniTitleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
-    self.miniTitleLabel.numberOfLines = 1;
-    self.miniSubtitleLabel = [UILabel new];
-    self.miniSubtitleLabel.textColor = UIColor.secondaryLabelColor;
-    self.miniSubtitleLabel.font = [UIFont systemFontOfSize:10.0];
-    UIStackView *labels = [[UIStackView alloc] initWithArrangedSubviews:@[
-        self.miniTitleLabel, self.miniSubtitleLabel
-    ]];
-    labels.axis = UILayoutConstraintAxisVertical;
-    labels.spacing = 2.0;
-
-    self.miniPlayButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.miniPlayButton addTarget:self action:@selector(toggleMiniPlayback)
-                  forControlEvents:UIControlEventTouchUpInside];
-    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.tintColor = UIColor.secondaryLabelColor;
-    [close setImage:[UIImage systemImageNamed:@"xmark.circle.fill"]
-           forState:UIControlStateNormal];
-    [close addTarget:self action:@selector(closeMiniPlayer)
-      forControlEvents:UIControlEventTouchUpInside];
-    UIStackView *content = [[UIStackView alloc] initWithArrangedSubviews:@[
-        self.miniVideoView, labels, self.miniPlayButton, close
-    ]];
-    content.axis = UILayoutConstraintAxisHorizontal;
-    content.alignment = UIStackViewAlignmentCenter;
-    content.spacing = 9.0;
-    content.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.miniVideoView.widthAnchor constraintEqualToConstant:72.0].active = YES;
-    [self.miniVideoView.heightAnchor constraintEqualToConstant:48.0].active = YES;
-    [self.miniPlayButton.widthAnchor constraintEqualToConstant:32.0].active = YES;
-    [close.widthAnchor constraintEqualToConstant:24.0].active = YES;
-    [self.miniPlayerBar addSubview:content];
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
-        initWithTarget:self action:@selector(openMiniPlayer)];
-    tap.delegate = self;
-    [self.miniPlayerBar addGestureRecognizer:tap];
-
-    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
-    [NSLayoutConstraint activateConstraints:@[
-        [self.miniPlayerBar.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:10.0],
-        [self.miniPlayerBar.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-10.0],
-        [self.miniPlayerBar.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-7.0],
-        [self.miniPlayerBar.heightAnchor constraintEqualToConstant:58.0],
-        [content.topAnchor constraintEqualToAnchor:self.miniPlayerBar.topAnchor constant:5.0],
-        [content.leadingAnchor constraintEqualToAnchor:self.miniPlayerBar.leadingAnchor constant:5.0],
-        [content.trailingAnchor constraintEqualToAnchor:self.miniPlayerBar.trailingAnchor constant:-7.0],
-        [content.bottomAnchor constraintEqualToAnchor:self.miniPlayerBar.bottomAnchor constant:-5.0]
-    ]];
-    [self applyTheme];
-}
-
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
        shouldReceiveTouch:(UITouch *)touch {
     (void)gestureRecognizer;
@@ -852,15 +784,6 @@ referenceSizeForHeaderInSection:(NSInteger)section {
     [self.miniPlayButton setImage:[UIImage systemImageNamed:symbol]
                          forState:UIControlStateNormal];
     self.miniVideoView.player = session.player;
-}
-
-- (void)toggleMiniPlayback {
-    [YTKACEDownloadPlaybackSession.sharedSession togglePlayback];
-    [self updateMiniPlayer];
-}
-
-- (void)closeMiniPlayer {
-    [YTKACEDownloadPlaybackSession.sharedSession stop];
 }
 
 - (void)openMiniPlayer {
@@ -971,14 +894,6 @@ referenceSizeForHeaderInSection:(NSInteger)section {
 
 - (void)applySortButtonImage {
     [self updateLibraryMenu];
-}
-
-- (void)toggleSort {
-    self.sortMode = (self.sortMode + 1) % 4;
-    YTKACEStoreMode(@"Sort", self.segmentedControl.selectedSegmentIndex,
-                    self.sortMode);
-    [self applySortButtonImage];
-    [self reloadFiles];
 }
 
 - (void)applyLayoutButtonImage {
@@ -1127,15 +1042,6 @@ referenceSizeForHeaderInSection:(NSInteger)section {
     self.libraryButton.menu = [UIMenu menuWithTitle:@""
                                            children:@[layoutMenu, sortMenu]];
     self.libraryButton.showsMenuAsPrimaryAction = NO;
-}
-
-- (void)toggleLayout {
-    self.layoutMode = (self.layoutMode + 1) % 3;
-    YTKACEStoreMode(@"Layout", self.segmentedControl.selectedSegmentIndex,
-                    self.layoutMode);
-    [self applyLayoutButtonImage];
-    [self.collectionView.collectionViewLayout invalidateLayout];
-    [self.collectionView reloadData];
 }
 
 - (NSInteger)collectionView:(UICollectionView *)collectionView

@@ -1,5 +1,7 @@
 # YTKACE
 
+This is a fork of [itzzace/ytkace](https://github.com/itzzace/ytkace), the original project by itzzace.
+
 An open-source YouTube enhancement for iOS.
 
 ## Features
@@ -20,29 +22,24 @@ An open-source YouTube enhancement for iOS.
 
 - **iOS:** 15.0 and newer (tweak packages); the prebuilt IPAs follow their YouTube base
 - **Architecture:** arm64
-- **YTKACE:** 1.1.5
+- **YTKACE:** 1.2.0
 
 YouTube 21.44.4 requires iOS 17, so two IPAs are published:
 
 | IPA | YouTube base | iOS |
 | --- | --- | --- |
-| `YTKACE_1.1.5_YouTube_iOS16_21.33.6.ipa` | 21.33.6 | 16.0 and newer |
-| `YTKACE_1.1.5_YouTube_21.44.4.ipa` | 21.44.4 | 17.0 and newer |
+| `YTKACE_1.2.0_YouTube_iOS16_21.33.6.ipa` | 21.33.6 | 16.0 and newer |
+| `YTKACE_1.2.0_YouTube_21.44.4.ipa` | 21.44.4 | 17.0 and newer |
 
 Pick the 21.44.4 build unless you are on iOS 16. Either one installs with TrollStore or a developer-certificate sideloader.
 
 ## Install
 
-**Jailbroken.** Add the repository in Sileo, Zebra or Cydia:
+**Jailbroken.** Download the rootless or roothide package from the artifacts of the latest
+[Deb workflow run](https://github.com/1Tdd/ytkace/actions/workflows/build-deb.yml) and install it.
 
-```
-https://itzzace.github.io/ytkace/
-```
-
-Rootless and roothide packages are both published. The repository page also has an
-[Add to Sileo](https://itzzace.github.io/ytkace/) button.
-
-**Sideloaded.** Download the IPA for your iOS version from the [latest release](https://github.com/itzzace/ytkace/releases/latest) and install it with TrollStore, AltStore, SideStore or LiveContainer.
+**Sideloaded.** Download the IPA for your iOS version from the artifacts of the latest
+[IPA workflow run](https://github.com/1Tdd/ytkace/actions/workflows/build-ipa.yml) and install it with TrollStore, AltStore, SideStore or LiveContainer.
 
 ## Build
 
@@ -131,7 +128,7 @@ Build instructions are above.
 
 ## Donate
 
-If YTKACE is useful to you, you can support it on [Ko-fi](https://ko-fi.com/itzzace) or with crypto:
+These are the addresses of itzzace, the original author. If YTKACE is useful to you, you can support them on [Ko-fi](https://ko-fi.com/itzzace) or with crypto:
 
 - **BTC:** `bc1q6ahl2mghgq34r3w26yhwevsza0vl8436gugxke`
 - **LTC:** `LYQ2ivZ52d2zAsm896MwWEkPEi15WwprS4`

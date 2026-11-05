@@ -2,8 +2,8 @@
 
 Tests and the build run on every push to `main` and on pull requests. They do
 not show that the tweak works in YouTube, so try these on a device with the IPA
-before calling a build good. Look in the log for anything unexpected: hold the
-`itzzace` row at the bottom of the YTKACE settings for 4 seconds to open it.
+before calling a build good. Look in the log for anything unexpected: open
+**Download Log** in the About section of the YTKACE settings.
 
 ## Startup
 - [ ] The app opens without a crash or an unexpected dialog.

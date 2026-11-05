@@ -1014,33 +1014,11 @@ static NSString *YTKACEClassToken(id object) {
     return value;
 }
 
-__attribute__((unused))
-static BOOL YTKACEClassLooksLikeContainer(id object) {
-    NSString *token = YTKACEClassToken(object);
-    return [token containsString:@"shelfrenderer"] ||
-           [token containsString:@"richsectionrenderer"] ||
-           [token containsString:@"itemsectionrenderer"] ||
-           [token containsString:@"richshelfrenderer"] ||
-           [token containsString:@"sectionrenderer"] ||
-           [token containsString:@"elementrenderer"];
-}
-
 static BOOL YTKACEClassContains(id object, NSArray<NSString *> *needles) {
     NSString *token = YTKACEClassToken(object);
     if (token.length == 0) return NO;
     for (NSString *needle in needles) {
         if ([token containsString:needle]) return YES;
-    }
-    return NO;
-}
-
-__attribute__((unused))
-static BOOL YTKACEChildClassContains(id section, NSArray<NSString *> *needles) {
-    NSArray *entries = YTKACEContentValue(section, @"contentsArray");
-    if ([entries isKindOfClass:NSArray.class]) {
-        for (id entry in entries) {
-            if (YTKACEClassContains(entry, needles)) return YES;
-        }
     }
     return NO;
 }

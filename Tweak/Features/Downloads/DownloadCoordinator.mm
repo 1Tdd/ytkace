@@ -1462,23 +1462,6 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     });
 }
 
-- (BOOL)loadDirectOptionsThen:(dispatch_block_t)continuation {
-    if (!YTKACEDirectDownloadsEnabled()) {
-        self.directOptions = nil;
-        return NO;
-    }
-    NSString *videoID = [YTKACEStreamResolver videoIDFromPlayerResponse:self.playerResponse];
-    if (videoID.length != 0 && [videoID isEqualToString:self.directOptionsVideoID]) return NO;
-    self.directOptionsVideoID = videoID;
-    self.directOptions = nil;
-    __weak YTKACEDownloadCoordinator *weakSelf = self;
-    [YTKACEDirectDownloader fetchOptionsForVideoID:videoID completion:^(NSArray *options) {
-        weakSelf.directOptions = options;
-        continuation();
-    }];
-    return YES;
-}
-
 - (BOOL)isStableVolumeOption:(YTKACEStreamOption *)option {
     if (option.xtags.length == 0) return NO;
     NSString *padded = [option.xtags stringByReplacingOccurrencesOfString:@"-" withString:@"+"];
@@ -1494,50 +1477,6 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     return option.contentLength > 0
         ? [NSByteCountFormatter stringFromByteCount:option.contentLength
             countStyle:NSByteCountFormatterCountStyleFile] : YTKACELocalized(@"Unknown size");
-}
-
-- (void)presentDirectVideoMenuForCategory:(NSString *)category {
-    NSArray<NSString *> *codecOrder = @[@"H.264", @"VP9", @"AV1"];
-    NSMutableArray<YTKACEStreamOption *> *videos = [NSMutableArray array];
-    BOOL vp9 = VTIsHardwareDecodeSupported('vp09');
-    BOOL av1 = VTIsHardwareDecodeSupported('av01');
-    for (YTKACEStreamOption *option in self.directOptions) {
-        if (option.audioOnly || option.height <= 0) continue;
-        NSString *codec = [YTKACEDirectDownloader codecNameForOption:option];
-        if ([codec isEqualToString:@"VP9"] && !vp9) continue;
-        if ([codec isEqualToString:@"AV1"] && !av1) continue;
-        [videos addObject:option];
-    }
-    [videos sortUsingComparator:^NSComparisonResult(YTKACEStreamOption *left,
-                                                    YTKACEStreamOption *right) {
-        if (left.height != right.height) {
-            return left.height > right.height ? NSOrderedAscending : NSOrderedDescending;
-        }
-        BOOL leftHigh = [left.qualityLabel hasSuffix:@"60"];
-        BOOL rightHigh = [right.qualityLabel hasSuffix:@"60"];
-        if (leftHigh != rightHigh) return leftHigh ? NSOrderedAscending : NSOrderedDescending;
-        NSUInteger leftCodec = [codecOrder indexOfObject:[YTKACEDirectDownloader codecNameForOption:left]];
-        NSUInteger rightCodec = [codecOrder indexOfObject:[YTKACEDirectDownloader codecNameForOption:right]];
-        return leftCodec < rightCodec ? NSOrderedAscending :
-            (leftCodec > rightCodec ? NSOrderedDescending : NSOrderedSame);
-    }];
-    __weak YTKACEDownloadCoordinator *weakSelf = self;
-    NSMutableArray *actions = [NSMutableArray array];
-    for (YTKACEStreamOption *option in videos) {
-        NSString *title = [NSString stringWithFormat:@"%@ · %@ · %@",
-            option.qualityLabel.length != 0 ? option.qualityLabel
-                : [NSString stringWithFormat:@"%ldp", (long)option.height],
-            [YTKACEDirectDownloader codecNameForOption:option], [self sizeTextForOption:option]];
-        [actions addObject:[self sheetAction:title icon:@"play" secondary:nil handler:^{
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
-                dispatch_get_main_queue(), ^{
-                    [weakSelf showAudioLanguagesForVideo:option audioOnly:NO category:category];
-                });
-        }]];
-    }
-    [self presentNativeSheetWithTitle:YTKACELocalized(@"Video Quality")
-        subtitle:[YTKACEStreamResolver titleFromPlayerResponse:self.playerResponse]
-        sourceView:self.downloadSourceView actions:actions];
 }
 
 - (void)presentDirectAudioMenuForVideo:(YTKACEStreamOption *)videoOption
@@ -1600,14 +1539,6 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     [self presentNativeSheetWithTitle:YTKACELocalized(@"Audio Language")
         subtitle:[YTKACEStreamResolver titleFromPlayerResponse:self.playerResponse]
         sourceView:self.downloadSourceView actions:actions];
-}
-
-- (void)startVideoDownloadForCategory:(__unused NSString *)category {
-    [self presentDownloadOptionsSheetWithAudioOnly:NO sourceView:self.downloadSourceView];
-}
-
-- (void)startAudioDownload {
-    [self presentDownloadOptionsSheetWithAudioOnly:YES sourceView:self.downloadSourceView];
 }
 
 - (void)showAudioLanguagesForVideo:(YTKACEStreamOption *)videoOption
