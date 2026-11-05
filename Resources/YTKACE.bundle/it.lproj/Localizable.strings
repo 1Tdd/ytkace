@@ -87,7 +87,7 @@
 "Don't Save Searches" = "Non salvare le ricerche";
 "Download Button" = "Pulsante download";
 "Download Button Position" = "Posizione pulsante download";
-"Download Log" = "Registro download";
+"Download Log" = "Registro log";
 "Download, PiP, loop, speed and progress controls" = "Download, PiP, ripetizione, velocità e avanzamento";
 "Downloads" = "Download";
 "Downloads & Library" = "Download e libreria";
@@ -376,7 +376,7 @@
 "Download Video" = "Scarica video";
 "Download complete" = "Download completato";
 "Download failed" = "Download non riuscito";
-"Download log copied" = "Registro download copiato";
+"Download log copied" = "Registro log copiato";
 "Download started" = "Download avviato";
 "Download unavailable" = "Download non disponibile";
 "Downloading audio" = "Download audio in corso";

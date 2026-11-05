@@ -1,4 +1,4 @@
-Package: com.itzzace.ytkace
+Package: com.1tdd.ytkace
 Name: YTKACE
 Version: 1.2.0
 Architecture: iphoneos-arm64
@@ -7,5 +7,7 @@ Maintainer: 1Tdd
 Author: itzzace
 Section: Tweaks
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
+Conflicts: com.itzzace.ytkace
+Replaces: com.itzzace.ytkace
 Homepage: https://github.com/1Tdd/ytkace
 Tag: role::enduser

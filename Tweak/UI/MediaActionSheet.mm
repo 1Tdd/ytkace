@@ -24,7 +24,7 @@
 @end
 
 static UIColor *YTKACEMediaSheetAccent(void) {
-    return [UIColor colorWithRed:0.73 green:0.43 blue:0.91 alpha:1];
+    return [UIColor colorWithRed:1.0 green:0.54 blue:0.0 alpha:1];
 }
 
 @implementation YTKACEChoiceStrip {

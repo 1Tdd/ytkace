@@ -135,7 +135,7 @@ jobs:
         run: |
           deb="$(ls packages/*.deb | head -1)"
           version="$(awk '/^Version:/ {print $2}' control)"
-          output="com.itzzace.ytkace_${version}_${{ matrix.suffix }}.deb"
+          output="com.1tdd.ytkace_${version}_${{ matrix.suffix }}.deb"
           mkdir -p artifacts
           cp "$deb" "artifacts/$output"
           echo "deb=artifacts/$output" >> "$GITHUB_OUTPUT"

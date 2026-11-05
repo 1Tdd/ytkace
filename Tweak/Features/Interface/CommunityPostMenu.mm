@@ -319,7 +319,7 @@ static NSURL *YTKACEPostLink(id node) {
         BOOL selected = (NSUInteger)button.tag == selectedIndex;
         button.selected = selected;
         button.layer.borderWidth = selected ? 2 : 0;
-        button.layer.borderColor = [UIColor colorWithRed:0.73 green:0.43 blue:0.91 alpha:1].CGColor;
+        button.layer.borderColor = [UIColor colorWithRed:1.0 green:0.54 blue:0.0 alpha:1].CGColor;
         if (selected) button.accessibilityTraits |= UIAccessibilityTraitSelected;
         else button.accessibilityTraits &= ~UIAccessibilityTraitSelected;
     }
