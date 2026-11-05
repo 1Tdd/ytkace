@@ -1734,7 +1734,8 @@ static YTKACEFeedKind YTKACEFeedKindForSection(id section,
             }
         }
     }
-    objc_setAssociatedObject(section, YTKACEFeedKindKey, @(structural),
+    // Keep what earlier searches found: "searched" still counts those kinds as done.
+    objc_setAssociatedObject(section, YTKACEFeedKindKey, @(cached | structural),
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     const YTKACEFeedKind settled =
         truncated ? (searched | (wanted & structural)) : (searched | wanted);
