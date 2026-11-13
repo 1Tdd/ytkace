@@ -57,6 +57,14 @@ static YTKACEDownloadDestination YTKACEDefaultDestination(BOOL audioOnly) {
         _selectedAudio = [self preferredAudioIn:_audioOptions matching:nil];
         _selectedVideo = _videoOptions.firstObject;
         for (YTKACEStreamOption *option in _videoOptions) if ([option.codecIdentifier isEqual:@"avc1"]) { _selectedVideo = option; break; }
+        // Saved default: Best (-1) or a maximum height; the list is best first.
+        NSInteger maximum = [NSUserDefaults.standardUserDefaults integerForKey:@"YTKACE.Preference.Downloads.DefaultQuality"];
+        if (maximum != 0 && _selectedVideo != nil) {
+            for (YTKACEStreamOption *option in _videoOptions) {
+                if (![option.codecIdentifier isEqual:_selectedVideo.codecIdentifier]) continue;
+                if (maximum < 0 || option.height <= maximum) { _selectedVideo = option; break; }
+            }
+        }
         _selectedCodec = _selectedVideo.codecIdentifier ?: @"avc1";
         [self updateSponsorSegments:sponsorSegments];
         [self chooseDefaultCaption];

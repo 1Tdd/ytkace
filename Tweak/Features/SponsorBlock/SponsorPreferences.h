@@ -59,5 +59,6 @@ FOUNDATION_EXPORT NSArray<NSString *> *YTKACESponsorWhitelistedChannels(void);
 FOUNDATION_EXPORT BOOL YTKACESponsorIsChannelWhitelisted(NSString * _Nullable channel);
 FOUNDATION_EXPORT void YTKACESponsorSetChannelWhitelisted(NSString *channel, BOOL whitelisted);
 FOUNDATION_EXPORT void YTKACESponsorClearWhitelistedChannels(void);
+FOUNDATION_EXPORT NSTimeInterval YTKACESponsorMinimumSegmentLength(void);
 
 NS_ASSUME_NONNULL_END

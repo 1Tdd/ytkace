@@ -4,8 +4,10 @@
 #import "../Features/Downloads/SABRDownloader.h"
 #import "YTKACERootOptionsController.h"
 #import "YTKACETabEditorController.h"
+#import "YTKACEButtonLayoutView.h"
 #import "../Runtime/Preferences.h"
 #import "../YTKACE.h"
+#import "DuoKit.h"
 #import "../Runtime/Localization.h"
 #import "../UI/Assets.h"
 #import "../UI/Notice.h"
@@ -596,6 +598,7 @@ NSString *YTKACEPickerSummary(NSString *key,
     NSURL *_pendingBackupURL;
     BOOL _backupRunning;
     BOOL _restoreRunning;
+    YTKACEButtonLayoutView *_layoutView;
 }
 
 - (instancetype)initWithTitle:(NSString *)title
@@ -716,10 +719,41 @@ NSString *YTKACEPickerSummary(NSString *key,
     return title.length == 0 ? 18.0 : 38.0;
 }
 
+- (YTKACEButtonLayoutView *)layoutView {
+    if (_layoutView != nil) return _layoutView;
+    _layoutView = [YTKACEButtonLayoutView new];
+    __weak YTKACEOptionsController *weakSelf = self;
+    _layoutView.changeHandler = ^{
+        YTKACEOptionsController *strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        // the hidden tray can grow a line, and the button toggles follow along
+        UITableView *table = strongSelf.tableView;
+        NSMutableArray *paths = [NSMutableArray array];
+        for (NSIndexPath *path in table.indexPathsForVisibleRows) {
+            if (![strongSelf->_sections[(NSUInteger)path.section][(NSUInteger)path.row][@"type"] isEqualToString:@"layout"]) {
+                [paths addObject:path];
+            }
+        }
+        [UIView performWithoutAnimation:^{
+            [table reloadRowsAtIndexPaths:paths withRowAnimation:UITableViewRowAnimationNone];
+        }];
+        [table beginUpdates];
+        [table endUpdates];
+    };
+    _layoutView.heightHandler = ^{
+        UITableView *table = weakSelf.tableView;
+        [table beginUpdates];
+        [table endUpdates];
+    };
+    return _layoutView;
+}
+
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    (void)tableView;
     NSDictionary *item = _sections[(NSUInteger)indexPath.section][(NSUInteger)indexPath.row];
     NSString *type = item[@"type"];
+    if ([type isEqualToString:@"layout"]) {
+        return [[self layoutView] heightForWidth:CGRectGetWidth(tableView.bounds)];
+    }
     if ([type isEqualToString:@"text"]) {
         return 92.0;
     }
@@ -751,6 +785,19 @@ willDisplayHeaderView:(UIView *)view
          cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     NSDictionary *item = _sections[(NSUInteger)indexPath.section][(NSUInteger)indexPath.row];
     NSString *type = item[@"type"];
+    if ([type isEqualToString:@"layout"]) {
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"YTKACELayout"];
+        if (cell == nil) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"YTKACELayout"];
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        }
+        cell.backgroundColor = YTKACESettingsCellBackground();
+        YTKACEButtonLayoutView *view = [self layoutView];
+        view.frame = cell.contentView.bounds;
+        view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [cell.contentView addSubview:view];
+        return cell;
+    }
     UITableViewCellStyle style;
     if ([type isEqualToString:@"picker"]) {
         style = [item[@"subtitle"] length] == 0
@@ -1502,10 +1549,38 @@ static NSArray *YTKACEQualityValues(void) {
     return @[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12];
 }
 
+// iPhone Duo options only show on a Duo.
+static NSArray *YTKACEWithoutDuoRows(NSArray *sections) {
+    if (DUOIsDuo()) return sections;
+    NSSet<NSString *> *duoKeys = [NSSet setWithArray:@[
+        @"YTKACE.Preference.Tabs.DuoNativeBar",
+        @"YTKACE.Preference.Player.DuoDeskSplit",
+        @"YTKACE.Preference.Player.DuoStatusBarHidden"
+    ]];
+    NSMutableArray *filtered = [NSMutableArray arrayWithCapacity:sections.count];
+    for (id section in sections) {
+        if (![section isKindOfClass:NSArray.class]) {
+            [filtered addObject:section];
+            continue;
+        }
+        NSMutableArray *rows = [NSMutableArray array];
+        for (id row in (NSArray *)section) {
+            if ([row isKindOfClass:NSDictionary.class] &&
+                [duoKeys containsObject:((NSDictionary *)row)[@"key"] ?: @""]) {
+                continue;
+            }
+            [rows addObject:row];
+        }
+        [filtered addObject:rows];
+    }
+    return filtered;
+}
+
 static NSDictionary *YTKACEPageDefinition(NSString *pageID,
                                           NSString *title,
                                           NSArray *sections,
                                           NSArray *headers) {
+    sections = YTKACEWithoutDuoRows(sections);
     return @{
         @"id": pageID,
         @"title": title,
@@ -1542,7 +1617,8 @@ void YTKACEStartupDestinations(NSArray<NSString *> * _Nullable * _Nullable outTi
         @[@"playlists", YTKACELocalized(@"Playlists"), @"YTKACE.Preference.Tabs.Hidden.Playlists"],
         @[@"history", YTKACELocalized(@"History"), @"YTKACE.Preference.Tabs.Hidden.History"],
         @[@"notifications", YTKACELocalized(@"Notifs"), @"YTKACE.Preference.Tabs.Hidden.Notifs"],
-        @[@"watchlater", YTKACELocalized(@"WLater"), @"YTKACE.Preference.Tabs.Hidden.WatchLater"]
+        @[@"watchlater", YTKACELocalized(@"WLater"), @"YTKACE.Preference.Tabs.Hidden.WatchLater"],
+        @[@"customplaylist", YTKACELocalized(@"Playlist"), @"YTKACE.Preference.Tabs.Hidden.CustomPlaylist"]
     ];
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSString *selected = [defaults stringForKey:@"YTKACE.Preference.Tabs.Startup"];
@@ -1772,7 +1848,9 @@ static NSDictionary *YTKACESponsorBlockDefinition(void) {
                            YTKACESponsorShowTimeWithSkipsKey),
         YTKACEToggleDetail(@"Full Video Badges",
                            @"Show a badge on video thumbnails when the entire video is sponsored or self-promotion.",
-                           YTKACESponsorFullVideoLabelsKey)
+                           YTKACESponsorFullVideoLabelsKey),
+        YTKACESlider(@"Minimum Segment Length", @"YTKACE.Preference.SponsorBlock.MinimumSeconds",
+                     0.0, 20.0, 1.0, 0.0)
     ]];
     NSMutableArray<NSString *> *titles = [NSMutableArray arrayWithObject:YTKACELocalized(@"MAIN")];
 
@@ -2003,8 +2081,14 @@ static NSDictionary *YTKACESponsorBlockDefinition(void) {
 static NSDictionary *YTKACEPlayerDefinition(void) {
     return YTKACEPageDefinition(@"player", @"Player", @[
         @[
+            @{@"type": @"layout", @"title": YTKACELocalized(@"Button Layout"), @"en": @"Button Layout", @"subtitle": @""},
             YTKACEToggleDetail(@"PiP Button", @"Add a button that opens the video in picture in picture.", YTKACEPiPKey),
+            YTKACEToggleDetail(@"iPhone Duo Laptop Layout", @"Half open like a laptop, full-screen video plays above the crease with the controls below.", @"YTKACE.Preference.Player.DuoDeskSplit"),
+            YTKACEToggleDetail(@"iPhone Duo Status Bar Over Video", @"Hide the clock and status icons while the watch page's video is under them.", @"YTKACE.Preference.Player.DuoStatusBarHidden"),
             YTKACEToggle(@"Loop Button", YTKACELoopKey, @"", @""),
+            YTKACEToggleDetail(@"Quality Button", @"Add a button that opens the quality menu.", @"YTKACE.Preference.Player.QualityButton"),
+            YTKACEPicker(@"Quality Button Style", @"YTKACE.Preference.Player.QualityButtonStyle",
+                         @[@"Standard", @"Compact"], @[@0, @1], 0, @"", @""),
             YTKACEToggle(@"Sleep Timer Button", YTKACESleepTimerKey, @"", @""),
             YTKACEToggle(@"Speed Button", YTKACESpeedKey, @"", @""),
             YTKACEPickerDetail(@"Speed Button Style",
@@ -2026,7 +2110,10 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
                                @"YTKACE.Preference.Player.HoldSpeedEnabled"),
             YTKACEStackedSlider(@"Hold speed",
                                 @"YTKACE.Preference.Player.HoldSpeedRate",
-                                0.25, 5.0, 0.25, 2.0, @"speed")
+                                0.25, 5.0, 0.25, 2.0, @"speed"),
+            YTKACEToggleDetail(@"Swipe to Change Speed",
+                               @"While holding, swipe up or down to change the speed.",
+                               @"YTKACE.Preference.Player.HoldSpeedSwipe")
         ],
         @[
             YTKACEToggleDetail(@"Background Audio",
@@ -2038,6 +2125,18 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
             YTKACEToggleDetail(@"Open Videos Paused",
                                @"Videos load without starting playback.",
                                @"YTKACE.Preference.Playback.OpenPaused"),
+            YTKACEToggleDetail(@"Keep Playing",
+                               @"Don't stop to ask if you're still watching.",
+                               @"YTKACE.Preference.Playback.YouThereDisabled"),
+            YTKACEToggleDetail(@"Bypass Premium Device Limit",
+                               @"Stop YouTube counting this device toward your plan's stream limit.",
+                               @"YTKACE.Preference.Playback.BlockHeartbeat"),
+            YTKACEToggleDetail(@"Auto Fullscreen",
+                               @"Videos open in fullscreen.",
+                               @"YTKACE.Preference.Player.AutoFullscreen"),
+            YTKACEToggleDetail(@"Exit Fullscreen at End",
+                               @"Leave fullscreen when a video ends.",
+                               @"YTKACE.Preference.Player.ExitFullscreenAtEnd"),
             YTKACEToggleDetail(@"Local Queue",
                                @"Play next and play last without Premium.",
                                @"YTKACE.Preference.Playback.LocalQueue"),
@@ -2068,6 +2167,10 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
                 @[@0, @1, @2], 0)
         ],
         @[
+            YTKACEPickerDetail(@"Previous/Next Skip",
+                @"Previous and next skip back and forward in the video instead.",
+                @"YTKACE.Preference.Overlay.PreviousNextSeek",
+                @[@"Off", @"5 seconds", @"10 seconds", @"15 seconds", @"30 seconds"], @[@0, @5, @10, @15, @30], 0),
             YTKACEToggleDetail(@"Disable Previous/Next", @"Grey out previous and next so they can't be tapped.",
                                @"YTKACE.Preference.Overlay.PreviousNextDisabled"),
             YTKACEToggle(@"Smaller Previous/Next", @"YTKACE.Preference.Overlay.CompactPreviousNext", @"", @""),
@@ -2085,15 +2188,23 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
             YTKACEToggleDetail(@"Remove Autoplay Prompt",
                                @"Hides the Suggested video and Suggested music prompts at the end of a video.",
                                @"YTKACE.Preference.Overlay.AutoplayPromptHidden"),
-            YTKACEToggleDetail(@"Remove More Videos",
-                               @"Disable the edge swipe up in fullscreen that "
-                                "reveals the More videos row.",
-                               @"YTKACE.Preference.Overlay.MoreVideosHidden"),
-            YTKACEToggleDetail(@"Remove Fullscreen Actions",
-                               @"Hide the row of buttons under the progress bar in fullscreen.",
-                               @"YTKACE.Preference.Overlay.FullscreenActionsHidden"),
             YTKACEToggle(@"Remove Quick Actions", @"YTKACE.Preference.Overlay.QuickActionsHidden", @"", @""),
             YTKACEToggle(@"Remove Continue Watching", @"YTKACE.Preference.Overlay.ContinueWatchingDisabled", @"", @"")
+        ],
+        @[
+            YTKACEToggleDetail(@"Remove Fullscreen Actions",
+                               @"Hide the whole row under the progress bar in fullscreen.",
+                               @"YTKACE.Preference.Overlay.FullscreenActionsHidden"),
+            YTKACEToggleDetail(@"Remove More Videos",
+                               @"Hide the More videos button and the swipe up that opens it.",
+                               @"YTKACE.Preference.Overlay.MoreVideosHidden"),
+            YTKACEToggle(@"Remove Like", @"YTKACE.Preference.Fullscreen.LikeHidden", @"", @""),
+            YTKACEToggle(@"Remove Dislike", @"YTKACE.Preference.Fullscreen.DislikeHidden", @"", @""),
+            YTKACEToggle(@"Remove Comments", @"YTKACE.Preference.Fullscreen.CommentsHidden", @"", @""),
+            YTKACEToggle(@"Remove Save", @"YTKACE.Preference.Fullscreen.SaveHidden", @"", @""),
+            YTKACEToggle(@"Remove Share", @"YTKACE.Preference.Fullscreen.ShareHidden", @"", @""),
+            YTKACEToggle(@"Remove Ask Button", @"YTKACE.Preference.Fullscreen.AskHidden", @"", @""),
+            YTKACEToggle(@"Remove ⋯ Button", @"YTKACE.Preference.Fullscreen.OverflowHidden", @"", @"")
         ],
         @[
             YTKACESegmentedStacked(@"Progress bar style", @"YTKACE.Preference.Progress.Style",
@@ -2106,7 +2217,8 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
         ]
     ], @[YTKACELocalized(@"BUTTONS"), YTKACELocalized(@"SPEED"), YTKACELocalized(@"PLAYBACK"),
          YTKACELocalized(@"CONTROLS"), YTKACELocalized(@"PREVIOUS & NEXT"),
-         YTKACELocalized(@"HIDE FROM PLAYER"), YTKACELocalized(@"PROGRESS BAR")]);
+         YTKACELocalized(@"HIDE FROM PLAYER"), YTKACELocalized(@"FULLSCREEN BAR"),
+         YTKACELocalized(@"PROGRESS BAR")]);
 }
 
 static NSDictionary *YTKACEQualityDefinition(void) {
@@ -2114,6 +2226,9 @@ static NSDictionary *YTKACEQualityDefinition(void) {
                            @"1080p60", @"1080p", @"720p60", @"720p", @"480p",
                            @"360p", @"240p", @"144p"];
     NSArray *values = @[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12];
+    // Off uses the Wi-Fi or Mobile Data quality.
+    NSArray *overrideQualities = [@[@"Off"] arrayByAddingObjectsFromArray:qualities];
+    NSArray *overrideValues = [@[@(-1)] arrayByAddingObjectsFromArray:values];
     return YTKACEPageDefinition(@"quality", @"Video Quality", @[
         @[
             YTKACEPicker(@"Wi-Fi Quality", @"YTKACE.Preference.Playback.WiFiQuality",
@@ -2122,6 +2237,14 @@ static NSDictionary *YTKACEQualityDefinition(void) {
                          qualities, values, 0, @"", @""),
             YTKACEToggleDetail(@"HD on Mobile Data", @"Remove YouTube's quality limit on mobile data.",
                                @"YTKACE.Preference.Playback.HDOnCellular")
+        ],
+        @[
+            YTKACEPicker(@"AirPlay on Wi-Fi", @"YTKACE.Preference.Playback.AirPlayWiFiQuality",
+                         overrideQualities, overrideValues, 0, @"", @""),
+            YTKACEPicker(@"AirPlay on Mobile Data", @"YTKACE.Preference.Playback.AirPlayCellularQuality",
+                         overrideQualities, overrideValues, 0, @"", @""),
+            YTKACEPicker(@"Low Power Mode", @"YTKACE.Preference.Playback.LowPowerQuality",
+                         overrideQualities, overrideValues, 0, @"", @"")
         ],
         @[
             YTKACEToggleDetail(@"Classic Quality Menu", @"Show the full resolution list instead of YouTube's simple menu.",
@@ -2133,7 +2256,7 @@ static NSDictionary *YTKACEQualityDefinition(void) {
                                @"Play videos in standard dynamic range.",
                                @"YTKACE.Preference.Playback.HDRDisabled")
         ]
-    ], @[YTKACELocalized(@"DEFAULT QUALITY"), YTKACELocalized(@"QUALITY MENU")]);
+    ], @[YTKACELocalized(@"DEFAULT QUALITY"), YTKACELocalized(@"AIRPLAY & LOW POWER"), YTKACELocalized(@"QUALITY MENU")]);
 }
 
 static NSDictionary *YTKACECaptionsDefinition(void) {
@@ -2179,6 +2302,10 @@ static NSDictionary *YTKACEWatchPageDefinition(void) {
         @[
             YTKACEToggle(@"Remove Like", @"YTKACE.Preference.ActionBar.LikeHidden", @"", @""),
             YTKACEToggle(@"Remove Dislike", @"YTKACE.Preference.ActionBar.DislikeHidden", @"", @""),
+            YTKACEToggleDetail(@"Return YouTube Dislike", @"Show dislike counts from returnyoutubedislike.com.",
+                               @"YTKACE.Preference.ActionBar.ReturnDislike"),
+            YTKACEToggleDetail(@"Submit Votes", @"Send your likes and dislikes to Return YouTube Dislike with an anonymous ID.",
+                               @"YTKACE.Preference.ActionBar.ReturnDislikeVotes"),
             YTKACEToggle(@"Remove Share", @"YTKACE.Preference.ActionBar.ShareHidden", @"", @""),
             YTKACEToggle(@"Remove Download", @"YTKACE.Preference.ActionBar.DownloadHidden", @"", @""),
             YTKACEToggle(@"Remove Save", @"YTKACE.Preference.ActionBar.SaveHidden", @"", @""),
@@ -2222,6 +2349,9 @@ static NSDictionary *YTKACEFeedDefinition(void) {
             YTKACEToggleDetail(@"Remove Community Posts",
                                @"Removes community posts from the feed.",
                                @"YTKACE.Preference.Feed.CommunityPostsHidden"),
+            YTKACEToggleDetail(@"Remove Live Videos from Home",
+                               @"Removes live streams from the Home feed. Subscriptions, search and channels keep them.",
+                               @"YTKACE.Preference.Feed.HomeLiveHidden"),
             YTKACEToggleDetail(@"Remove Mixes",
                                @"Removes YouTube Mix playlists from the feed.",
                                @"YTKACE.Preference.Feed.MixesHidden"),
@@ -2266,6 +2396,15 @@ static NSDictionary *YTKACEShortsOptionsDefinition(void) {
         @[
             YTKACEToggleDetail(@"Shorts Progress Bar", @"Show a thin progress line at the bottom of Shorts.", @"shortsProgress"),
             YTKACEToggle(@"Auto-Scroll to Next Short", @"autoSkipShorts", @"", @""),
+            YTKACEPicker(@"Auto-Scroll Delay", @"YTKACE.Preference.Shorts.AutoScrollDelay",
+                         @[@"Off", @"0.5s", @"1s", @"2s", @"3s"],
+                         @[@0, @0.5, @1, @2, @3], 0, @"", @""),
+            YTKACEToggleDetail(@"Wait While Reading Comments",
+                               @"Don't auto-scroll while comments are open.",
+                               @"YTKACE.Preference.Shorts.AutoScrollWaitForComments"),
+            YTKACEToggleDetail(@"Shorts Dislike Count",
+                               @"Show dislikes from returnyoutubedislike.com under Like.",
+                               @"YTKACE.Preference.Shorts.DislikeCount"),
             YTKACEToggleDetail(@"Play Shorts Once",
                                @"Pause at the end instead of replaying.",
                                @"YTKACE.Preference.Shorts.LoopDisabled"),
@@ -2472,6 +2611,15 @@ static NSDictionary *YTKACEDownloadsDefinition(void) {
                          @"YTKACE.Preference.Downloads.AudioSaveLocation",
                          @[@"YTKACE Library", @"Photos", @"Ask", @"Share Sheet"],
                          @[@0, @1, @2, @3], 0, @"", @""),
+            YTKACEPickerDetail(@"Video Quality",
+                @"Preselect the best quality at or below this.",
+                @"YTKACE.Preference.Downloads.DefaultQuality",
+                @[@"Ask", @"Best", @"2160p", @"1440p", @"1080p", @"720p", @"480p", @"360p"],
+                @[@0, @(-1), @2160, @1440, @1080, @720, @480, @360], 0),
+            YTKACEPickerDetail(@"Audio Language",
+                @"Skip the language list and use the video's default audio.",
+                @"YTKACE.Preference.Downloads.DefaultAudio",
+                @[@"Ask", @"Default Track"], @[@0, @1], 0),
             YTKACEToggleDetail(@"Include Subtitles",
                                @"Embed captions into downloaded videos.",
                                @"YTKACE.Preference.Downloads.Subtitles"),
@@ -2532,6 +2680,12 @@ static NSDictionary *YTKACEGestureOptionsDefinition(void) {
             YTKACESlider(@"Seek Step", @"YTKACE.Preference.Gestures.HoldSeekSeconds", 1.0, 60.0, 1.0, 10.0),
             YTKACEToggleDetail(@"Tap to Seek", @"Tap the progress bar to jump to that point.",
                                @"YTKACE.Preference.Playback.TapToSeek"),
+            YTKACEToggleDetail(@"Swipe to Seek", @"Swipe left or right on the video to rewind or fast-forward.",
+                               @"YTKACE.Preference.Gestures.SwipeToSeek"),
+            YTKACEPickerDetail(@"Swipe Range", @"How far a swipe across the video seeks.",
+                @"YTKACE.Preference.Gestures.SwipeSeekRange",
+                @[@"30 Seconds", @"1 Minute", @"90 Seconds", @"3 Minutes", @"5 Minutes", @"Whole Video"],
+                @[@30, @60, @90, @180, @300, @0], 2),
             YTKACEToggleDetail(@"Two-Finger Tap to Pause",
                                @"Tap the video with two fingers to pause or play.",
                                @"YTKACE.Preference.Gestures.TwoFingerTap")
@@ -2613,6 +2767,8 @@ NSArray<NSDictionary *> *YTKACEAllPageDefinitions(void) {
     }
     [pages addObject:YTKACEPageDefinition(@"tabs", @"Tabs", @[
         @[
+            YTKACEWithFooter(YTKACEToggle(@"iPhone Duo System Tab Bar", @"YTKACE.Preference.Tabs.DuoNativeBar", @"", @""),
+                             @"Shows the tabs in the iPhone Duo's own tab bar: the vertical bar, which expands with labels when held, or the floating bar at the bottom when unfolded upright."),
             YTKACEToggle(@"Hide Tab Labels", @"YTKACE.Preference.Tabs.LabelsHidden", @"", @""),
             YTKACEToggle(@"Don't Open App in Shorts", @"YTKACE.Preference.Shorts.PreventAutoOpen", @"", @""),
             YTKACEPicker(@"Frosted Tab Bar", @"YTKACE.Preference.Tabs.Frosted",

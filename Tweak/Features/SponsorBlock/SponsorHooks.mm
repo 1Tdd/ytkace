@@ -86,7 +86,8 @@ static void YTKACERefreshPlaybackTimePreferenceState(void) {
         YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LiveHidden") ||
         YTKACEFeatureEnabled(YTKACESpeedKey) ||
         YTKACEFeatureEnabled(YTKACESleepTimerKey) ||
-        YTKACEFeatureEnabled(@"YTKACE.Preference.Playback.LocalQueue");
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Playback.LocalQueue") ||
+        YTKACEFeatureEnabled(@"YTKACE.Preference.Player.ExitFullscreenAtEnd");
 }
 
 static void YTKACEPublishPlaybackTime(id receiver, double time, double duration) {
@@ -814,6 +815,7 @@ static void YTKACEEvaluateSponsorTime(id controller, double time) {
     }
 
     NSTimeInterval sinceUnskip = CACurrentMediaTime() - YTKACELastUnskipTime;
+    const double minimum = YTKACESponsorMinimumSegmentLength();
     [segments enumerateObjectsUsingBlock:
         ^(NSDictionary<NSString *, id> *segment, NSUInteger index, BOOL *stop) {
             double start = [segment[@"start"] doubleValue];
@@ -829,6 +831,8 @@ static void YTKACEEvaluateSponsorTime(id controller, double time) {
             }
             NSInteger behavior = YTKACESponsorCategoryBehavior(category);
             if (behavior == 2 || behavior == 3) return;
+            // Segments shorter than the minimum just play.
+            if (end - start < minimum) return;
             NSNumber *token = @(index);
             if ([actionType isEqualToString:@"mute"]) {
                 if (behavior == 1 && time >= start && time < end && ![skipped containsObject:token]) {
@@ -1920,6 +1924,7 @@ static void YTKACEDidActivateVideo(id receiver,
     }
 
     YTKACEOpenPausedVideoActivated(receiver);
+    YTKACEFullscreenVideoActivated(receiver);
     YTKACELastPlayerController = receiver;
 
     NSString *shortsID = nil;

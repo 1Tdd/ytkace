@@ -17,6 +17,7 @@ YTKACE_FILES = \
 	Tweak/UI/OverlayButtonHost.mm \
 	Tweak/UI/MediaActionSheet.mm \
 	Tweak/UI/MediaExport.mm \
+	Tweak/UI/OverlayButtonLayout.mm \
 	Tweak/Features/Ads/AdsHooks.mm \
 	Tweak/Features/Ads/PromoHooks.mm \
 	Tweak/Features/SponsorBlock/SponsorClient.mm \
@@ -54,9 +55,13 @@ YTKACE_FILES = \
 	Tweak/Features/Playback/BackgroundPlaybackHooks.mm \
 	Tweak/Features/Playback/PiPControls.mm \
 	Tweak/Features/Playback/PlaybackFixHooks.mm \
+	Tweak/Features/Playback/PlaybackHeartbeat.mm \
 	Tweak/Features/Playback/ChallengeSolver.mm \
 	Tweak/Features/Playback/SpeedControls.mm \
 	Tweak/Features/Playback/LoopControls.mm \
+	Tweak/Features/Playback/QualityButton.mm \
+	Tweak/Features/Playback/FullscreenControls.mm \
+	Tweak/Features/Playback/PreviousNextSeek.mm \
 	Tweak/Features/Playback/AutoplayControls.mm \
 	Tweak/Features/Playback/CaptionControls.mm \
 	Tweak/Features/Playback/TranscriptExport.mm \
@@ -79,6 +84,12 @@ YTKACE_FILES = \
 	Tweak/Features/Compatibility/CastCompatibility.mm \
 	Tweak/Features/Onboarding/FirstLaunch.mm \
 	Tweak/Features/Navigation/TabBarHooks.mm \
+	Tweak/Features/Navigation/DuoTabBar.mm \
+	Vendor/DuoKit/DuoKit.m \
+	Vendor/DuoKit/DuoMirroredTabBar.m \
+	Vendor/DuoKit/DuoDeskPosture.m \
+	Tweak/Features/Playback/DuoDeskPlayer.mm \
+	Tweak/Features/Playback/DuoStatusBar.mm \
 	Tweak/Features/Navigation/GlassChrome.mm \
 	Tweak/Features/Navigation/GlassSheets.mm \
 	Tweak/Features/Playback/PlayerGlass.mm \
@@ -98,6 +109,7 @@ YTKACE_FILES = \
 	Tweak/Features/Interface/PostImages.mm \
 	Tweak/Features/Interface/PostTranslation.mm \
 	Tweak/Features/Interface/NativeShareHooks.mm \
+	Tweak/Features/Interface/ReturnDislike.mm \
 	Tweak/Features/Interface/NavigationVisibility.mm \
 	Tweak/Settings/SettingsEntry.mm \
 	Tweak/Settings/NativeSettingsEntry.mm \
@@ -105,6 +117,7 @@ YTKACE_FILES = \
 	Tweak/Settings/YTKACESettingsPages.mm \
 	Tweak/Settings/YTKACESettingsSearch.mm \
 	Tweak/Settings/YTKACETabEditorController.mm \
+	Tweak/Settings/YTKACEButtonLayoutView.mm \
 	Tweak/Settings/YTKACEDownloadsController.mm
 
 YTKACE_CFLAGS = -Wall -Wextra -Werror=return-type
@@ -114,6 +127,7 @@ YTKACE_CFLAGS += -DYTKACE_COMBINED_SABR=1
 YTKACE_CFLAGS += -DYTKACE_VERSION_STRING=\"$(shell awk '/^Version:/ {print $$2}' $(THEOS_PROJECT_DIR)/control)\"
 YTKACE_CFLAGS += -Wno-module-import-in-extern-c
 YTKACE_CFLAGS += -I$(THEOS_PROJECT_DIR)/Vendor/FFmpeg/include
+YTKACE_CFLAGS += -I$(THEOS_PROJECT_DIR)/Vendor/DuoKit
 YTKACE_CCFLAGS = -std=c++17
 YTKACE_FRAMEWORKS = Foundation UIKit JavaScriptCore AVFoundation AVKit AudioToolbox Photos QuartzCore MediaPlayer Security SystemConfiguration UniformTypeIdentifiers VideoToolbox CoreMedia
 YTKACE_LIBRARIES = z

@@ -174,7 +174,8 @@ static BOOL YTKACEIsShortsActionIdentifier(NSString *identifier) {
         [identifier isEqualToString:@"id.reel_comment_button"] ||
         [identifier isEqualToString:@"id.reel_share_button"] ||
         [identifier isEqualToString:@"id.reel_remix_button"] ||
-        [identifier isEqualToString:@"id.reel_pivot_button"];
+        [identifier isEqualToString:@"id.reel_pivot_button"] ||
+        [identifier isEqualToString:@"id.ytkace_dislike_button"];
 }
 
 static BOOL YTKACEIsShortsActionView(UIView *view, UIView *root,
@@ -239,12 +240,22 @@ static void YTKACECollectShortsActions(UIView *view,
     YTKACECollectShortsActionsWalk(view, root, includeHidden, &metrics, views);
 }
 
+static BOOL YTKACEShortsHasDislikeView(NSArray<UIView *> *actions) {
+    for (UIView *action in actions) {
+        if (!action.hidden && [action.accessibilityIdentifier isEqualToString:@"id.ytkace_dislike_button"]) return YES;
+    }
+    return NO;
+}
+
 static UIView *YTKACEVisibleShortsAction(UIView *root) {
     NSMutableArray<UIView *> *actions = [NSMutableArray array];
     YTKACECollectShortsActions(root, root, NO, actions);
     NSString *expected = nil;
     if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.LikeHidden")) {
         expected = @"id.reel_like_button";
+    } else if (YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.DislikeCount") &&
+               YTKACEShortsHasDislikeView(actions)) {
+        expected = @"id.ytkace_dislike_button";
     } else if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.CommentsHidden")) {
         expected = @"id.reel_comment_button";
     } else if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.ShareHidden")) {
@@ -1627,6 +1638,30 @@ static void YTKACEReelPlayerHandleLoopBehavior(id receiver, SEL selector) {
     }
 }
 
+// Comments (or the description) are open over the Short.
+static BOOL YTKACEShortsPanelOpen(id shorts) {
+    if (!YTKACEFeatureEnabled(@"YTKACE.Preference.Shorts.AutoScrollWaitForComments")) return NO;
+    UIWindow *window = [shorts isKindOfClass:UIViewController.class]
+        ? ((UIViewController *)shorts).view.window : nil;
+    if (window == nil) return NO;
+    static Class panelClass;
+    if (panelClass == Nil) panelClass = NSClassFromString(@"YTEngagementPanelView");
+    if (panelClass == Nil) return NO;
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:window];
+    while (stack.count != 0) {
+        UIView *view = stack.lastObject;
+        [stack removeLastObject];
+        if (view.hidden || view.alpha < 0.01) continue;
+        if ([view isKindOfClass:panelClass]) {
+            CGRect frame = [view convertRect:view.bounds toView:nil];
+            if (CGRectGetHeight(CGRectIntersection(frame, window.bounds)) > 40.0) return YES;
+            continue;
+        }
+        [stack addObjectsFromArray:view.subviews];
+    }
+    return NO;
+}
+
 static void YTKACEShortsTimeChanged(NSNotification *notification) {
     id player = notification.object;
     NSArray<UIViewController *> *controllers = YTKACECollectShortsControllers(player);
@@ -1713,7 +1748,6 @@ static void YTKACEShortsTimeChanged(NSNotification *notification) {
     if (!YTKACEFeatureEnabled(@"autoSkipShorts") || duration <= 1.0) {
         return;
     }
-
     CFTimeInterval now = CACurrentMediaTime();
     if (time < duration * 0.5 && !loopWrapped && (now - YTKACELastShortsAdvanceTime > 0.8)) {
         objc_setAssociatedObject(shorts, YTKACEShortsSkipAssociation, nil,
@@ -1726,14 +1760,50 @@ static void YTKACEShortsTimeChanged(NSNotification *notification) {
     BOOL reachedEnd = (time >= duration - 0.30 && time > 0.4) || loopWrapped;
     BOOL alreadySkipped = [objc_getAssociatedObject(shorts, YTKACEShortsSkipAssociation) boolValue] &&
         [token isEqualToString:YTKACELastAdvancedShortsToken];
-    if (reachedEnd && !alreadySkipped && (now - YTKACELastShortsAdvanceTime >= 1.0)) {
-        if (YTKACEAdvanceShort(controllers, player)) {
-            YTKACELastShortsAdvanceTime = now;
-            YTKACELastAdvancedShortsToken = token;
-            objc_setAssociatedObject(shorts, YTKACEShortsSkipAssociation, @YES,
+    if (!reachedEnd || alreadySkipped || now - YTKACELastShortsAdvanceTime < 1.0) return;
+    // Hold off while comments are open; the next loop end tries again.
+    if (YTKACEShortsPanelOpen(shorts)) return;
+    objc_setAssociatedObject(shorts, YTKACEShortsSkipAssociation, @YES,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    YTKACELastShortsAdvanceTime = now;
+    YTKACELastAdvancedShortsToken = token;
+    id delayValue = YTKACEPreferenceObject(@"YTKACE.Preference.Shorts.AutoScrollDelay");
+    const double delay = [delayValue respondsToSelector:@selector(doubleValue)]
+        ? MAX(0.0, MIN([delayValue doubleValue], 5.0)) : 0.0;
+    if (delay <= 0.0) {
+        if (!YTKACEAdvanceShort(controllers, player)) {
+            objc_setAssociatedObject(shorts, YTKACEShortsSkipAssociation, nil,
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            YTKACELastAdvancedShortsToken = nil;
         }
+        return;
     }
+    __weak id weakShorts = shorts;
+    __weak id weakPlayer = player;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        id strongShorts = weakShorts;
+        id strongPlayer = weakPlayer;
+        if (strongShorts == nil || strongPlayer == nil ||
+            !YTKACEFeatureEnabled(@"autoSkipShorts")) {
+            return;
+        }
+        // Skip if the user already moved to another Short.
+        NSArray<UIViewController *> *current = YTKACECollectShortsControllers(strongPlayer);
+        NSString *nowToken = YTKACECurrentShortsVideoID(strongPlayer, current);
+        if (videoID.length > 0 && ![videoID isEqualToString:nowToken]) return;
+        if (YTKACEShortsPanelOpen(strongShorts)) {
+            objc_setAssociatedObject(strongShorts, YTKACEShortsSkipAssociation, nil,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            YTKACELastAdvancedShortsToken = nil;
+            return;
+        }
+        if (!YTKACEAdvanceShort(current, strongPlayer)) {
+            objc_setAssociatedObject(strongShorts, YTKACEShortsSkipAssociation, nil,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            YTKACELastAdvancedShortsToken = nil;
+        }
+    });
 }
 
 void YTKACEInstallShortsHooks(void) {

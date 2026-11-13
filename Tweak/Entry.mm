@@ -28,6 +28,9 @@ static void YTKACEInstallModules(void) {
     YTKACEInstallBackgroundPlaybackHooks();
     YTKACEInstallSpeedHooks();
     YTKACEInstallLoopHooks();
+    YTKACEInstallQualityButtonHooks();
+    YTKACEInstallFullscreenHooks();
+    YTKACEInstallPreviousNextSeekHooks();
     YTKACEInstallLinkCleaningHooks();
     YTKACEInstallHapticHooks();
     YTKACEInstallAutoplayHooks();
@@ -54,6 +57,9 @@ static void YTKACEInstallModules(void) {
     YTKACEInstallHLSPlaybackHooks();
     YTKACEInstallShortsHooks();
     YTKACEInstallTabBarHooks();
+    YTKACEInstallDuoTabBarHooks();
+    YTKACEInstallDuoDeskPlayerHooks();
+    YTKACEInstallDuoStatusBarHooks();
     YTKACEInstallNavigationBehaviorHooks();
     YTKACEInstallPlayerGestureHooks();
     YTKACEInstallOverlayVisibilityHooks();
@@ -64,6 +70,7 @@ static void YTKACEInstallModules(void) {
     YTKACEInstallProfilePictureHooks();
     YTKACEInstallPostImageSaverHooks();
     YTKACEInstallNativeShareHooks();
+    YTKACEInstallReturnDislikeHooks();
     YTKACEInstallSettingsEntryHooks();
     YTKACEInstallNativeSettingsHooks();
     // Some hooks retry for about 30 seconds while YouTube loads its services.

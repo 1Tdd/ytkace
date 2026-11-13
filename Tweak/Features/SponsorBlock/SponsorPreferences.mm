@@ -1009,3 +1009,9 @@ void YTKACESponsorClearWhitelistedChannels(void) {
     YTKACESetPreferenceObject(YTKACESponsorChannelWhitelistKey, @[]);
 }
 
+NSTimeInterval YTKACESponsorMinimumSegmentLength(void) {
+    id stored = YTKACEPreferenceObject(@"YTKACE.Preference.SponsorBlock.MinimumSeconds");
+    double value = [stored respondsToSelector:@selector(doubleValue)]
+        ? [stored doubleValue] : 0.0;
+    return MAX(0.0, MIN(value, 20.0));
+}

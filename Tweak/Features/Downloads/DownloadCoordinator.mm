@@ -1001,6 +1001,28 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         [self showAlertWithTitle:@"YTKACE" message:YTKACELocalized(@"No active video was found.")];
         return;
     }
+    // With the HLS swap the player's response has no formats; fetch the
+    // video's own response like the menu's Download does.
+    NSString *videoID = [YTKACEStreamResolver videoIDFromPlayerResponse:self.playerResponse];
+    if (self.externalResponse == nil && videoID.length != 0 &&
+        [YTKACEStreamResolver optionsFromPlayerResponse:self.playerResponse].count == 0) {
+        YTKACEDownloadLog(@"resolver", @"player response has no formats, resolving video=%@", videoID);
+        YTKACEShowNotice(YTKACELocalized(@"Preparing download"));
+        __weak YTKACEDownloadCoordinator *weakSelf = self;
+        __weak UIView *weakAnchor = anchor;
+        YTKACEResolvePlayerResponse(videoID, ^(id response, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (response == nil) {
+                    YTKACEDownloadLog(@"resolver", @"resolve failed video=%@ error=%@",
+                        videoID, error.localizedDescription ?: @"unknown");
+                    YTKACEShowNotice(YTKACELocalized(@"Download unavailable"));
+                    return;
+                }
+                [weakSelf showDownloadMenuForResponse:response sourceView:weakAnchor];
+            });
+        });
+        return;
+    }
     self.downloadSourceView = anchor;
 
     [self presentMediaMenuForResponse:self.playerResponse sourceView:anchor shorts:NO];
@@ -1479,6 +1501,15 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
             countStyle:NSByteCountFormatterCountStyleFile] : YTKACELocalized(@"Unknown size");
 }
 
+// Audio default: Ask (0) or YouTube's default track (1).
+static YTKACEStreamOption *YTKACEPreferredAudio(NSArray<YTKACEStreamOption *> *options) {
+    if ([NSUserDefaults.standardUserDefaults integerForKey:@"YTKACE.Preference.Downloads.DefaultAudio"] != 1) return nil;
+    for (YTKACEStreamOption *option in options) {
+        if (option.isDefaultAudio) return option;
+    }
+    return options.count == 1 ? options.firstObject : nil;
+}
+
 - (void)presentDirectAudioMenuForVideo:(YTKACEStreamOption *)videoOption
                              audioOnly:(BOOL)audioOnly
                               category:(NSString *)category {
@@ -1499,6 +1530,11 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
         return left.bitrate > right.bitrate ? NSOrderedAscending : NSOrderedDescending;
     }];
     __weak YTKACEDownloadCoordinator *weakSelf = self;
+    YTKACEStreamOption *preferredAudio = YTKACEPreferredAudio(audios);
+    if (preferredAudio != nil) {
+        [self beginSABRDownloadVideo:videoOption audio:preferredAudio audioOnly:audioOnly category:category];
+        return;
+    }
     NSMutableArray *actions = [NSMutableArray array];
     for (YTKACEStreamOption *option in audios) {
         NSString *stable = [self isStableVolumeOption:option]
@@ -1553,6 +1589,11 @@ void YTKACESaveVideoToPhotosFile(NSURL *url,
     if (options.count == 0) {
         [self showAlertWithTitle:YTKACELocalized(@"Download unavailable")
                          message:YTKACELocalized(@"No compatible audio formats were found.")];
+        return;
+    }
+    YTKACEStreamOption *preferredAudio = YTKACEPreferredAudio(options);
+    if (preferredAudio != nil) {
+        [self beginSABRDownloadVideo:videoOption audio:preferredAudio audioOnly:audioOnly category:category];
         return;
     }
     __weak YTKACEDownloadCoordinator *weakSelf = self;

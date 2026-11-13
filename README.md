@@ -4,6 +4,8 @@ This is a fork of [itzzace/ytkace](https://github.com/itzzace/ytkace), the origi
 
 An open-source YouTube enhancement for iOS.
 
+News, test builds and giveaways: [Telegram](https://t.me/ytkace)
+
 ## Features
 
 | Area | Included |
@@ -15,6 +17,7 @@ An open-source YouTube enhancement for iOS.
 | Interface | OLED mode, overlay controls, navigation cleanup and native share sheets |
 | Liquid Glass | Glass tab bar, top bar buttons, menus, sheets, player buttons and YTKACE popups on iOS 26, with shrink on scroll and a selected tab color |
 | Tabs | Hide, reorder and add YouTube destinations |
+| iPhone Duo | System tab bar in every position, video above the crease with controls below when half open like a laptop, and the status bar hidden over the watch page video |
 | Library | Downloaded video, Shorts and audio players with resume support |
 | Settings | Searchable settings, 15 languages and a native YouTube settings section |
 
@@ -22,16 +25,18 @@ An open-source YouTube enhancement for iOS.
 
 - **iOS:** 15.0 and newer (tweak packages); the prebuilt IPAs follow their YouTube base
 - **Architecture:** arm64
-- **YTKACE:** 1.2.0
+- **YTKACE:** 1.2.1
 
-YouTube 21.44.4 requires iOS 17, so two IPAs are published:
+YouTube 21.45.4 requires iOS 17, so two IPAs are published:
 
 | IPA | YouTube base | iOS |
 | --- | --- | --- |
-| `YTKACE_1.2.0_YouTube_iOS16_21.33.6.ipa` | 21.33.6 | 16.0 and newer |
-| `YTKACE_1.2.0_YouTube_21.44.4.ipa` | 21.44.4 | 17.0 and newer |
+| `YTKACE_1.2.1_YouTube_iOS16_21.33.6.ipa` | 21.33.6 | 16.0 and newer |
+| `YTKACE_1.2.1_YouTube_21.45.4.ipa` | 21.45.4 | 17.0 and newer |
 
-Pick the 21.44.4 build unless you are on iOS 16. Either one installs with TrollStore or a developer-certificate sideloader.
+Pick the 21.45.4 build unless you are on iOS 16. Either one installs with TrollStore or a developer-certificate sideloader.
+
+Need a certificate? [FlareStore](https://flarestore.vip/p/ytkace)
 
 ## Install
 
@@ -45,7 +50,7 @@ Pick the 21.44.4 build unless you are on iOS 16. Either one installs with TrollS
 
 Fork the repository, enable Actions, open the **IPA** workflow and provide a direct link to a decrypted YouTube IPA you are legally allowed to use. The completed workflow provides the injected IPA as an artifact. The **Deb** workflow builds the tweak package.
 
-To build both IPAs in one run, fill in the second URL field as well: the workflow takes an iOS 16 base (21.33.6) and an optional iOS 17+ base (21.44.4), and uploads them as separate artifacts. Leaving the second field empty builds a single IPA.
+To build both IPAs in one run, fill in the second URL field as well: the workflow takes an iOS 16 base (21.33.6) and an optional iOS 17+ base (21.45.4), and uploads them as separate artifacts. Leaving the second field empty builds a single IPA.
 
 Actions builds and caches FFmpeg, x264 and LAME for the conversion options. For a local iOS build with Theos, run `bash Scripts/build-ffmpeg.sh` before `make package`; this also installs the required media headers and static libraries. See [download options](docs/DOWNLOAD_MENUS.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
