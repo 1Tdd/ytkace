@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - name: Media test dependencies
@@ -44,7 +44,7 @@ jobs:
 
   media:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       THEOS: ${{ github.workspace }}/.theos
     steps:
