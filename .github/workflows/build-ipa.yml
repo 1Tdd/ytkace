@@ -26,7 +26,7 @@ jobs:
     uses: ./.github/workflows/build-deb.yml
 
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       targets: ${{ steps.targets.outputs.targets }}
     steps:
@@ -52,7 +52,7 @@ jobs:
 
   package:
     needs: [build, plan]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
