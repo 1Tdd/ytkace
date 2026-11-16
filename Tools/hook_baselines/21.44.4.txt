@@ -5,6 +5,7 @@ maybe-inherited YTContextualSheetViewController viewWillAppear:
 maybe-inherited YTContextualSheetViewController viewWillLayoutSubviews
 maybe-inherited YTFloatingPivotBarView didMoveToWindow
 maybe-inherited YTFrostedGlassView didMoveToWindow
+maybe-inherited YTFullscreenActionsView hitTest:withEvent:
 maybe-inherited YTHeaderContentComboView maximumSubheaderHeight
 maybe-inherited YTHeaderContentComboView setHeaderHeight:subheaderHeight:topOffset:animated:
 maybe-inherited YTHeaderContentComboView subheaderDefaultHeight
@@ -46,7 +47,6 @@ missing-class YTReelInfinitePlaybackDataSource setReels:
 missing-method ASDisplayNode didLoad
 missing-method SSOKeychainCore accessGroup
 missing-method SSOKeychainCore sharedAccessGroup
-missing-method YTAccountScopedAdsInnerTubeContextDecorator decorateContext:
 missing-method YTAdsInnerTubeContextDecorator decorateContext:
 missing-method YTGetWatchNextQueueAddCommandHandlerImpl executeWithCommand:entry:fromView:sender:completionBlock:
 missing-method YTISlimVideoActionBarRenderer actionBarButtonsArray
