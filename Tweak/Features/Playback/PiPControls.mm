@@ -12,6 +12,8 @@
 #import <math.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import "../Downloads/DownloadLog.h"
+#import "../../Runtime/Hooking.h"
 
 static id YTKACEPiPObjectIvar(id object, const char *name) {
     Ivar ivar = object != nil ? class_getInstanceVariable(object_getClass(object), name) : NULL;
@@ -417,7 +419,87 @@ static BOOL YTKACEPiPBool(id object, NSString *name) {
 
 @end
 
+// With PiP turned on by YTKACE, YouTube doesn't tell its PiP object when the
+// video pauses until PiP is open. So iOS is told a paused video is playing
+// and starts PiP when you leave the app. Until PiP is open, the paused state
+// comes from the player's own state changes; once it's open, YouTube's.
+static IMP OriginalPiPMediaState;
+static IMP OriginalIsPlaybackPaused;
+static const void *YTKACEPiPPausedAssociation = &YTKACEPiPPausedAssociation;
+static const NSInteger YTKACEMediaStatePlaying = 3;
+static const NSInteger YTKACEMediaStatePaused = 4;
+
+static void YTKACEPiPMediaStateDidChange(id receiver, SEL selector, id video, NSInteger from, NSInteger to) {
+    ((void (*)(id, SEL, id, NSInteger, NSInteger))OriginalPiPMediaState)(receiver, selector, video, from, to);
+    if (to != YTKACEMediaStatePlaying && to != YTKACEMediaStatePaused) return;
+    id ml = YTKACEPiPObjectIvar(receiver, "_pipController");
+    if (ml == nil) return;
+    objc_setAssociatedObject(ml, YTKACEPiPPausedAssociation, @(to == YTKACEMediaStatePaused), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // iOS asks again only when told to; PiP being open is YouTube's to update.
+    AVPictureInPictureController *avpip = YTKACEPiPObjectIvar(ml, "_pictureInPictureController");
+    if ([avpip isKindOfClass:AVPictureInPictureController.class] && !avpip.isPictureInPictureActive &&
+        [avpip respondsToSelector:@selector(invalidatePlaybackState)]) {
+        [avpip invalidatePlaybackState];
+    }
+}
+
+// The rate of the layer PiP would show, or -1 if there's no way to tell.
+static double YTKACEPiPContentRate(AVPictureInPictureController *controller) {
+    if (@available(iOS 15.0, *)) {
+        AVPictureInPictureControllerContentSource *source = controller.contentSource;
+        AVSampleBufferDisplayLayer *layer = source.sampleBufferDisplayLayer;
+        if (layer != nil) {
+            CMTimebaseRef timebase = NULL;
+            if (@available(iOS 14.5, *)) timebase = layer.timebase;
+            if (timebase == NULL) timebase = layer.controlTimebase;
+            if (timebase != NULL) return CMTimebaseGetRate(timebase);
+        }
+        AVPlayer *player = source.playerLayer.player;
+        if (player != nil) return player.rate;
+    }
+    AVPlayer *player = controller.playerLayer.player;
+    return player != nil ? player.rate : -1.0;
+}
+
+static BOOL YTKACEPiPIsPlaybackPaused(id receiver, SEL selector, AVPictureInPictureController *controller) {
+    BOOL paused = OriginalIsPlaybackPaused != NULL &&
+        ((BOOL (*)(id, SEL, id))OriginalIsPlaybackPaused)(receiver, selector, controller);
+    if (![controller isKindOfClass:AVPictureInPictureController.class] || controller.isPictureInPictureActive) return paused;
+    const double rate = YTKACEPiPContentRate(controller);
+    NSNumber *tracked = objc_getAssociatedObject(receiver, YTKACEPiPPausedAssociation);
+    if (rate >= 0.0) return rate == 0.0;
+    return tracked != nil ? tracked.boolValue : paused;
+}
+
+// With one of YouTube's flags on, when PiP closes, any player YouTube thinks
+// can't do PiP (a Short, or one still around from earlier) turns PiP off for
+// the shared controller, so leaving the app never starts it again. YTKACE
+// decides which videos get PiP, so that shutoff is skipped.
+static IMP OriginalPiPDidStop;
+static IMP OriginalPiPDeactivate;
+static BOOL YTKACEPiPStopping;
+
+static void YTKACEPiPDidStop(id receiver, SEL selector) {
+    const BOOL previous = YTKACEPiPStopping;
+    YTKACEPiPStopping = YES;
+    ((void (*)(id, SEL))OriginalPiPDidStop)(receiver, selector);
+    YTKACEPiPStopping = previous;
+}
+
+static void YTKACEPiPDeactivate(id receiver, SEL selector) {
+    if (YTKACEPiPStopping) return;
+    ((void (*)(id, SEL))OriginalPiPDeactivate)(receiver, selector);
+}
+
 void YTKACEInstallPiPHooks(void) {
+    YTKACEInstallInstanceHook(@"YTPlayerPIPController", @"didStopPictureInPicture",
+                              (IMP)YTKACEPiPDidStop, &OriginalPiPDidStop);
+    YTKACEInstallInstanceHook(@"MLPIPControllerImpl", @"deactivatePiPController",
+                              (IMP)YTKACEPiPDeactivate, &OriginalPiPDeactivate);
+    YTKACEInstallInstanceHook(@"YTPlayerPIPController", @"singleVideo:mediaStateDidChangeFromState:toState:",
+                              (IMP)YTKACEPiPMediaStateDidChange, &OriginalPiPMediaState);
+    YTKACEInstallInstanceHook(@"MLPIPControllerImpl", @"pictureInPictureControllerIsPlaybackPaused:",
+                              (IMP)YTKACEPiPIsPlaybackPaused, &OriginalIsPlaybackPaused);
     YTKACERegisterOverlayConfigurator(@"pip", ^(UIView *overlay, UIStackView *stack) {
         YTKACEPiPCoordinator.sharedCoordinator.overlay = overlay;
         UIButton *button = YTKACEOverlayButton(

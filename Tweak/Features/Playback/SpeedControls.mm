@@ -188,6 +188,7 @@ static void YTKACESetSpeedTitle(UIButton *button, NSString *title) {
         [button setTitle:title forState:UIControlStateNormal];
         [button layoutIfNeeded];
     }];
+    YTKACEOverlayButtonResized(button);
 }
 
 @interface YTKACESpeedCoordinator : NSObject
@@ -590,6 +591,11 @@ static IMP OriginalSpeedmasterLongPress;
 static double YTKACEHoldPreviousRate;
 static BOOL YTKACEHoldOverrideActive;
 static BOOL YTKACEHoldPillActive;
+
+// Holding for speed: other player gestures (swipe to seek) stay off.
+BOOL YTKACEHoldSpeedActive(void) {
+    return YTKACEHoldPillActive;
+}
 // Swiping up or down while holding changes the hold speed by 0.25x steps.
 static double YTKACEHoldCurrentRate;
 static CGFloat YTKACEHoldStartY;
@@ -811,86 +817,9 @@ void YTKACERouteSpeedMenuItem(id renderers, id actions, UIView *view, id respond
     }
 }
 
-static const void *YTKACESpeedStackAssociation = &YTKACESpeedStackAssociation;
-
-static void YTKACESetButtonConstraints(UIButton *button, CGFloat width, CGFloat height, BOOL minWidth) {
-    BOOL hasWidth = NO;
-    BOOL hasHeight = NO;
-    for (NSLayoutConstraint *c in button.constraints) {
-        if (c.firstAttribute == NSLayoutAttributeWidth) hasWidth = YES;
-        if (c.firstAttribute == NSLayoutAttributeHeight) hasHeight = YES;
-    }
-    if (!hasWidth) {
-        if (minWidth) {
-            [button.widthAnchor constraintGreaterThanOrEqualToConstant:width].active = YES;
-        } else {
-            [button.widthAnchor constraintEqualToConstant:width].active = YES;
-        }
-    }
-    if (!hasHeight) {
-        [button.heightAnchor constraintEqualToConstant:height].active = YES;
-    }
-}
-
-static UIStackView *YTKACESpeedStackForOverlay(UIView *overlay, UIStackView *sourceStack) {
-    UIStackView *speedStack = objc_getAssociatedObject(overlay, YTKACESpeedStackAssociation);
-    if (speedStack != nil && speedStack.superview == overlay) {
-        return speedStack;
-    }
-    if (speedStack != nil && speedStack.superview != nil) {
-        [speedStack removeFromSuperview];
-    }
-
-    speedStack = [UIStackView new];
-    speedStack.axis = UILayoutConstraintAxisVertical;
-    speedStack.alignment = UIStackViewAlignmentCenter;
-    speedStack.distribution = UIStackViewDistributionEqualSpacing;
-    speedStack.spacing = 6.0;
-    speedStack.layoutMargins = UIEdgeInsetsZero;
-    speedStack.layoutMarginsRelativeArrangement = YES;
-    speedStack.backgroundColor = UIColor.clearColor;
-    speedStack.alpha = sourceStack != nil ? sourceStack.alpha : 1.0;
-    speedStack.userInteractionEnabled = sourceStack != nil ? sourceStack.userInteractionEnabled : YES;
-    speedStack.translatesAutoresizingMaskIntoConstraints = NO;
-    speedStack.accessibilityIdentifier = @"YTKACEOverlayControls";
-
-    [overlay addSubview:speedStack];
-    [NSLayoutConstraint activateConstraints:@[
-        [speedStack.leadingAnchor constraintEqualToAnchor:overlay.safeAreaLayoutGuide.leadingAnchor constant:12.0],
-        [speedStack.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor]
-    ]];
-
-    objc_setAssociatedObject(overlay, YTKACESpeedStackAssociation, speedStack, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return speedStack;
-}
-
-static UIButton *YTKACESpeedButton(UIStackView *stack,
-                                   NSString *identifier,
-                                   id target,
-                                   SEL action) {
-    for (UIView *view in stack.arrangedSubviews) {
-        if ([view.accessibilityIdentifier isEqualToString:identifier] &&
-            [view isKindOfClass:UIButton.class]) {
-            return (UIButton *)view;
-        }
-    }
-
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.accessibilityIdentifier = identifier;
-    button.accessibilityLabel = identifier;
-    button.tintColor = UIColor.whiteColor;
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    button.imageView.contentMode = UIViewContentModeScaleAspectFit;
-    button.layer.shadowColor = UIColor.blackColor.CGColor;
-    button.layer.shadowOpacity = 0.75f;
-    button.layer.shadowRadius = 2.5f;
-    button.layer.shadowOffset = CGSizeMake(0.0, 1.0);
-    button.layer.masksToBounds = NO;
-    [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
-    [stack addArrangedSubview:button];
-    return button;
-}
-
+// The speed buttons live in the overlay's zone rows like every other button,
+// so the layout editor can move them. Their default place is the left column,
+// which reads + 1x - from the top.
 void YTKACEInstallSpeedHooks(void) {
     YTKACEInstallInstanceHook(@"YTVarispeedSwitchControllerImpl", @"init",
                               (IMP)YTKACEVarispeedInit, &OriginalVarispeedInit);
@@ -901,40 +830,18 @@ void YTKACEInstallSpeedHooks(void) {
     (void)YTKACESpeedCoordinator.sharedCoordinator;
 
     YTKACERegisterOverlayConfigurator(@"speed", ^(UIView *overlay, UIStackView *stack) {
-        for (UIView *view in [stack.arrangedSubviews copy]) {
-            if ([view.accessibilityIdentifier isEqualToString:@"YTKACE Slower"] ||
-                [view.accessibilityIdentifier isEqualToString:@"YTKACE Speed"] ||
-                [view.accessibilityIdentifier isEqualToString:@"YTKACE Faster"]) {
-                [stack removeArrangedSubview:view];
-                [view removeFromSuperview];
-            }
-        }
-
         YTKACESpeedCoordinator *coordinator = YTKACESpeedCoordinator.sharedCoordinator;
         coordinator.overlay = overlay;
 
-        UIStackView *speedStack = YTKACESpeedStackForOverlay(overlay, stack);
-
-        // Dedicated vertical stack on the left:
-        // Top: + (Faster)
-        // Middle: 1x (Speed Value)
-        // Bottom: - (Slower)
-        UIButton *plus = YTKACESpeedButton(speedStack, @"YTKACE Faster", coordinator, @selector(increase));
-        UIButton *value = YTKACESpeedButton(speedStack, @"YTKACE Speed", coordinator, @selector(valueTapped:));
-        UIButton *minus = YTKACESpeedButton(speedStack, @"YTKACE Slower", coordinator, @selector(decrease));
-
-        [speedStack addArrangedSubview:plus];
-        [speedStack addArrangedSubview:value];
-        [speedStack addArrangedSubview:minus];
-
-        [plus setImage:YTKACESpeedButtonImage(YES) forState:UIControlStateNormal];
-        YTKACESetButtonConstraints(plus, 40.0, 40.0, NO);
-
+        UIButton *minus = YTKACEOverlayButton(stack, @"YTKACE Slower", @"minus.circle", coordinator,
+                                              @selector(decrease));
+        UIButton *value = YTKACEOverlayButton(stack, @"YTKACE Speed", @"speedometer", coordinator,
+                                              @selector(valueTapped:));
+        UIButton *plus = YTKACEOverlayButton(stack, @"YTKACE Faster", @"plus.circle", coordinator,
+                                             @selector(increase));
         [minus setImage:YTKACESpeedButtonImage(NO) forState:UIControlStateNormal];
-        YTKACESetButtonConstraints(minus, 40.0, 40.0, NO);
-
+        [plus setImage:YTKACESpeedButtonImage(YES) forState:UIControlStateNormal];
         coordinator.valueButton = value;
-        YTKACESetSpeedTitle(value, YTKACESpeedText(coordinator.currentRate));
         BOOL hasHold = NO;
         for (UIGestureRecognizer *recognizer in value.gestureRecognizers) {
             if ([recognizer isKindOfClass:UILongPressGestureRecognizer.class]) hasHold = YES;
@@ -956,20 +863,18 @@ void YTKACEInstallSpeedHooks(void) {
         value.titleLabel.layer.shadowRadius = 2.5f;
         value.titleLabel.layer.shadowOffset = CGSizeMake(0.0, 1.0);
         value.titleLabel.layer.masksToBounds = NO;
-        YTKACESetButtonConstraints(value, 44.0, 32.0, YES);
-
-        BOOL speedEnabled = YTKACEFeatureEnabled(YTKACESpeedKey);
-        if (!speedEnabled) {
-            speedStack.hidden = YES;
-            plus.hidden = YES;
-            value.hidden = YES;
-            minus.hidden = YES;
-        } else {
-            BOOL menuStyle = YTKACESpeedMenuStyle();
-            speedStack.hidden = NO;
-            plus.hidden = menuStyle;
-            value.hidden = NO;
-            minus.hidden = menuStyle;
+        // The title can be wider than the 40 pt the other buttons get.
+        for (NSLayoutConstraint *constraint in value.constraints) {
+            if (constraint.firstAttribute == NSLayoutAttributeWidth && constraint.relation == NSLayoutRelationEqual) {
+                constraint.active = NO;
+                [value.widthAnchor constraintGreaterThanOrEqualToConstant:44.0].active = YES;
+            }
         }
+        YTKACESetSpeedTitle(value, YTKACESpeedText(coordinator.currentRate));
+
+        const BOOL hidden = !YTKACEFeatureEnabled(YTKACESpeedKey);
+        minus.hidden = hidden || YTKACESpeedMenuStyle();
+        value.hidden = hidden;
+        plus.hidden = hidden || YTKACESpeedMenuStyle();
     });
 }

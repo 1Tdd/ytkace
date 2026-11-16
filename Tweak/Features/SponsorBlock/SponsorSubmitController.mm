@@ -2896,10 +2896,17 @@ void YTKACEInstallSponsorSubmitControls(void) {
                       forState:UIControlStateNormal];
         }
 
-        UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc]
-            initWithTarget:coordinator action:@selector(handleButtonLongPress:)];
-        longPress.minimumPressDuration = 0.5;
-        [button addGestureRecognizer:longPress];
+        // This runs on every layout of the player; add the hold only once.
+        BOOL hasHold = NO;
+        for (UIGestureRecognizer *recognizer in button.gestureRecognizers) {
+            if ([recognizer isKindOfClass:UILongPressGestureRecognizer.class]) hasHold = YES;
+        }
+        if (!hasHold) {
+            UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc]
+                initWithTarget:coordinator action:@selector(handleButtonLongPress:)];
+            longPress.minimumPressDuration = 0.5;
+            [button addGestureRecognizer:longPress];
+        }
 
         coordinator.button = button;
         [coordinator updateButton];
