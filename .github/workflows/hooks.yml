@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 env:
-  DEFAULT_IPA_URL: "https://www.dropbox.com/scl/fi/5t2vjoy3om4z25vr9al4x/com.google.ios.youtube-21.44.4-eeveedecrypter.ipa?rlkey=3trqmmwud6ieittgiuwk9h6oy&st=xvpxx0rv&dl=1"
+  DEFAULT_IPA_URL: "https://www.dropbox.com/scl/fi/0pa15ymo1crqoh37ua14v/com.google.ios.youtube-21.47.6-eeveedecrypter.ipa?rlkey=q66okvz57iox2harvkra17cij&st=kj9fensp&dl=1"
 
 jobs:
   check:
@@ -38,13 +38,16 @@ jobs:
         if: inputs.ipa_url == ''
         with:
           path: YouTube.ipa
-          key: hooks-youtube-21.44.4
+          key: hooks-youtube-21.47.6
 
       - name: YouTube
         if: steps.youtube.outputs.cache-hit != 'true'
         env:
           IPA_URL: ${{ inputs.ipa_url || env.DEFAULT_IPA_URL }}
-        run: curl --fail --location "$IPA_URL" --output YouTube.ipa
+        run: |
+          curl --fail --location "$IPA_URL" --output YouTube.ipa
+          # A dead share link answers with a web page instead of the IPA.
+          unzip -tq YouTube.ipa >/dev/null
 
       - name: Check hook targets
         run: |
