@@ -25,16 +25,16 @@ News, test builds and giveaways: [Telegram](https://t.me/ytkace)
 
 - **iOS:** 15.0 and newer (tweak packages); the prebuilt IPAs follow their YouTube base
 - **Architecture:** arm64
-- **YTKACE:** 1.2.2
+- **YTKACE:** 1.2.3
 
-YouTube 21.46.3 requires iOS 17, so two IPAs are published:
+YouTube 21.47.6 requires iOS 17, so two IPAs are published:
 
 | IPA | YouTube base | iOS |
 | --- | --- | --- |
-| `YTKACE_1.2.2_YouTube_iOS16_21.33.6.ipa` | 21.33.6 | 16.0 and newer |
-| `YTKACE_1.2.2_YouTube_21.46.3.ipa` | 21.46.3 | 17.0 and newer |
+| `YTKACE_1.2.3_YouTube_iOS16_21.33.6.ipa` | 21.33.6 | 16.0 and newer |
+| `YTKACE_1.2.3_YouTube_21.47.6.ipa` | 21.47.6 | 17.0 and newer |
 
-Pick the 21.46.3 build unless you are on iOS 16. Either one installs with TrollStore or a developer-certificate sideloader.
+Pick the 21.47.6 build unless you are on iOS 16. Either one installs with TrollStore or a developer-certificate sideloader.
 
 Need a certificate? [FlareStore](https://flarestore.vip/p/ytkace)
 
@@ -46,11 +46,13 @@ Need a certificate? [FlareStore](https://flarestore.vip/p/ytkace)
 **Sideloaded.** Download the IPA for your iOS version from the artifacts of the latest
 [IPA workflow run](https://github.com/1Tdd/ytkace/actions/workflows/build-ipa.yml) and install it with TrollStore, AltStore, SideStore or LiveContainer.
 
+**Open in YTKACE.** Sideloaded IPAs include a Safari extension that opens YouTube links in the app. Go to Settings → Apps → Safari → Extensions → Open in YTKACE (Settings → Safari on older iOS versions). Turn it on, set YouTube website access to **Allow**, then reload any open YouTube tabs.
+
 ## Build
 
 Fork the repository, enable Actions, open the **IPA** workflow and provide a direct link to a decrypted YouTube IPA you are legally allowed to use. The completed workflow provides the injected IPA as an artifact. The **Deb** workflow builds the tweak package.
 
-To build both IPAs in one run, fill in the second URL field as well: the workflow takes an iOS 16 base (21.33.6) and an optional iOS 17+ base (21.46.3), and uploads them as separate artifacts. Leaving the second field empty builds a single IPA.
+To build both IPAs in one run, fill in the second URL field as well: the workflow takes an iOS 16 base (21.33.6) and an optional iOS 17+ base (21.47.6), and uploads them as separate artifacts. Leaving the second field empty builds a single IPA.
 
 Actions builds and caches FFmpeg, x264 and LAME for the conversion options. For a local iOS build with Theos, run `bash Scripts/build-ffmpeg.sh` before `make package`; this also installs the required media headers and static libraries. See [download options](docs/DOWNLOAD_MENUS.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
 

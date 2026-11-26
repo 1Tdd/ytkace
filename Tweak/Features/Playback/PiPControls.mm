@@ -26,6 +26,8 @@ static BOOL YTKACEPiPBool(id object, NSString *name) {
     return [object respondsToSelector:selector] && ((BOOL (*)(id, SEL))objc_msgSend)(object, selector);
 }
 
+double YTKACECurrentPlaybackRate(void);
+
 @interface YTKACEPiPCoordinator : NSObject <AVPictureInPictureControllerDelegate>
 + (instancetype)sharedCoordinator;
 @property(nonatomic, weak) UIView *overlay;
@@ -38,6 +40,7 @@ static BOOL YTKACEPiPBool(id object, NSString *name) {
 @property(nonatomic, strong) id youtubePlayer;
 @property(nonatomic, assign) BOOL observingItem;
 @property(nonatomic, assign) BOOL polling;
+@property(nonatomic, assign) double fallbackRate;
 - (void)togglePiP;
 @end
 
@@ -295,8 +298,11 @@ static BOOL YTKACEPiPBool(id object, NSString *name) {
     [self clearPlayer];
     self.youtubePlayer = [self activeYouTubePlayer];
     NSTimeInterval currentTime = [self currentVideoTime];
+    self.fallbackRate = YTKACECurrentPlaybackRate();
     YTKACEStreamOption *option = [YTKACEStreamResolver
         bestPiPVideoFromPlayerResponse:[self currentPlayerResponse]];
+    YTKACEDebugLog(@"pip", @"fallback start time=%.1f rate=%.2f stream=%@", currentTime, self.fallbackRate,
+        option.qualityLabel ?: (option != nil ? @"?" : @"none"));
     if (option.URL != nil) {
         [self pauseYouTubePlayer];
         self.playerItem = [AVPlayerItem playerItemWithURL:option.URL];
@@ -373,8 +379,11 @@ static BOOL YTKACEPiPBool(id object, NSString *name) {
         self.polling = NO;
         [self hideLoading];
         self.player.volume = 1.0;
+        const float rate = self.fallbackRate > 0.0 ? (float)self.fallbackRate : 1.0f;
+        if (@available(iOS 16.0, *)) self.player.defaultRate = rate;
         [self.player play];
         YTKACEManualPiPRequested = YES;
+        self.player.rate = rate;
         [self.controller startPictureInPicture];
         dispatch_async(dispatch_get_main_queue(), ^{
             YTKACEManualPiPRequested = NO;
@@ -413,6 +422,13 @@ static BOOL YTKACEPiPBool(id object, NSString *name) {
     (AVPictureInPictureController *)pictureInPictureController {
     (void)pictureInPictureController;
     [self hideLoading];
+    // Pick up in the app where PiP got to.
+    const double time = self.player != nil ? CMTimeGetSeconds(self.player.currentTime) : NAN;
+    SEL seek = NSSelectorFromString(@"seekToTime:");
+    if (isfinite(time) && time > 0.0 && [self.youtubePlayer respondsToSelector:seek]) {
+        ((void (*)(id, SEL, double))objc_msgSend)(self.youtubePlayer, seek, time);
+    }
+    YTKACEDebugLog(@"pip", @"fallback stop time=%.1f", time);
     [self clearPlayer];
     [self resumeYouTubePlayer];
 }
@@ -491,7 +507,31 @@ static void YTKACEPiPDeactivate(id receiver, SEL selector) {
     ((void (*)(id, SEL))OriginalPiPDeactivate)(receiver, selector);
 }
 
+// The server flags YouTube checks before giving a free account PiP.
+static IMP OriginalEnablePiP;
+static IMP OriginalEnableNonPremiumPiP;
+
+static BOOL YTKACEPiPHotConfigEnabled(id receiver, SEL selector) {
+    if (YTKACEFeatureEnabled(YTKACEPiPKey)) return YES;
+    IMP original = sel_isEqual(selector, NSSelectorFromString(@"enablePictureInPicture"))
+        ? OriginalEnablePiP : OriginalEnableNonPremiumPiP;
+    return original != NULL && ((BOOL (*)(id, SEL))original)(receiver, selector);
+}
+
+static IMP OriginalPiPFailed;
+
+static void YTKACEPiPFailed(id receiver, SEL selector, AVPictureInPictureController *controller, NSError *error) {
+    YTKACEDebugLog(@"pip", @"native failed %@ %ld %@", error.domain, (long)error.code, error.localizedDescription);
+    ((void (*)(id, SEL, id, id))OriginalPiPFailed)(receiver, selector, controller, error);
+}
+
 void YTKACEInstallPiPHooks(void) {
+    YTKACEInstallInstanceHook(@"MLPIPControllerImpl", @"pictureInPictureController:failedToStartPictureInPictureWithError:",
+                              (IMP)YTKACEPiPFailed, &OriginalPiPFailed);
+    YTKACEInstallInstanceHook(@"YTIIosMediaHotConfig", @"enablePictureInPicture",
+                              (IMP)YTKACEPiPHotConfigEnabled, &OriginalEnablePiP);
+    YTKACEInstallInstanceHook(@"YTIIosMediaHotConfig", @"enablePipForNonPremiumUsers",
+                              (IMP)YTKACEPiPHotConfigEnabled, &OriginalEnableNonPremiumPiP);
     YTKACEInstallInstanceHook(@"YTPlayerPIPController", @"didStopPictureInPicture",
                               (IMP)YTKACEPiPDidStop, &OriginalPiPDidStop);
     YTKACEInstallInstanceHook(@"MLPIPControllerImpl", @"deactivatePiPController",

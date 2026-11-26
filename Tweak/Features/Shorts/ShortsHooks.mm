@@ -950,9 +950,79 @@ static void YTKACEConfigureReelView(UIView *receiver, BOOL showDownload);
 static BOOL YTKACEAutoSkipLiveShort(id sender);
 static IMP OriginalReelElementLayout;
 
+// The Shorts top bar is its own element, so the Top Bar toggles for
+// Messages and Search are applied here too. The buttons have no ids and
+// localized labels, so they're matched by icon name.
+extern "C" NSString *YTKACEElementIconName(UIView *view);
+extern "C" void YTKACEEnsureElementIconNames(void);
+
+static UIView *YTKACEShortsTopBar(UIView *view, NSUInteger depth) {
+    if ([view.accessibilityIdentifier isEqualToString:@"eml.top_bar"]) return view;
+    if (depth >= 4) return nil;
+    for (UIView *child in view.subviews) {
+        UIView *bar = YTKACEShortsTopBar(child, depth + 1);
+        if (bar != nil) return bar;
+    }
+    return nil;
+}
+
+static NSString *YTKACEShortsTopBarHideKey(UIView *icon) {
+    NSString *name = YTKACEElementIconName(icon).lastPathComponent.lowercaseString;
+    if ([name hasPrefix:@"bubble_stack"]) return @"YTKACE.Preference.Navigation.MessagesHidden";
+    if ([name containsString:@"search"]) return @"YTKACE.Preference.Navigation.SearchHidden";
+    return nil;
+}
+
+extern "C" void YTKACEApplyShortsTopBarView(UIView *bar) {
+    if (bar == nil) return;
+    NSMutableArray<UIView *> *icons = [NSMutableArray array];
+    for (UIView *child in bar.subviews) {
+        CGSize size = child.bounds.size;
+        if (size.width > 0.0 && size.width <= 48.0 && size.height <= 48.0) [icons addObject:child];
+    }
+    [icons sortUsingComparator:^NSComparisonResult(UIView *a, UIView *b) {
+        return a.center.x < b.center.x ? NSOrderedAscending
+            : (a.center.x > b.center.x ? NSOrderedDescending : NSOrderedSame);
+    }];
+    NSMutableSet<UIView *> *removed = [NSMutableSet set];
+    for (UIView *icon in icons) {
+        NSString *key = YTKACEShortsTopBarHideKey(icon);
+        if (key == nil) continue;
+        BOOL hidden = YTKACEFeatureEnabled(key);
+        YTKACESetShortsHidden(icon, hidden);
+        if (hidden) [removed addObject:icon];
+    }
+    // Slide the buttons left of a hidden one over so there's no gap.
+    CGFloat shift = 0.0;
+    for (NSInteger i = (NSInteger)icons.count - 1; i >= 0; i--) {
+        UIView *icon = icons[(NSUInteger)i];
+        BOOL gone = [removed containsObject:icon];
+        if (gone && (NSUInteger)i + 1 < icons.count) {
+            shift += icons[(NSUInteger)i + 1].center.x - icon.center.x;
+        }
+        icon.transform = gone || shift == 0.0
+            ? CGAffineTransformIdentity
+            : CGAffineTransformMakeTranslation(shift, 0.0);
+    }
+}
+
+// The buttons are often added after this layout, so the display view
+// hook in ContentVisibilityHooks also calls in when one is added.
+extern "C" void YTKACEShortsTopBarChildMoved(UIView *view) {
+    UIView *bar = [view.accessibilityIdentifier isEqualToString:@"eml.top_bar"]
+        ? view
+        : ([view.superview.accessibilityIdentifier isEqualToString:@"eml.top_bar"] ? view.superview : nil);
+    if (bar == nil) return;
+    __weak UIView *weakBar = bar;
+    [NSOperationQueue.mainQueue addOperationWithBlock:^{
+        YTKACEApplyShortsTopBarView(weakBar);
+    }];
+}
+
 static void YTKACEReelElementLayout(UIView *receiver, SEL selector) {
     if (OriginalReelElementLayout != NULL) ((void (*)(id, SEL))OriginalReelElementLayout)(receiver, selector);
     YTKACEAutoSkipLiveShort(receiver);
+    YTKACEApplyShortsTopBarView(YTKACEShortsTopBar(receiver, 0));
     if (!YTKACEShortsNewFullscreenActive() || receiver.alpha <= 0.01 || receiver.window == nil) return;
     Class containerClass = NSClassFromString(@"YTReelContainerView");
     UIView *container = receiver.superview;
@@ -1807,6 +1877,7 @@ static void YTKACEShortsTimeChanged(NSNotification *notification) {
 }
 
 void YTKACEInstallShortsHooks(void) {
+    YTKACEEnsureElementIconNames();
     if (YTKACEReelViews == nil) {
         YTKACEReelViews = [NSHashTable weakObjectsHashTable];
         YTKACEShortsOriginals = [NSMutableDictionary dictionary];

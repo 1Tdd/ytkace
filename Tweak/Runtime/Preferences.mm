@@ -12,6 +12,7 @@ NSString * const YTKACESponsorBlockKey = @"YTKACE.Preference.SponsorBlock.Enable
 NSString * const YTKACEDownloadKey = @"YTKACE.Preference.Downloads.Enabled";
 NSString * const YTKACEBackgroundPlaybackKey = @"YTKACE.Preference.Playback.BackgroundAudio";
 NSString * const YTKACEPiPKey = @"YTKACE.Preference.Player.PiP";
+NSString * const YTKACEFullscreenOrientationKey = @"YTKACE.Preference.Player.FullscreenOrientation";
 NSString * const YTKACESpeedKey = @"YTKACE.Preference.Player.SpeedControls";
 NSString * const YTKACELoopKey = @"YTKACE.Preference.Player.Loop";
 NSString * const YTKACESleepTimerKey = @"YTKACE.Preference.Player.SleepTimer";
@@ -138,7 +139,10 @@ void YTKACERegisterDefaults(void) {
         @"YTKACE.Preference.Playback.YouThereDisabled": @NO,
         @"YTKACE.Preference.Playback.BlockHeartbeat": @NO,
         @"YTKACE.Preference.Player.AutoFullscreen": @NO,
+        YTKACEFullscreenOrientationKey: @(YTKACEFullscreenOrientationNeither),
         @"YTKACE.Preference.Player.ExitFullscreenAtEnd": @NO,
+        @"YTKACE.Preference.Player.NotchSafeVideo": @NO,
+        @"YTKACE.Preference.Feed.AISummariesHidden": @NO,
         @"YTKACE.Preference.Gestures.SwipeToSeek": @NO,
         @"YTKACE.Preference.Gestures.SwipeSeekRange": @90,
         @"YTKACE.Preference.Playback.CustomDoubleTap": @NO,

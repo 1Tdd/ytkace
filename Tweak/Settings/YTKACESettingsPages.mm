@@ -4,6 +4,7 @@
 #import "../Features/Downloads/SABRDownloader.h"
 #import "YTKACERootOptionsController.h"
 #import "YTKACETabEditorController.h"
+#import "YTKACEActionBarLayoutView.h"
 #import "YTKACEButtonLayoutView.h"
 #import "../Runtime/Preferences.h"
 #import "../YTKACE.h"
@@ -319,6 +320,25 @@ static NSDictionary *YTKACEActionDetail(NSString *title,
     };
 }
 
+typedef NSString *_Nonnull (^YTKACEInfoProvider)(void);
+
+// A read-only row: title with a value under it that's worked out each time
+// the page shows.
+static NSDictionary *YTKACEInfo(NSString *title, YTKACEInfoProvider provider) {
+    return @{
+        @"type": @"info",
+        @"title": YTKACELocalized(title),
+        @"en": title,
+        @"subtitle": @" ",
+        @"asset": @"",
+        @"symbol": @"",
+        @"provider": [provider copy]
+    };
+}
+
+static NSString *const YTKACELastBackupDateKey = @"YTKACE.Backup.LastDate";
+static NSString *const YTKACELastBackupSizeKey = @"YTKACE.Backup.LastSize";
+
 static UIColor *YTKACESettingsBackground(void) {
     return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         return YTKACEInterfaceBackgroundColor(traits);
@@ -601,6 +621,7 @@ NSString *YTKACEPickerSummary(NSString *key,
     BOOL _backupRunning;
     BOOL _restoreRunning;
     YTKACEButtonLayoutView *_layoutView;
+    YTKACEActionBarLayoutView *_actionLayoutView;
 }
 
 - (instancetype)initWithTitle:(NSString *)title
@@ -750,11 +771,45 @@ NSString *YTKACEPickerSummary(NSString *key,
     return _layoutView;
 }
 
+- (YTKACEActionBarLayoutView *)actionLayoutView {
+    if (_actionLayoutView != nil) return _actionLayoutView;
+    _actionLayoutView = [YTKACEActionBarLayoutView new];
+    __weak YTKACEOptionsController *weakSelf = self;
+    // the Remove toggles below follow along
+    _actionLayoutView.changeHandler = ^{
+        YTKACEOptionsController *strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        UITableView *table = strongSelf.tableView;
+        NSMutableArray *paths = [NSMutableArray array];
+        for (NSIndexPath *path in table.indexPathsForVisibleRows) {
+            if (![strongSelf->_sections[(NSUInteger)path.section][(NSUInteger)path.row][@"type"] isEqualToString:@"actionlayout"]) {
+                [paths addObject:path];
+            }
+        }
+        [UIView performWithoutAnimation:^{
+            [table reloadRowsAtIndexPaths:paths withRowAnimation:UITableViewRowAnimationNone];
+        }];
+        [table beginUpdates];
+        [table endUpdates];
+    };
+    _actionLayoutView.heightHandler = ^{
+        UITableView *table = weakSelf.tableView;
+        [UIView performWithoutAnimation:^{
+            [table beginUpdates];
+            [table endUpdates];
+        }];
+    };
+    return _actionLayoutView;
+}
+
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     NSDictionary *item = _sections[(NSUInteger)indexPath.section][(NSUInteger)indexPath.row];
     NSString *type = item[@"type"];
     if ([type isEqualToString:@"layout"]) {
         return [[self layoutView] heightForWidth:CGRectGetWidth(tableView.bounds)];
+    }
+    if ([type isEqualToString:@"actionlayout"]) {
+        return [[self actionLayoutView] heightForWidth:CGRectGetWidth(tableView.bounds)];
     }
     if ([type isEqualToString:@"text"]) {
         return 92.0;
@@ -795,6 +850,19 @@ willDisplayHeaderView:(UIView *)view
         }
         cell.backgroundColor = YTKACESettingsCellBackground();
         YTKACEButtonLayoutView *view = [self layoutView];
+        view.frame = cell.contentView.bounds;
+        view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [cell.contentView addSubview:view];
+        return cell;
+    }
+    if ([type isEqualToString:@"actionlayout"]) {
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"YTKACEActionLayout"];
+        if (cell == nil) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"YTKACEActionLayout"];
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        }
+        cell.backgroundColor = YTKACESettingsCellBackground();
+        YTKACEActionBarLayoutView *view = [self actionLayoutView];
         view.frame = cell.contentView.bounds;
         view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [cell.contentView addSubview:view];
@@ -1082,6 +1150,10 @@ willDisplayHeaderView:(UIView *)view
         dot.layer.borderWidth = 2.0;
         dot.layer.borderColor = UIColor.secondaryLabelColor.CGColor;
         cell.accessoryView = dot;
+    } else if ([type isEqualToString:@"info"]) {
+        YTKACEInfoProvider provider = item[@"provider"];
+        cell.detailTextLabel.text = provider != nil ? provider() : @"";
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
     } else if ([type isEqualToString:@"text"]) {
         cell.textLabel.font = [UIFont systemFontOfSize:10.0];
         cell.textLabel.textColor = UIColor.secondaryLabelColor;
@@ -1219,7 +1291,13 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     (void)controller;
     if (_pickerMode == 3) {
         if (_pendingBackupURL != nil) {
+            NSNumber *size = nil;
+            [_pendingBackupURL getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+            [defaults setObject:NSDate.date forKey:YTKACELastBackupDateKey];
+            [defaults setObject:size ?: @0 forKey:YTKACELastBackupSizeKey];
             [NSFileManager.defaultManager removeItemAtURL:_pendingBackupURL error:nil];
+            [self.tableView reloadData];
         }
         _pendingBackupURL = nil;
         _pickerMode = 0;
@@ -1551,14 +1629,20 @@ static NSArray *YTKACEQualityValues(void) {
     return @[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12];
 }
 
-// iPhone Duo options only show on a Duo.
-static NSArray *YTKACEWithoutDuoRows(NSArray *sections) {
-    if (DUOIsDuo()) return sections;
-    NSSet<NSString *> *duoKeys = [NSSet setWithArray:@[
-        @"YTKACE.Preference.Tabs.DuoNativeBar",
-        @"YTKACE.Preference.Player.DuoDeskSplit",
-        @"YTKACE.Preference.Player.DuoStatusBarHidden"
-    ]];
+static NSArray *YTKACEFilterDeviceRows(NSArray *sections) {
+    NSMutableSet<NSString *> *hiddenKeys = [NSMutableSet set];
+    if (!DUOIsDuo()) {
+        [hiddenKeys addObjectsFromArray:@[
+            @"YTKACE.Preference.Tabs.DuoNativeBar",
+            @"YTKACE.Preference.Player.DuoDeskSplit",
+            @"YTKACE.Preference.Player.DuoStatusBarHidden"
+        ]];
+    }
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) {
+        [hiddenKeys addObject:YTKACEFullscreenOrientationKey];
+        [hiddenKeys addObject:@"YTKACE.Preference.Player.NotchSafeVideo"];
+    }
+    if (hiddenKeys.count == 0) return sections;
     NSMutableArray *filtered = [NSMutableArray arrayWithCapacity:sections.count];
     for (id section in sections) {
         if (![section isKindOfClass:NSArray.class]) {
@@ -1568,7 +1652,7 @@ static NSArray *YTKACEWithoutDuoRows(NSArray *sections) {
         NSMutableArray *rows = [NSMutableArray array];
         for (id row in (NSArray *)section) {
             if ([row isKindOfClass:NSDictionary.class] &&
-                [duoKeys containsObject:((NSDictionary *)row)[@"key"] ?: @""]) {
+                [hiddenKeys containsObject:((NSDictionary *)row)[@"key"] ?: @""]) {
                 continue;
             }
             [rows addObject:row];
@@ -1582,7 +1666,7 @@ static NSDictionary *YTKACEPageDefinition(NSString *pageID,
                                           NSString *title,
                                           NSArray *sections,
                                           NSArray *headers) {
-    sections = YTKACEWithoutDuoRows(sections);
+    sections = YTKACEFilterDeviceRows(sections);
     return @{
         @"id": pageID,
         @"title": title,
@@ -2121,6 +2205,9 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
             YTKACEToggleDetail(@"Background Audio",
                                @"Keep playing when you leave the app or lock the screen.",
                                YTKACEBackgroundPlaybackKey),
+            YTKACEToggleDetail(@"Disable PiP for Miniplayer",
+                               @"Don't open picture in picture when you leave the app from the miniplayer.",
+                               @"YTKACE.Preference.Playback.MiniplayerPiPDisabled"),
             YTKACEToggleDetail(@"Stop Autoplay Next",
                                @"Do not roll into the next video when one ends.",
                                @"YTKACE.Preference.Playback.AutoplayDisabled"),
@@ -2136,6 +2223,15 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
             YTKACEToggleDetail(@"Auto Fullscreen",
                                @"Videos open in fullscreen.",
                                @"YTKACE.Preference.Player.AutoFullscreen"),
+            YTKACEPickerDetail(@"Charging Port in Fullscreen",
+                               @"Keep landscape fullscreen on one side.",
+                               YTKACEFullscreenOrientationKey,
+                               @[@"Off", @"Left", @"Right"],
+                               @[@(YTKACEFullscreenOrientationNeither), @(YTKACEFullscreenOrientationLeft),
+                                 @(YTKACEFullscreenOrientationRight)], 0),
+            YTKACEToggleDetail(@"Avoid Notch Cutoff",
+                               @"Don't let the notch or Dynamic Island cover wide videos in fullscreen.",
+                               @"YTKACE.Preference.Player.NotchSafeVideo"),
             YTKACEToggleDetail(@"Exit Fullscreen at End",
                                @"Leave fullscreen when a video ends.",
                                @"YTKACE.Preference.Player.ExitFullscreenAtEnd"),
@@ -2146,6 +2242,9 @@ static NSDictionary *YTKACEPlayerDefinition(void) {
                 @"Replace next and previous on the lock screen and in Control Center with skip buttons.",
                 @"YTKACE.Preference.Playback.RemoteSkip",
                 @[@"Off", @"10 seconds", @"15 seconds", @"30 seconds"], @[@0, @10, @15, @30], 0),
+            YTKACEToggleDetail(@"Disable Lock Screen Scrubbing",
+                               @"Stops the progress bar on the lock screen and in Control Center from seeking.",
+                               @"YTKACE.Preference.Playback.NowPlayingScrubDisabled"),
             YTKACEToggle(@"Remove Ads", YTKACENoAdsKey, @"", @""),
             YTKACEPickerDetail(@"Playback Fix",
                 @"Try this if videos won't load or keep buffering. Restart YouTube after changing.",
@@ -2302,22 +2401,11 @@ static NSDictionary *YTKACEWatchPageDefinition(void) {
                                @"YTKACE.Preference.Overlay.ProductsHidden")
         ],
         @[
-            YTKACEToggle(@"Remove Like", @"YTKACE.Preference.ActionBar.LikeHidden", @"", @""),
-            YTKACEToggle(@"Remove Dislike", @"YTKACE.Preference.ActionBar.DislikeHidden", @"", @""),
+            @{@"type": @"actionlayout", @"title": YTKACELocalized(@"Action Bar"), @"en": @"Action Bar", @"subtitle": @""},
             YTKACEToggleDetail(@"Return YouTube Dislike", @"Show dislike counts from returnyoutubedislike.com.",
                                @"YTKACE.Preference.ActionBar.ReturnDislike"),
             YTKACEToggleDetail(@"Submit Votes", @"Send your likes and dislikes to Return YouTube Dislike with an anonymous ID.",
-                               @"YTKACE.Preference.ActionBar.ReturnDislikeVotes"),
-            YTKACEToggle(@"Remove Share", @"YTKACE.Preference.ActionBar.ShareHidden", @"", @""),
-            YTKACEToggle(@"Remove Download", @"YTKACE.Preference.ActionBar.DownloadHidden", @"", @""),
-            YTKACEToggle(@"Remove Save", @"YTKACE.Preference.ActionBar.SaveHidden", @"", @""),
-            YTKACEToggle(@"Remove Clip", @"YTKACE.Preference.ActionBar.ClipHidden", @"", @""),
-            YTKACEToggle(@"Remove Remix", @"YTKACE.Preference.ActionBar.RemixHidden", @"", @""),
-            YTKACEToggle(@"Remove Thanks", @"YTKACE.Preference.ActionBar.ThanksHidden", @"", @""),
-            YTKACEToggle(@"Remove Hype", @"YTKACE.Preference.ActionBar.HypeHidden", @"", @""),
-            YTKACEToggle(@"Remove Report", @"YTKACE.Preference.ActionBar.ReportHidden", @"", @""),
-            YTKACEToggle(@"Remove Ask Button", @"YTKACE.Preference.ActionBar.AskHidden", @"", @""),
-            YTKACEToggle(@"Remove ⋯ Button", @"YTKACE.Preference.ActionBar.OverflowHidden", @"", @"")
+                               @"YTKACE.Preference.ActionBar.ReturnDislikeVotes")
         ]
     ], @[YTKACELocalized(@"UNDER THE VIDEO"), YTKACELocalized(@"ACTION BAR")]);
 }
@@ -2351,6 +2439,9 @@ static NSDictionary *YTKACEFeedDefinition(void) {
             YTKACEToggleDetail(@"Remove Community Posts",
                                @"Removes community posts from the feed.",
                                @"YTKACE.Preference.Feed.CommunityPostsHidden"),
+            YTKACEToggleDetail(@"Remove AI Summaries",
+                               @"Hide the AI summary under videos in Home, search and suggestions.",
+                               @"YTKACE.Preference.Feed.AISummariesHidden"),
             YTKACEToggleDetail(@"Remove Live Videos from Home",
                                @"Removes live streams from the Home feed. Subscriptions, search and channels keep them.",
                                @"YTKACE.Preference.Feed.HomeLiveHidden"),
@@ -2552,6 +2643,7 @@ static NSDictionary *YTKACEGeneralDefinition(void) {
         @[
             YTKACEToggleDetail(@"Remove Search History", @"Hides past searches. Searches are still saved.",
                                @"YTKACE.Preference.Privacy.SearchHistoryDisabled"),
+            YTKACEToggle(@"Hide Voice Search", @"YTKACE.Preference.Search.VoiceButtonHidden", @"", @""),
             YTKACEToggleDetail(@"Block Premium Prompts", @"Also hides \"Are you still watching?\" and upgrade dialogs.",
                                @"YTKACE.Preference.Ads.PremiumPromosHidden"),
             YTKACEToggleDetail(@"Hide YouTube Pop-up Messages",
@@ -2564,13 +2656,71 @@ static NSDictionary *YTKACEGeneralDefinition(void) {
          YTKACELocalized(@"PRIVACY & PROMPTS")]);
 }
 
-static NSDictionary *YTKACEDownloadsDefinition(void) {
+static NSDictionary *YTKACEBackupDefinition(void) {
     YTKACEAction backup = ^(UIViewController *controller) {
         [(YTKACEOptionsController *)controller beginBackup];
     };
     YTKACEAction restore = ^(UIViewController *controller) {
         [(YTKACEOptionsController *)controller beginRestore];
     };
+    YTKACEInfoProvider last = ^NSString *{
+        NSDate *date = [NSUserDefaults.standardUserDefaults objectForKey:YTKACELastBackupDateKey];
+        if (![date isKindOfClass:NSDate.class]) return YTKACELocalized(@"Never");
+        NSString *when = [NSDateFormatter localizedStringFromDate:date
+                                                        dateStyle:NSDateFormatterMediumStyle
+                                                        timeStyle:NSDateFormatterShortStyle];
+        long long size = [[NSUserDefaults.standardUserDefaults objectForKey:YTKACELastBackupSizeKey] longLongValue];
+        if (size <= 0) return when;
+        return [NSString stringWithFormat:@"%@ · %@", when,
+            [NSByteCountFormatter stringFromByteCount:size countStyle:NSByteCountFormatterCountStyleFile]];
+    };
+    YTKACEInfoProvider settings = ^NSString *{
+        // Only values that differ from YTKACE's defaults.
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        NSDictionary *values = defaults.dictionaryRepresentation;
+        NSDictionary *registered = [defaults volatileDomainForName:NSRegistrationDomain];
+        NSUInteger count = 0;
+        for (NSString *key in values) {
+            if (![key hasPrefix:@"YTKACE.Preference."]) continue;
+            if (![values[key] isEqual:registered[key]]) count++;
+        }
+        return [NSString stringWithFormat:YTKACELocalized(@"%lu changed"), (unsigned long)count];
+    };
+    YTKACEInfoProvider downloads = ^NSString *{
+        NSURL *folder = [YTKACEApplicationSupportDirectory() URLByAppendingPathComponent:@"Downloads"
+                                                                             isDirectory:YES];
+        NSDirectoryEnumerator<NSURL *> *items = [NSFileManager.defaultManager enumeratorAtURL:folder
+            includingPropertiesForKeys:@[NSURLIsRegularFileKey, NSURLFileSizeKey]
+                               options:NSDirectoryEnumerationSkipsHiddenFiles errorHandler:nil];
+        unsigned long long bytes = 0;
+        NSUInteger files = 0;
+        for (NSURL *URL in items) {
+            NSNumber *regular = nil, *size = nil;
+            [URL getResourceValue:&regular forKey:NSURLIsRegularFileKey error:nil];
+            if (!regular.boolValue) continue;
+            [URL getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+            bytes += size.unsignedLongLongValue;
+            files++;
+        }
+        NSString *total = [NSByteCountFormatter stringFromByteCount:(long long)bytes
+                                                         countStyle:NSByteCountFormatterCountStyleFile];
+        if (files == 1) return [NSString stringWithFormat:YTKACELocalized(@"1 file · %@"), total];
+        return [NSString stringWithFormat:YTKACELocalized(@"%lu files · %@"), (unsigned long)files, total];
+    };
+    return YTKACEPageDefinition(@"backup", @"Backup", @[
+        @[
+            YTKACEActionDetail(@"Back Up", @"Save settings and media to a ZIP file.", backup),
+            YTKACEActionDetail(@"Restore", @"Open a YTKACE backup from Files.", restore)
+        ],
+        @[
+            YTKACEInfo(@"Last Backup", last),
+            YTKACEInfo(@"Settings", settings),
+            YTKACEInfo(@"Downloads", downloads)
+        ]
+    ], @[YTKACELocalized(@"BACKUP"), YTKACELocalized(@"INCLUDED")]);
+}
+
+static NSDictionary *YTKACEDownloadsDefinition(void) {
     YTKACEAction importMedia = ^(UIViewController *controller) {
         [(YTKACEOptionsController *)controller chooseImportCategory];
     };
@@ -2632,11 +2782,7 @@ static NSDictionary *YTKACEDownloadsDefinition(void) {
             YTKACEPickerDetail(@"Download Method",
                 @"SABR is the default. Use TV Client or Direct if downloads fail.",
                 @"YTKACE.Preference.Downloads.Method",
-                @[@"SABR", @"TV Client", @"Direct"], @[@0, @2, @1], 0)
-        ],
-        @[
-            YTKACEActionDetail(@"Back Up", @"Save settings and media to a ZIP file.", backup),
-            YTKACEActionDetail(@"Restore", @"Open a YTKACE backup from Files.", restore),
+                @[@"SABR", @"TV Client", @"Direct"], @[@0, @2, @1], 0),
             YTKACEActionDetail(@"Import", @"Add video, audio, Shorts, artwork, or subtitles.", importMedia)
         ],
         @[
@@ -2644,7 +2790,7 @@ static NSDictionary *YTKACEDownloadsDefinition(void) {
                                @"YTKACE.Preference.Downloads.ClearOnStartup"),
             YTKACEActionDetail(@"Clear Cache Now", @"Delete temporary files and YouTube's cache.", clearCache)
         ]
-    ], @[YTKACELocalized(@"DOWNLOADS"), YTKACELocalized(@"BACKUP"), YTKACELocalized(@"STORAGE")]);
+    ], @[YTKACELocalized(@"DOWNLOADS"), YTKACELocalized(@"STORAGE")]);
 }
 
 static NSDictionary *YTKACEGestureOptionsDefinition(void) {
@@ -2725,7 +2871,8 @@ NSArray<NSDictionary *> *YTKACESettingsMenu(void) {
         ]},
         @{@"header": @"LOOK & LAYOUT", @"rows": look},
         @{@"header": @"APP", @"rows": @[
-            @{@"id": @"downloads", @"title": @"Downloads", @"detail": @"Download button, where to save, and backups", @"symbol": @"arrow.down.circle"},
+            @{@"id": @"downloads", @"title": @"Downloads", @"detail": @"Download button, where to save, and storage", @"symbol": @"arrow.down.circle"},
+            @{@"id": @"backup", @"title": @"Backup", @"detail": @"Back up and restore settings and downloads", @"symbol": @"arrow.clockwise.icloud"},
             @{@"id": @"general", @"title": @"General", @"detail": @"Language, appearance, privacy, and prompts", @"symbol": @"gearshape"}
         ]}
     ];
@@ -2744,6 +2891,7 @@ static NSDictionary *YTKACEDefinitionForPage(NSString *pageID) {
     if ([pageID isEqualToString:@"glass"]) return YTKACEGlassOptionsDefinition();
     if ([pageID isEqualToString:@"general"]) return YTKACEGeneralDefinition();
     if ([pageID isEqualToString:@"downloads"]) return YTKACEDownloadsDefinition();
+    if ([pageID isEqualToString:@"backup"]) return YTKACEBackupDefinition();
     return nil;
 }
 

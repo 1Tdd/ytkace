@@ -47,6 +47,27 @@ static IMP YTKACEOrigPiPGetAutoLegacy;
 static IMP YTKACEOrigPiPStart;
 static IMP YTKACEOrigDidPressPause;
 static IMP YTKACEOrigDidPressPlay;
+static IMP YTKACEOrigSetWatchViewLayout;
+
+static NSString *const YTKACEMiniplayerPiPKey = @"YTKACE.Preference.Playback.MiniplayerPiPDisabled";
+static __weak id YTKACEWatchLayer;
+
+static void YTKACESetWatchViewLayout(id self, SEL _cmd, long long layout) {
+    ((void (*)(id, SEL, long long))YTKACEOrigSetWatchViewLayout)(self, _cmd, layout);
+    YTKACEWatchLayer = self;
+    YTKACEDebugLog(@"pip", @"watch layout=%lld", layout);
+}
+
+// The watch page is collapsed into the miniplayer.
+static BOOL YTKACEMiniplayerBlocksPiP(void) {
+    if (!YTKACEFeatureEnabled(YTKACEMiniplayerPiPKey)) return NO;
+    id layer = YTKACEWatchLayer;
+    SEL expanded = NSSelectorFromString(@"isWatchExpanded");
+    if (layer == nil || ![layer respondsToSelector:expanded]) return NO;
+    BOOL blocked = !((BOOL (*)(id, SEL))objc_msgSend)(layer, expanded);
+    YTKACEDebugLog(@"pip", @"miniplayer block=%@", blocked ? @"YES" : @"NO");
+    return blocked;
+}
 
 BOOL YTKACEIsPlaybackPaused(id sender) {
     if (YTKACEManualPiPRequested) return NO;
@@ -99,12 +120,16 @@ static BOOL YTKACEControllerIsReel(id controller) {
 
 static BOOL YTKACEShortsBlocksPiP(id controller) {
     if (YTKACELibraryOwnsPiP()) return YES;
+    if (YTKACEMiniplayerBlocksPiP()) return YES;
     if (YTKACEFeatureEnabled(YTKACEShortsPiPKey) && YTKACEControllerIsReel(controller)) {
         return YES;
     }
     return NO;
 }
 
+// YouTube says no to PiP for free accounts outside the US; with YTKACE PiP
+// on, every regular video that isn't blocked can use it. Shorts keep
+// YouTube's own answer.
 static BOOL YTKACEShortsAllowed(id self, SEL _cmd) {
     if (YTKACEShortsBlocksPiP(self)) return NO;
     if (YTKACEControllerIsReel(self)) {
@@ -112,6 +137,7 @@ static BOOL YTKACEShortsAllowed(id self, SEL _cmd) {
             ? ((BOOL (*)(id, SEL))YTKACEShortsOrigAllowed)(self, _cmd)
             : NO;
     }
+    if (YTKACEFeatureEnabled(YTKACEPiPKey)) return YES;
     return YTKACEShortsOrigAllowed != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigAllowed)(self, _cmd)
         : YES;
@@ -123,7 +149,8 @@ static BOOL YTKACEShortsEligible(id self, SEL _cmd) {
     BOOL eligible = YTKACEShortsOrigEligible != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigEligible)(self, _cmd)
         : NO;
-    if (!eligible && !isReel && YTKACEFeatureEnabled(YTKACEBackgroundPlaybackKey)) {
+    if (!eligible && !isReel &&
+        (YTKACEFeatureEnabled(YTKACEBackgroundPlaybackKey) || YTKACEFeatureEnabled(YTKACEPiPKey))) {
         return YES;
     }
     return eligible;
@@ -136,6 +163,7 @@ static BOOL YTKACEShortsCanEnable(id self, SEL _cmd) {
             ? ((BOOL (*)(id, SEL))YTKACEShortsOrigCanEnable)(self, _cmd)
             : NO;
     }
+    if (YTKACEFeatureEnabled(YTKACEPiPKey)) return YES;
     return YTKACEShortsOrigCanEnable != NULL
         ? ((BOOL (*)(id, SEL))YTKACEShortsOrigCanEnable)(self, _cmd)
         : YES;
@@ -347,4 +375,6 @@ void YTKACEInstallShortsPiPHooks(void) {
         @"didPressPause:", (IMP)YTKACEDidPressPause, &YTKACEOrigDidPressPause);
     YTKACEInstallInstanceHook(@"YTMainAppVideoPlayerOverlayViewController",
         @"didPressPlay:", (IMP)YTKACEDidPressPlay, &YTKACEOrigDidPressPlay);
+    YTKACEInstallInstanceHook(@"YTWatchLayerViewController", @"setWatchViewLayout:",
+        (IMP)YTKACESetWatchViewLayout, &YTKACEOrigSetWatchViewLayout);
 }
